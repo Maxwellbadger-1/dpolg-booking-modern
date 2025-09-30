@@ -1,6 +1,8 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* Force rebuild - Padding fix applied v3 - Heute Button */
+/* Tailwind v3 Migration Complete */
 
 * {
   box-sizing: border-box;
@@ -73,6 +75,6 @@ body {
 
 /* CUSTOM FIX: Heute Button Padding */
 .heute-button {
-  padding-left: 2.5rem !important;   /* 40px = px-10 */
-  padding-right: 2.5rem !important;
+  padding-left: 2rem !important;   /* 32px = px-8 */
+  padding-right: 2rem !important;
 }
