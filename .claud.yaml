@@ -1,0 +1,283 @@
+# Claude Code Agent Configuration
+# Spezialisierte Agenten für das DPolG Buchungssystem
+
+agents:
+  # UI Consistency Agent - Überprüft Design-Konsistenz
+  ui-consistency:
+    description: |
+      Spezialisierter Agent zur Überprüfung und Sicherstellung von UI/UX-Konsistenz
+      im DPolG Buchungssystem. Prüft alle React-Komponenten auf:
+      - Konsistente Verwendung von Tailwind CSS Klassen
+      - Einheitliche Spacing-Patterns (gap, padding, margin)
+      - Konsistente Farbpalette (slate-* für dark theme)
+      - Responsive Grid-Layouts (mobile-first: grid-cols-1 md:grid-cols-*)
+      - Barrierefreiheit (Labels, ARIA, Keyboard-Navigation)
+      - Konsistente Icon-Verwendung (lucide-react)
+      - Einheitliche Typografie (font-sizes, font-weights)
+      - Button-Styles und Hover-Effekte
+      - Form-Input-Styles
+      - Konsistente Animationen und Transitions
+
+    tools:
+      - Read
+      - Edit
+      - Glob
+      - Grep
+
+    project_context: |
+      **Design System für DPolG Buchungssystem:**
+
+      ## Farbpalette (Dark Theme)
+      - Background: from-slate-800 to-slate-900 (gradients)
+      - Surfaces: bg-slate-700, bg-slate-700/50 (transparency)
+      - Borders: border-slate-600, border-slate-700
+      - Text Primary: text-white
+      - Text Secondary: text-slate-200, text-slate-300
+      - Text Tertiary: text-slate-400
+      - Accent Primary: bg-blue-500, bg-blue-600 (gradients)
+      - Accent Hover: hover:bg-blue-700
+      - Success: bg-emerald-500, text-emerald-400
+      - Error: bg-red-500, text-red-400
+      - Warning: bg-yellow-500
+
+      ## Spacing System
+      - Section Spacing: space-y-8 (32px) - großzügiger Abstand zwischen Sektionen
+      - Subsection Spacing: space-y-4 (16px)
+      - Grid Gap: gap-6 (24px) - mehr Luft zwischen Feldern
+      - Input Spacing: space-y-2 (8px)
+      - Form Padding: p-8 (32px) - mehr Whitespace um Felder
+      - Dialog Padding: px-6 py-4 (Header), p-8 (Body)
+      - Margin: keine direkten Margins, nur via space-y
+
+      **WICHTIG - Padding-Regel:**
+      - NIE zu wenig Padding verwenden
+      - Felder brauchen Luft zum Atmen
+      - Minimum: p-6 für Container, p-8 für Forms
+
+      ## Typografie
+      - Headings H1: text-3xl font-bold
+      - Headings H2: text-2xl font-bold
+      - Headings H3: text-xl font-bold
+      - Section Headers: text-lg font-semibold
+      - Labels: text-sm font-medium
+      - Body Text: text-base
+      - Small Text: text-sm
+
+      ## Grid Layouts (Mobile-First)
+      - 2-Column: grid grid-cols-1 md:grid-cols-2 gap-6
+      - 3-Column: grid grid-cols-1 md:grid-cols-3 gap-6
+      - Spanning: md:col-span-2 für 2/3 Breite
+      - Full Width: grid grid-cols-1 gap-6
+
+      **WICHTIG - Grid Gap Regeln:**
+      - Immer gap-6 (24px) verwenden - NICHT gap-4
+      - Mehr Luft zwischen Feldern = bessere Lesbarkeit
+      - Bei sehr engen Layouts: Minimum gap-4, aber gap-6 bevorzugt
+
+      ## Form Inputs Standard
+      ```tsx
+      <div className="space-y-2">
+        <label htmlFor="field" className="block text-sm font-medium text-slate-200">
+          Label *
+        </label>
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Icon className="w-5 h-5 text-slate-400" />
+          </div>
+          <input
+            id="field"
+            type="text"
+            value={formData.field}
+            onChange={(e) => handleChange('field', e.target.value)}
+            className={`w-full pl-11 pr-4 py-3 bg-slate-700 border ${
+              errors.field ? 'border-red-500' : 'border-slate-600'
+            } rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+            placeholder="Beispiel"
+            disabled={loading}
+          />
+        </div>
+        {errors.field && (
+          <p className="text-sm text-red-400">{errors.field}</p>
+        )}
+      </div>
+      ```
+
+      **WICHTIG - Input Padding Regeln:**
+      - pl-11 (44px) statt pl-10 - damit Icon nicht Text überlappt
+      - pr-4 (16px) statt pr-3 - mehr Platz rechts
+      - py-3 (12px) statt py-2 - mehr vertikales Padding
+      - Bei Inputs OHNE Icon: px-4 py-3
+
+      ## Button Styles
+      - Primary: px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-medium rounded-lg shadow-lg hover:shadow-xl
+      - Secondary: px-5 py-2.5 text-slate-300 hover:text-white hover:bg-slate-700/50 font-medium rounded-lg
+      - Disabled: disabled:opacity-50 disabled:cursor-not-allowed
+
+      **WICHTIG - Button Padding Regeln:**
+      - Primary Buttons: px-6 py-2.5 (mehr horizontal padding)
+      - Secondary Buttons: px-5 py-2.5
+      - NIE py-2 verwenden - Text wirkt gequetscht
+      - Minimum: py-2.5 für gute Lesbarkeit
+      - Mit Icons: gap-2 zwischen Icon und Text
+
+      ## Section Headers
+      ```tsx
+      <h3 className="text-lg font-semibold text-white border-b border-slate-600 pb-2">
+        Section Title
+      </h3>
+      ```
+
+      ## Icons (lucide-react)
+      - Icon Size: w-5 h-5
+      - Icon Color: text-slate-400 (input icons)
+      - Icon Color Active: text-blue-400, text-white
+
+      ## Animationen
+      - Transitions: transition-all, transition-colors
+      - Focus: focus:ring-2 focus:ring-blue-500
+      - Hover: hover:bg-*, hover:text-*, hover:shadow-xl
+      - Loading: animate-spin (Loader2)
+      - Toast: animate-in slide-in-from-bottom-2 duration-300
+
+      ## Barrierefreiheit
+      - Labels: htmlFor mit input id verknüpfen
+      - Hidden Labels: sr-only für visually hidden
+      - Focus States: focus:outline-none focus:ring-2
+      - Disabled States: disabled prop + styles
+      - ARIA: role, aria-label wenn nötig
+
+    workflow: |
+      1. **Komponenten identifizieren:**
+         - Finde alle .tsx Dateien in src/components/
+         - Priorisiere Dialoge, Forms, Buttons
+
+      2. **Design System Audit:**
+         - Überprüfe Farbverwendung gegen Palette
+         - Überprüfe Spacing gegen System
+         - Überprüfe Typografie gegen Standards
+         - Überprüfe Grid-Layouts auf mobile-first
+
+      3. **Inkonsistenzen dokumentieren:**
+         - Liste alle Abweichungen vom Design System
+         - Gruppiere nach Kategorie (Farben, Spacing, etc.)
+         - Priorisiere nach Schweregrad
+
+      4. **Fixes vorschlagen:**
+         - Konkrete Code-Änderungen
+         - Vor/Nach Beispiele
+         - Begründung für jede Änderung
+
+      5. **Implementierung:**
+         - Ändere Komponenten systematisch
+         - Teste nach jeder Änderung visuell
+         - Dokumentiere Änderungen
+
+    best_practices: |
+      **UI/UX Best Practices 2025:**
+
+      1. **Consistency First:**
+         - Gleiche Komponenten = Gleiche Styles
+         - Vorhersagbares Verhalten
+         - Wiederverwendbare Patterns
+
+      2. **Mobile-First Responsive:**
+         - Basis: grid-cols-1
+         - Tablet: md:grid-cols-2
+         - Desktop: lg:grid-cols-3
+
+      3. **Accessibility:**
+         - Keyboard-Navigation
+         - Screen-Reader Support
+         - Focus-Indicators
+         - WCAG 2.1 AA Konformität
+
+      4. **Performance:**
+         - Tailwind JIT Mode
+         - Lazy Loading von Komponenten
+         - Optimierte Re-Renders
+
+      5. **Visual Hierarchy:**
+         - Klare Sektionen mit Headers
+         - Gruppierung verwandter Elemente
+         - Konsistentes Spacing
+         - Farbe zur Betonung, nicht Dekoration
+
+      6. **Error Handling:**
+         - Inline Validation
+         - Klare Fehlermeldungen
+         - Toast Notifications für Actions
+         - Loading States
+
+      7. **Forms:**
+         - Labels über Inputs
+         - Icons zur visuellen Unterstützung
+         - Placeholder als Beispiele
+         - Required Fields markieren (*)
+         - Disabled States während Loading
+
+      8. **DEBUG-FIRST REGEL (WICHTIG!):**
+         - Bei Problemen IMMER zuerst systematisch debuggen
+         - Inline Debug-Elemente verwenden (style={{backgroundColor: '#f00'}})
+         - Tailwind-Klassen vs. Custom CSS systematisch testen
+         - Browser DevTools nutzen um zu sehen was geladen wird
+         - Bei Cache-Problemen: HMR-Update + Kommentare in CSS forcen
+         - NIEMALS aufgeben ohne systematisches Debugging!
+
+      9. **TAILWIND CSS V4 LÖSUNG (KRITISCH!):**
+         - Tailwind v4 cached Utility-Klassen aggressiv
+         - Bei Padding/Spacing-Problemen: Custom CSS Klassen in index.css
+         - Custom Klassen mit !important für Priorität
+         - Beispiel-Pattern:
+           ```css
+           .input-with-icon {
+             padding-left: 2.75rem !important;  /* 44px */
+             padding-right: 1rem !important;    /* 16px */
+             padding-top: 0.75rem !important;   /* 12px */
+             padding-bottom: 0.75rem !important;
+           }
+           ```
+         - Dann in JSX: className="input-with-icon bg-slate-700..."
+         - Das umgeht Tailwind-Cache-Probleme komplett!
+
+      10. **DIALOG/POPUP TEMPLATE:**
+          - GuestDialog.tsx ist das Master-Template für alle Dialoge
+          - Struktur: Header (px-6 py-4) → Form (form-container) → Footer (px-6 py-4)
+          - Buttons: Immer btn-primary oder btn-secondary Klassen
+          - Grid-Gaps: Immer grid-gap-fix verwenden
+          - Input-Fields: input-with-icon oder input-no-icon
+          - ALLE neuen Dialoge müssen dieser Struktur folgen!
+
+      11. **BUTTON STANDARD:**
+          - Primary: btn-primary (px-6 py-2.5 = 24px/10px)
+          - Secondary: btn-secondary (px-5 py-2.5 = 20px/10px)
+          - NIEMALS py-2 verwenden - Minimum py-2.5
+          - Icons in Buttons: gap-2 zwischen Icon und Text
+          - Loading State: disabled:opacity-50 disabled:cursor-not-allowed
+
+# Agent Usage Rules
+usage_rules: |
+  **Wann den ui-consistency Agent verwenden:**
+
+  1. Nach Erstellung neuer UI-Komponenten
+  2. Vor Major Releases
+  3. Nach UI-Feedback vom User
+  4. Bei visuellen Bugs/Inkonsistenzen
+  5. Bei Layout-Problemen (Overlapping, Misalignment)
+
+  **Wie den Agent aufrufen:**
+  ```
+  User: "Prüfe die UI-Konsistenz von GuestDialog"
+  oder
+  User: "Alle Komponenten auf Design-Konsistenz prüfen"
+  oder
+  User: "Fix Layout-Issues in allen Forms"
+  ```
+
+  **Agent Workflow:**
+  1. Agent liest alle relevanten Komponenten
+  2. Agent vergleicht mit Design System
+  3. Agent erstellt Audit-Report
+  4. Agent schlägt Fixes vor
+  5. Agent implementiert Fixes (mit User-Approval)
+  6. Agent testet visuell
+  7. Agent dokumentiert Änderungen
