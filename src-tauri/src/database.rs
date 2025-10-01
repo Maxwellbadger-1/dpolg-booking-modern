@@ -280,7 +280,8 @@ pub fn init_database() -> Result<()> {
     create_indexes(&conn)?;
 
     // Insert sample data if tables are empty
-    insert_sample_data(&conn)?;
+    // DEAKTIVIERT: Wir haben echte Produktionsdaten
+    // insert_sample_data(&conn)?;
 
     Ok(())
 }
