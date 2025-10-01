@@ -11,6 +11,9 @@ import {
   DragStartEvent,
   pointerWithin,
   DragOverEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -81,7 +84,7 @@ const CELL_WIDTH = 120;
 const ROW_HEIGHT = 80;
 const HEADER_HEIGHT = 100;
 const SIDEBAR_WIDTH = 200;
-const RESIZE_HANDLE_WIDTH = 20; // Virtual resize zone on each edge
+const RESIZE_HANDLE_WIDTH = 30; // Virtual resize zone on each edge (15px from edge)
 
 type ResizeDirection = 'start' | 'end' | null;
 
@@ -295,6 +298,16 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
   const [scrollToToday, setScrollToToday] = useState(false);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
+  // Configure drag sensor with delay to prevent accidental drags
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        delay: 150,      // 150ms delay before drag activates
+        tolerance: 5     // Allow 5px movement during delay
+      }
+    })
+  );
+
   // Default date range: current month
   const defaultStart = startDate || startOfMonth(currentMonth);
   const defaultEnd = endDate || endOfMonth(currentMonth);
@@ -480,6 +493,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
 
   return (
     <DndContext
+      sensors={sensors}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       collisionDetection={pointerWithin}
