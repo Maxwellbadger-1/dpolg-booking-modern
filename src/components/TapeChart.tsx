@@ -121,9 +121,10 @@ interface DraggableBookingProps {
   isOverlay?: boolean;
   rowHeight: number;
   onResize?: (bookingId: number, direction: 'start' | 'end', daysDelta: number) => void;
+  hasOverlap?: boolean; // Red overlay when drag has overlap
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onResize }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onResize, hasOverlap = false }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -292,7 +293,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
   );
 }
 
-function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, children }: { roomId: number; dayIndex: number; isWeekend: boolean; cellWidth: number; rowHeight: number; children?: React.ReactNode }) {
+function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasOverlap, children }: { roomId: number; dayIndex: number; isWeekend: boolean; cellWidth: number; rowHeight: number; hasOverlap?: boolean; children?: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `cell-${roomId}-${dayIndex}`,
     data: { roomId, dayIndex },
@@ -304,7 +305,8 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, chil
       className={cn(
         "border-r border-slate-200 transition-all duration-200 box-border relative",
         isWeekend ? "bg-blue-50/30" : "bg-white",
-        isOver && "bg-blue-300/60 ring-2 ring-blue-400 ring-inset",
+        isOver && !hasOverlap && "bg-blue-300/60 ring-2 ring-blue-400 ring-inset",
+        isOver && hasOverlap && "bg-red-500/60 ring-2 ring-red-600 ring-inset",
       )}
       style={{
         width: `${cellWidth}px`,
@@ -323,6 +325,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [localBookings, setLocalBookings] = useState<Booking[]>(bookings);
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
+  const [dragHasOverlap, setDragHasOverlap] = useState(false); // Track if drag position has overlap
+  const [overlapDropZone, setOverlapDropZone] = useState<{ roomId: number; dayIndex: number } | null>(null); // Track which drop zone has overlap
   const [scrollToToday, setScrollToToday] = useState(false);
   const [densityMode, setDensityMode] = useState<DensityMode>(() => {
     const saved = localStorage.getItem('tapechart-density');
@@ -422,8 +426,9 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
 
   // Helper function to check if two bookings overlap
   const checkOverlap = (booking1Start: Date, booking1End: Date, booking2Start: Date, booking2End: Date): boolean => {
-    // Overlap exists if NOT (booking1 ends before booking2 starts OR booking1 starts after booking2 ends)
-    return !(booking1End <= booking2Start || booking1Start >= booking2End);
+    // Bookings can TOUCH (same dates) but NOT overlap
+    // Overlap exists if booking1End > booking2Start AND booking1Start < booking2End
+    return booking1End > booking2Start && booking1Start < booking2End;
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -431,6 +436,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
 
     if (!event.over || !activeBooking) {
       setActiveBooking(null);
+      setDragHasOverlap(false);
+      setOverlapDropZone(null);
       return;
     }
 
@@ -452,29 +459,37 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
       return;
     }
 
-    // Calculate new dates
-    const newCheckinDate = addDays(defaultStart, dayIndex);
+    // Calculate new dates (normalized to start of day)
+    const newCheckinDate = startOfDay(addDays(defaultStart, dayIndex));
     const originalDuration = differenceInDays(
-      new Date(activeBooking.checkout_date),
-      new Date(activeBooking.checkin_date)
+      startOfDay(new Date(activeBooking.checkout_date)),
+      startOfDay(new Date(activeBooking.checkin_date))
     );
-    const newCheckoutDate = addDays(newCheckinDate, originalDuration);
+    const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
 
     // Check for overlaps with other bookings in the same room
-    const hasOverlap = localBookings.some(b =>
-      b.id !== activeBooking.id &&
-      b.room_id === targetRoomId &&
-      checkOverlap(
-        newCheckinDate,
-        newCheckoutDate,
-        new Date(b.checkin_date),
-        new Date(b.checkout_date)
-      )
-    );
+    const hasOverlap = localBookings.some(b => {
+      if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
+
+      const existingStart = startOfDay(new Date(b.checkin_date));
+      const existingEnd = startOfDay(new Date(b.checkout_date));
+
+      const wouldOverlap = checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd);
+
+      console.log('DROP - Checking overlap:', {
+        new: { start: format(newCheckinDate, 'yyyy-MM-dd'), end: format(newCheckoutDate, 'yyyy-MM-dd') },
+        existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd'), booking: b.guest.nachname },
+        wouldOverlap
+      });
+
+      return wouldOverlap;
+    });
 
     if (hasOverlap) {
       console.warn('Cannot move booking: would overlap with existing booking');
       setActiveBooking(null);
+      setDragHasOverlap(false);
+      setOverlapDropZone(null);
       return;
     }
 
@@ -505,6 +520,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     console.log('Updated bookings:', updatedBookings);
     setLocalBookings(updatedBookings);
     setActiveBooking(null);
+    setDragHasOverlap(false);
+    setOverlapDropZone(null);
   };
 
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
@@ -581,6 +598,47 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     <DndContext
       sensors={sensors}
       onDragStart={handleDragStart}
+      onDragOver={(event: DragOverEvent) => {
+        if (!event.over || !activeBooking) {
+          setDragHasOverlap(false);
+          setOverlapDropZone(null);
+          return;
+        }
+
+        const dropData = event.over.data.current as { roomId: number; dayIndex: number };
+        if (!dropData) {
+          setDragHasOverlap(false);
+          setOverlapDropZone(null);
+          return;
+        }
+
+        const { roomId: targetRoomId, dayIndex } = dropData;
+        const newCheckinDate = startOfDay(addDays(defaultStart, dayIndex));
+        const originalDuration = differenceInDays(
+          startOfDay(new Date(activeBooking.checkout_date)),
+          startOfDay(new Date(activeBooking.checkin_date))
+        );
+        const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
+
+        // Check if this would overlap
+        const hasOverlap = localBookings.some(b => {
+          if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
+
+          const existingStart = startOfDay(new Date(b.checkin_date));
+          const existingEnd = startOfDay(new Date(b.checkout_date));
+
+          console.log('Checking overlap:', {
+            new: { start: format(newCheckinDate, 'yyyy-MM-dd'), end: format(newCheckoutDate, 'yyyy-MM-dd') },
+            existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd') },
+            wouldOverlap: checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd)
+          });
+
+          return checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd);
+        });
+
+        setDragHasOverlap(hasOverlap);
+        setOverlapDropZone(hasOverlap ? { roomId: targetRoomId, dayIndex } : null);
+      }}
       onDragEnd={handleDragEnd}
       collisionDetection={pointerWithin}
     >
@@ -827,6 +885,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
 <div className="relative flex">
                   {days.map((day, dayIdx) => {
                     const isWeekend = format(day, 'i') === '6' || format(day, 'i') === '7';
+                    const hasOverlapHere = overlapDropZone?.roomId === room.id && overlapDropZone?.dayIndex === dayIdx;
                     return (
                       <DroppableCell
                         key={dayIdx}
@@ -835,6 +894,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                         isWeekend={isWeekend}
                         cellWidth={density.cellWidth}
                         rowHeight={density.rowHeight}
+                        hasOverlap={hasOverlapHere}
                       />
                     );
                   })}
