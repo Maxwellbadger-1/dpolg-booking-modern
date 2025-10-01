@@ -380,6 +380,12 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     setActiveBooking(event.active.data.current as Booking);
   };
 
+  // Helper function to check if two bookings overlap
+  const checkOverlap = (booking1Start: Date, booking1End: Date, booking2Start: Date, booking2End: Date): boolean => {
+    // Overlap exists if NOT (booking1 ends before booking2 starts OR booking1 starts after booking2 ends)
+    return !(booking1End <= booking2Start || booking1Start >= booking2End);
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     console.log('DRAG END!', event);
 
@@ -414,6 +420,24 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     );
     const newCheckoutDate = addDays(newCheckinDate, originalDuration);
 
+    // Check for overlaps with other bookings in the same room
+    const hasOverlap = localBookings.some(b =>
+      b.id !== activeBooking.id &&
+      b.room_id === targetRoomId &&
+      checkOverlap(
+        newCheckinDate,
+        newCheckoutDate,
+        new Date(b.checkin_date),
+        new Date(b.checkout_date)
+      )
+    );
+
+    if (hasOverlap) {
+      console.warn('Cannot move booking: would overlap with existing booking');
+      setActiveBooking(null);
+      return;
+    }
+
     console.log('Updating booking:', {
       id: activeBooking.id,
       old_room: activeBooking.room_id,
@@ -446,11 +470,12 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
     console.log('RESIZE!', { bookingId, direction, daysDelta });
 
-    setLocalBookings(prev => prev.map(booking => {
-      if (booking.id !== bookingId) return booking;
+    setLocalBookings(prev => {
+      const currentBooking = prev.find(b => b.id === bookingId);
+      if (!currentBooking) return prev;
 
-      const currentCheckin = new Date(booking.checkin_date);
-      const currentCheckout = new Date(booking.checkout_date);
+      const currentCheckin = new Date(currentBooking.checkin_date);
+      const currentCheckout = new Date(currentBooking.checkout_date);
 
       let newCheckin = currentCheckin;
       let newCheckout = currentCheckout;
@@ -462,7 +487,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
         // Prevent invalid range (checkin after checkout)
         if (newCheckin >= currentCheckout) {
           console.warn('Invalid resize: checkin would be after checkout');
-          return booking;
+          return prev;
         }
       } else {
         // Resize from right edge - change checkout date
@@ -471,24 +496,45 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
         // Prevent invalid range (checkout before checkin)
         if (newCheckout <= currentCheckin) {
           console.warn('Invalid resize: checkout would be before checkin');
-          return booking;
+          return prev;
         }
+      }
+
+      // Check for overlaps with other bookings in the same room
+      const hasOverlap = prev.some(b =>
+        b.id !== bookingId &&
+        b.room_id === currentBooking.room_id &&
+        checkOverlap(
+          newCheckin,
+          newCheckout,
+          new Date(b.checkin_date),
+          new Date(b.checkout_date)
+        )
+      );
+
+      if (hasOverlap) {
+        console.warn('Cannot resize booking: would overlap with existing booking');
+        return prev;
       }
 
       console.log('Resized booking:', {
         id: bookingId,
-        old_checkin: booking.checkin_date,
+        old_checkin: currentBooking.checkin_date,
         new_checkin: format(newCheckin, 'yyyy-MM-dd'),
-        old_checkout: booking.checkout_date,
+        old_checkout: currentBooking.checkout_date,
         new_checkout: format(newCheckout, 'yyyy-MM-dd'),
       });
 
-      return {
-        ...booking,
-        checkin_date: format(newCheckin, 'yyyy-MM-dd'),
-        checkout_date: format(newCheckout, 'yyyy-MM-dd'),
-      };
-    }));
+      return prev.map(booking => {
+        if (booking.id !== bookingId) return booking;
+
+        return {
+          ...booking,
+          checkin_date: format(newCheckin, 'yyyy-MM-dd'),
+          checkout_date: format(newCheckout, 'yyyy-MM-dd'),
+        };
+      });
+    });
   }, []);
 
   return (
