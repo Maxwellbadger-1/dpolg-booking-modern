@@ -96,6 +96,7 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
+  const [resizePreview, setResizePreview] = useState<{ left: number; width: number } | null>(null);
   const dragStartX = useRef<number>(0);
   const resizeStartPosition = useRef<{ left: number; width: number }>({ left: 0, width: 0 });
 
@@ -157,7 +158,7 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
     }
   }, [getResizeDirection, isOverlay, isResizing]);
 
-  // Layout effect to handle resize events
+  // Layout effect to handle resize events with LIVE preview
   useLayoutEffect(() => {
     if (!isResizing || !onResize) return;
 
@@ -165,7 +166,28 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
       const deltaX = e.clientX - dragStartX.current;
       const daysDelta = Math.round(deltaX / CELL_WIDTH);
 
-      // We'll calculate new position in parent - just track delta
+      // Calculate LIVE preview position
+      if (resizeDirection === 'start') {
+        // Resize from left - change left and width
+        const newLeft = resizeStartPosition.current.left + (daysDelta * CELL_WIDTH);
+        const newWidth = resizeStartPosition.current.width - (daysDelta * CELL_WIDTH);
+
+        // Only update if width stays positive
+        if (newWidth > CELL_WIDTH / 2) {
+          setResizePreview({ left: newLeft, width: newWidth });
+        }
+      } else if (resizeDirection === 'end') {
+        // Resize from right - only change width
+        const newWidth = resizeStartPosition.current.width + (daysDelta * CELL_WIDTH);
+
+        // Only update if width stays positive
+        if (newWidth > CELL_WIDTH / 2) {
+          setResizePreview({
+            left: resizeStartPosition.current.left,
+            width: newWidth
+          });
+        }
+      }
     };
 
     const handlePointerUp = (e: PointerEvent) => {
@@ -178,6 +200,7 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
 
       setIsResizing(false);
       setResizeDirection(null);
+      setResizePreview(null); // Clear preview
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -189,16 +212,20 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
     };
   }, [isResizing, onResize, booking.id, resizeDirection]);
 
+  // Use resize preview if resizing, otherwise use normal position
+  const currentPosition = resizePreview || position;
+
   const style = isOverlay ? {
     width: `${position.width}px`,
     height: `${ROW_HEIGHT - 16}px`,
   } : {
-    left: `${position.left}px`,
-    width: `${position.width}px`,
+    left: `${currentPosition.left}px`,
+    width: `${currentPosition.width}px`,
     top: '8px',
     bottom: '8px',
     transform: CSS.Transform.toString(transform),
     cursor: cursor,
+    transition: isResizing ? 'none' : 'all 0.2s', // Disable transition during resize for instant feedback
   };
 
   return (
