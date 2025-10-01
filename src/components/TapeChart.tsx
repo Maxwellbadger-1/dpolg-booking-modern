@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '../lib/utils';
@@ -81,14 +81,113 @@ const CELL_WIDTH = 120;
 const ROW_HEIGHT = 80;
 const HEADER_HEIGHT = 100;
 const SIDEBAR_WIDTH = 200;
+const RESIZE_HANDLE_WIDTH = 20; // Virtual resize zone on each edge
 
-function DraggableBooking({ booking, position, isOverlay = false }: { booking: Booking; position: { left: number; width: number }; isOverlay?: boolean }) {
+type ResizeDirection = 'start' | 'end' | null;
+
+interface DraggableBookingProps {
+  booking: Booking;
+  position: { left: number; width: number };
+  isOverlay?: boolean;
+  onResize?: (bookingId: number, direction: 'start' | 'end', daysDelta: number) => void;
+}
+
+function DraggableBooking({ booking, position, isOverlay = false, onResize }: DraggableBookingProps) {
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
+  const [cursor, setCursor] = useState<string>('move');
+  const dragStartX = useRef<number>(0);
+  const resizeStartPosition = useRef<{ left: number; width: number }>({ left: 0, width: 0 });
+
   const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({
     id: `booking-${booking.id}`,
     data: booking,
+    disabled: isResizing, // Disable drag during resize
   });
 
   const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.reserviert;
+
+  // Detect if pointer is in resize zone (dnd-timeline pattern)
+  const getResizeDirection = useCallback((e: React.PointerEvent, element: HTMLElement): ResizeDirection => {
+    const rect = element.getBoundingClientRect();
+    const mouseX = e.clientX;
+
+    // Check left edge (start)
+    if (Math.abs(mouseX - rect.left) <= RESIZE_HANDLE_WIDTH / 2) {
+      return 'start';
+    }
+
+    // Check right edge (end)
+    if (Math.abs(mouseX - rect.right) <= RESIZE_HANDLE_WIDTH / 2) {
+      return 'end';
+    }
+
+    return null;
+  }, []);
+
+  // Handle pointer down - determine if resize or drag
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isOverlay) return;
+
+    const direction = getResizeDirection(e, e.currentTarget);
+
+    if (direction && onResize) {
+      // Start resize
+      e.stopPropagation();
+      setIsResizing(true);
+      setResizeDirection(direction);
+      dragStartX.current = e.clientX;
+      resizeStartPosition.current = { ...position };
+    } else {
+      // Normal drag - let dnd-kit handle it
+      listeners?.onPointerDown?.(e);
+    }
+  }, [getResizeDirection, onResize, position, listeners, isOverlay]);
+
+  // Handle pointer move - update cursor
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isOverlay || isResizing) return;
+
+    const direction = getResizeDirection(e, e.currentTarget);
+
+    if (direction) {
+      setCursor('ew-resize');
+    } else {
+      setCursor('move');
+    }
+  }, [getResizeDirection, isOverlay, isResizing]);
+
+  // Layout effect to handle resize events
+  useLayoutEffect(() => {
+    if (!isResizing || !onResize) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const deltaX = e.clientX - dragStartX.current;
+      const daysDelta = Math.round(deltaX / CELL_WIDTH);
+
+      // We'll calculate new position in parent - just track delta
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      const deltaX = e.clientX - dragStartX.current;
+      const daysDelta = Math.round(deltaX / CELL_WIDTH);
+
+      if (daysDelta !== 0 && resizeDirection) {
+        onResize(booking.id, resizeDirection, daysDelta);
+      }
+
+      setIsResizing(false);
+      setResizeDirection(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [isResizing, onResize, booking.id, resizeDirection]);
 
   const style = isOverlay ? {
     width: `${position.width}px`,
@@ -99,19 +198,22 @@ function DraggableBooking({ booking, position, isOverlay = false }: { booking: B
     top: '8px',
     bottom: '8px',
     transform: CSS.Transform.toString(transform),
+    cursor: cursor,
   };
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
       {...attributes}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
       className={cn(
-        isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2 cursor-move",
+        isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2",
         "flex items-center px-3 transition-all duration-200",
-        !isOverlay && "hover:scale-[1.02] active:scale-95",
+        !isOverlay && !isResizing && "hover:scale-[1.02] active:scale-95",
         "backdrop-blur-sm",
         isDragging && !isOverlay && "opacity-0",
+        isResizing && "border-dashed border-4 scale-[1.02]",
         colors.bg,
         colors.border,
         colors.text,
@@ -300,6 +402,54 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     setLocalBookings(updatedBookings);
     setActiveBooking(null);
   };
+
+  const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
+    console.log('RESIZE!', { bookingId, direction, daysDelta });
+
+    setLocalBookings(prev => prev.map(booking => {
+      if (booking.id !== bookingId) return booking;
+
+      const currentCheckin = new Date(booking.checkin_date);
+      const currentCheckout = new Date(booking.checkout_date);
+
+      let newCheckin = currentCheckin;
+      let newCheckout = currentCheckout;
+
+      if (direction === 'start') {
+        // Resize from left edge - change checkin date
+        newCheckin = addDays(currentCheckin, daysDelta);
+
+        // Prevent invalid range (checkin after checkout)
+        if (newCheckin >= currentCheckout) {
+          console.warn('Invalid resize: checkin would be after checkout');
+          return booking;
+        }
+      } else {
+        // Resize from right edge - change checkout date
+        newCheckout = addDays(currentCheckout, daysDelta);
+
+        // Prevent invalid range (checkout before checkin)
+        if (newCheckout <= currentCheckin) {
+          console.warn('Invalid resize: checkout would be before checkin');
+          return booking;
+        }
+      }
+
+      console.log('Resized booking:', {
+        id: bookingId,
+        old_checkin: booking.checkin_date,
+        new_checkin: format(newCheckin, 'yyyy-MM-dd'),
+        old_checkout: booking.checkout_date,
+        new_checkout: format(newCheckout, 'yyyy-MM-dd'),
+      });
+
+      return {
+        ...booking,
+        checkin_date: format(newCheckin, 'yyyy-MM-dd'),
+        checkout_date: format(newCheckout, 'yyyy-MM-dd'),
+      };
+    }));
+  }, []);
 
   return (
     <DndContext
@@ -521,6 +671,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                           key={booking.id}
                           booking={booking}
                           position={pos}
+                          onResize={handleResize}
                         />
                       );
                     })}
