@@ -80,6 +80,33 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
   },
 };
 
+// Density Mode Settings
+type DensityMode = 'compact' | 'comfortable' | 'spacious';
+
+const DENSITY_SETTINGS = {
+  compact: {
+    cellWidth: 80,
+    rowHeight: 60,
+    headerHeight: 80,
+    fontSize: 'text-xs',
+    padding: 'p-1'
+  },
+  comfortable: {
+    cellWidth: 120,
+    rowHeight: 80,
+    headerHeight: 100,
+    fontSize: 'text-sm',
+    padding: 'p-2'
+  },
+  spacious: {
+    cellWidth: 160,
+    rowHeight: 100,
+    headerHeight: 120,
+    fontSize: 'text-base',
+    padding: 'p-3'
+  }
+};
+
 const CELL_WIDTH = 120;
 const ROW_HEIGHT = 80;
 const HEADER_HEIGHT = 100;
@@ -92,10 +119,11 @@ interface DraggableBookingProps {
   booking: Booking;
   position: { left: number; width: number };
   isOverlay?: boolean;
+  rowHeight: number;
   onResize?: (bookingId: number, direction: 'start' | 'end', daysDelta: number) => void;
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, onResize }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onResize }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -220,7 +248,7 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
 
   const style = isOverlay ? {
     width: `${position.width}px`,
-    height: `${ROW_HEIGHT - 16}px`,
+    height: `${rowHeight - 16}px`,
   } : {
     left: `${currentPosition.left}px`,
     width: `${currentPosition.width}px`,
@@ -264,7 +292,7 @@ function DraggableBooking({ booking, position, isOverlay = false, onResize }: Dr
   );
 }
 
-function DroppableCell({ roomId, dayIndex, isWeekend, children }: { roomId: number; dayIndex: number; isWeekend: boolean; children?: React.ReactNode }) {
+function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, children }: { roomId: number; dayIndex: number; isWeekend: boolean; cellWidth: number; rowHeight: number; children?: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `cell-${roomId}-${dayIndex}`,
     data: { roomId, dayIndex },
@@ -279,10 +307,10 @@ function DroppableCell({ roomId, dayIndex, isWeekend, children }: { roomId: numb
         isOver && "bg-blue-300/60 ring-2 ring-blue-400 ring-inset",
       )}
       style={{
-        width: `${CELL_WIDTH}px`,
-        height: `${ROW_HEIGHT}px`,
-        minWidth: `${CELL_WIDTH}px`,
-        maxWidth: `${CELL_WIDTH}px`,
+        width: `${cellWidth}px`,
+        height: `${rowHeight}px`,
+        minWidth: `${cellWidth}px`,
+        maxWidth: `${cellWidth}px`,
       }}
     >
       {children}
@@ -296,7 +324,19 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
   const [localBookings, setLocalBookings] = useState<Booking[]>(bookings);
   const [activeBooking, setActiveBooking] = useState<Booking | null>(null);
   const [scrollToToday, setScrollToToday] = useState(false);
+  const [densityMode, setDensityMode] = useState<DensityMode>(() => {
+    const saved = localStorage.getItem('tapechart-density');
+    return (saved as DensityMode) || 'comfortable';
+  });
   const chartContainerRef = useRef<HTMLDivElement>(null);
+
+  // Persist density mode to localStorage
+  useEffect(() => {
+    localStorage.setItem('tapechart-density', densityMode);
+  }, [densityMode]);
+
+  // Get current density settings
+  const density = DENSITY_SETTINGS[densityMode];
 
   // Configure drag sensor with delay to prevent accidental drags
   const sensors = useSensors(
@@ -334,8 +374,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
       const todayIndex = days.findIndex(day => isSameDay(day, today));
 
       if (todayIndex !== -1) {
-        // Each day column is 180px wide (from w-[180px])
-        const scrollPosition = todayIndex * 180;
+        // Each day column width depends on density mode
+        const scrollPosition = todayIndex * density.cellWidth;
         chartContainerRef.current.scrollTo({
           left: scrollPosition,
           behavior: 'smooth'
@@ -369,8 +409,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     const padding = 4;
 
     return {
-      left: startOffset * CELL_WIDTH + padding,
-      width: duration * CELL_WIDTH - (padding * 2),
+      left: startOffset * density.cellWidth + padding,
+      width: duration * density.cellWidth - (padding * 2),
       isVisible: startOffset >= 0 && startOffset < days.length,
     };
   };
@@ -637,8 +677,54 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
             </button>
           </div>
 
-          {/* Heute Button - absolute right */}
-          <div className="absolute right-8">
+          {/* Right Side: Density Mode + Heute Button */}
+          <div className="absolute right-8 flex items-center gap-3">
+            {/* Density Mode Toggle */}
+            <div className="flex items-center gap-2 bg-slate-700/80 backdrop-blur-md px-3 py-2 rounded-xl border-2 border-slate-500/40">
+              <button
+                onClick={() => setDensityMode('compact')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg font-semibold text-xs transition-all",
+                  densityMode === 'compact'
+                    ? "bg-blue-500 text-white shadow-lg"
+                    : "text-slate-300 hover:text-white hover:bg-slate-600"
+                )}
+                title="Kompakt"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setDensityMode('comfortable')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg font-semibold text-xs transition-all",
+                  densityMode === 'comfortable'
+                    ? "bg-blue-500 text-white shadow-lg"
+                    : "text-slate-300 hover:text-white hover:bg-slate-600"
+                )}
+                title="Komfortabel"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setDensityMode('spacious')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg font-semibold text-xs transition-all",
+                  densityMode === 'spacious'
+                    ? "bg-blue-500 text-white shadow-lg"
+                    : "text-slate-300 hover:text-white hover:bg-slate-600"
+                )}
+                title="Weitläufig"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 12h16" />
+                </svg>
+              </button>
+            </div>
+
             <button
               onClick={goToToday}
               className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white heute-button py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-emerald-400/40 hover:border-emerald-300/60"
@@ -662,7 +748,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                   className="sticky left-0 z-30 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-2xl box-border"
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
-                    height: `${HEADER_HEIGHT}px`,
+                    height: `${density.headerHeight}px`,
                     minWidth: `${SIDEBAR_WIDTH}px`,
                     maxWidth: `${SIDEBAR_WIDTH}px`,
                   }}
@@ -687,19 +773,19 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                           : 'bg-white'
                       )}
                       style={{
-                        width: `${CELL_WIDTH}px`,
-                        height: `${HEADER_HEIGHT}px`,
-                        minWidth: `${CELL_WIDTH}px`,
-                        maxWidth: `${CELL_WIDTH}px`,
+                        width: `${density.cellWidth}px`,
+                        height: `${density.headerHeight}px`,
+                        minWidth: `${density.cellWidth}px`,
+                        maxWidth: `${density.cellWidth}px`,
                       }}
                     >
-                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                      <div className={cn("font-medium text-slate-500 uppercase tracking-wider", density.fontSize)}>
                         {format(day, 'EEE', { locale: de })}
                       </div>
-                      <div className="text-2xl font-bold text-slate-800 my-1">
+                      <div className={cn("font-bold text-slate-800 my-1", densityMode === 'compact' ? 'text-lg' : densityMode === 'comfortable' ? 'text-2xl' : 'text-3xl')}>
                         {format(day, 'd')}
                       </div>
-                      <div className="text-xs font-semibold text-slate-600 uppercase">
+                      <div className={cn("font-semibold text-slate-600 uppercase", density.fontSize)}>
                         {format(day, 'MMM', { locale: de })}
                       </div>
                     </div>
@@ -713,22 +799,22 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
                 {/* Room sidebar */}
                 <div
-                  className="sticky left-0 z-10 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center px-5 shadow-md group-hover:shadow-lg transition-all box-border"
+                  className={cn("sticky left-0 z-10 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
-                    height: `${ROW_HEIGHT}px`,
+                    height: `${density.rowHeight}px`,
                     minWidth: `${SIDEBAR_WIDTH}px`,
                     maxWidth: `${SIDEBAR_WIDTH}px`,
                   }}
                 >
-                  <div className="font-bold text-base text-slate-800 mb-1">{room.name}</div>
-                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <div className={cn("font-bold text-slate-800 mb-1", density.fontSize)}>{room.name}</div>
+                  <div className={cn("flex items-center gap-2 text-slate-600", density.fontSize)}>
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
                     <span className="font-medium">{room.gebaeude_typ}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <div className={cn("flex items-center gap-2 text-slate-600", density.fontSize)}>
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -738,11 +824,18 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                 </div>
 
                 {/* Timeline grid */}
-                <div className="relative flex">
+<div className="relative flex">
                   {days.map((day, dayIdx) => {
                     const isWeekend = format(day, 'i') === '6' || format(day, 'i') === '7';
                     return (
-                      <DroppableCell key={dayIdx} roomId={room.id} dayIndex={dayIdx} isWeekend={isWeekend} />
+                      <DroppableCell
+                        key={dayIdx}
+                        roomId={room.id}
+                        dayIndex={dayIdx}
+                        isWeekend={isWeekend}
+                        cellWidth={density.cellWidth}
+                        rowHeight={density.rowHeight}
+                      />
                     );
                   })}
 
@@ -758,6 +851,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                           key={booking.id}
                           booking={booking}
                           position={pos}
+                          rowHeight={density.rowHeight}
                           onResize={handleResize}
                         />
                       );
@@ -794,6 +888,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
             <DraggableBooking
               booking={activeBooking}
               position={getBookingPosition(activeBooking)}
+              rowHeight={density.rowHeight}
               isOverlay={true}
             />
           ) : null}
