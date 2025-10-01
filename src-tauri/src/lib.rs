@@ -4,6 +4,7 @@
 mod database;
 mod validation;
 mod pricing;
+mod email;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -281,6 +282,17 @@ fn delete_booking_command(id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn update_booking_dates_and_room_command(
+    id: i64,
+    room_id: i64,
+    checkin_date: String,
+    checkout_date: String,
+) -> Result<database::Booking, String> {
+    database::update_booking_dates_and_room(id, room_id, checkin_date, checkout_date)
+        .map_err(|e| format!("Fehler beim Aktualisieren der Buchungsdaten: {}", e))
+}
+
+#[tauri::command]
 fn cancel_booking_command(id: i64) -> Result<database::Booking, String> {
     database::cancel_booking(id)
         .map_err(|e| format!("Fehler beim Stornieren der Buchung: {}", e))
@@ -393,10 +405,11 @@ fn check_room_availability_command(
     room_id: i64,
     checkin: String,
     checkout: String,
+    exclude_booking_id: Option<i64>,
 ) -> Result<bool, String> {
     let conn = Connection::open(database::get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
-    validation::check_room_availability(room_id, &checkin, &checkout, None, &conn)
+    validation::check_room_availability(room_id, &checkin, &checkout, exclude_booking_id, &conn)
 }
 
 // ============================================================================
@@ -433,6 +446,116 @@ fn calculate_booking_price_command(
     }))
 }
 
+// ============================================================================
+// REPORTS & STATISTICS COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn get_report_stats_command(start_date: String, end_date: String) -> Result<database::ReportStats, String> {
+    database::get_report_stats(&start_date, &end_date)
+        .map_err(|e| format!("Fehler beim Laden der Statistiken: {}", e))
+}
+
+#[tauri::command]
+fn get_room_occupancy_command(start_date: String, end_date: String) -> Result<Vec<database::RoomOccupancy>, String> {
+    database::get_room_occupancy(&start_date, &end_date)
+        .map_err(|e| format!("Fehler beim Laden der Belegungsstatistiken: {}", e))
+}
+
+// ============================================================================
+// EMAIL SYSTEM COMMANDS - Phase 6
+// ============================================================================
+
+#[tauri::command]
+fn save_email_config_command(
+    smtp_server: String,
+    smtp_port: i32,
+    smtp_username: String,
+    smtp_password: String,
+    from_email: String,
+    from_name: String,
+    use_tls: bool,
+) -> Result<database::EmailConfig, String> {
+    email::save_email_config(smtp_server, smtp_port, smtp_username, smtp_password, from_email, from_name, use_tls)
+}
+
+#[tauri::command]
+fn get_email_config_command() -> Result<database::EmailConfig, String> {
+    email::get_email_config()
+}
+
+#[tauri::command]
+async fn test_email_connection_command(
+    smtp_server: String,
+    smtp_port: i32,
+    smtp_username: String,
+    smtp_password: String,
+    from_email: String,
+    from_name: String,
+    test_recipient: String,
+) -> Result<String, String> {
+    email::test_email_connection(smtp_server, smtp_port, smtp_username, smtp_password, from_email, from_name, test_recipient).await
+}
+
+#[tauri::command]
+fn get_all_templates_command() -> Result<Vec<database::EmailTemplate>, String> {
+    email::get_all_templates()
+}
+
+#[tauri::command]
+fn get_template_by_name_command(template_name: String) -> Result<database::EmailTemplate, String> {
+    email::get_template_by_name(&template_name)
+}
+
+#[tauri::command]
+fn update_template_command(
+    id: i64,
+    subject: String,
+    body: String,
+    description: Option<String>,
+) -> Result<database::EmailTemplate, String> {
+    email::update_template(id, subject, body, description)
+}
+
+#[tauri::command]
+async fn send_confirmation_email_command(booking_id: i64) -> Result<String, String> {
+    email::send_confirmation_email(booking_id).await
+}
+
+#[tauri::command]
+async fn send_reminder_email_command(booking_id: i64) -> Result<String, String> {
+    email::send_reminder_email(booking_id).await
+}
+
+#[tauri::command]
+async fn send_invoice_email_command(booking_id: i64) -> Result<String, String> {
+    email::send_invoice_email(booking_id).await
+}
+
+#[tauri::command]
+fn get_email_logs_for_booking_command(booking_id: i64) -> Result<Vec<database::EmailLog>, String> {
+    email::get_email_logs_for_booking(booking_id)
+}
+
+#[tauri::command]
+async fn send_payment_reminder_email_command(booking_id: i64) -> Result<String, String> {
+    email::send_payment_reminder_email(booking_id).await
+}
+
+#[tauri::command]
+async fn send_cancellation_email_command(booking_id: i64) -> Result<String, String> {
+    email::send_cancellation_email(booking_id).await
+}
+
+#[tauri::command]
+fn mark_booking_as_paid_command(
+    booking_id: i64,
+    zahlungsmethode: String,
+) -> Result<database::Booking, String> {
+    database::mark_booking_as_paid(booking_id, zahlungsmethode)
+        .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -466,6 +589,7 @@ pub fn run() {
             // Booking Management
             create_booking_command,
             update_booking_command,
+            update_booking_dates_and_room_command,
             delete_booking_command,
             cancel_booking_command,
             get_booking_by_id_command,
@@ -488,6 +612,23 @@ pub fn run() {
             // Pricing
             calculate_nights_command,
             calculate_booking_price_command,
+            // Reports & Statistics
+            get_report_stats_command,
+            get_room_occupancy_command,
+            // Email System
+            save_email_config_command,
+            get_email_config_command,
+            test_email_connection_command,
+            get_all_templates_command,
+            get_template_by_name_command,
+            update_template_command,
+            send_confirmation_email_command,
+            send_reminder_email_command,
+            send_invoice_email_command,
+            get_email_logs_for_booking_command,
+            send_payment_reminder_email_command,
+            send_cancellation_email_command,
+            mark_booking_as_paid_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -139,7 +139,7 @@ pub fn calculate_services_total(services: &[(String, f64)]) -> f64 {
 /// * `room_id` - ID des Zimmers
 /// * `checkin` - Check-in Datum (YYYY-MM-DD)
 /// * `checkout` - Check-out Datum (YYYY-MM-DD)
-/// * `is_member` - Ist der Gast DPolG-Mitglied?
+/// * `is_member` - Ist der Gast DPolG Stiftung Mitglied?
 /// * `services` - Array von Services (Name, Preis)
 /// * `discounts` - Array von Rabatten (Name, Typ, Wert)
 /// * `conn` - Datenbankverbindung

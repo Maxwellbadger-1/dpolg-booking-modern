@@ -266,6 +266,70 @@ export default function DevTools() {
     }
   };
 
+  // ==================== EMAIL TESTS ====================
+
+  const testGetEmailTemplates = async () => {
+    try {
+      const templates = await invoke('get_all_templates_command');
+      addResult('Get Email Templates', 'success', `${Array.isArray(templates) ? templates.length : 0} Templates gefunden`, templates);
+    } catch (error) {
+      addResult('Get Email Templates', 'error', String(error));
+    }
+  };
+
+  const testGetEmailConfig = async () => {
+    try {
+      const config = await invoke('get_email_config_command');
+      addResult('Get Email Config', 'success', 'Email-Konfiguration geladen', config);
+    } catch (error) {
+      addResult('Get Email Config', 'error', 'Keine Konfiguration vorhanden (ist ok beim ersten Start)');
+    }
+  };
+
+  const testSendConfirmationEmail = async (bookingId: number) => {
+    try {
+      const result = await invoke('send_confirmation_email_command', { bookingId });
+      addResult('Send Confirmation Email', 'success', String(result));
+    } catch (error) {
+      addResult('Send Confirmation Email', 'error', String(error));
+    }
+  };
+
+  const testGetEmailLogs = async (bookingId: number) => {
+    try {
+      const logs = await invoke('get_email_logs_for_booking_command', { bookingId });
+      addResult('Get Email Logs', 'success', `${Array.isArray(logs) ? logs.length : 0} Email-Logs gefunden`, logs);
+    } catch (error) {
+      addResult('Get Email Logs', 'error', String(error));
+    }
+  };
+
+  // ==================== REPORT TESTS ====================
+
+  const testGetReportStats = async () => {
+    try {
+      const stats = await invoke('get_report_stats_command', {
+        startDate: '2025-01-01',
+        endDate: '2025-12-31',
+      });
+      addResult('Get Report Stats', 'success', 'Statistiken geladen', stats);
+    } catch (error) {
+      addResult('Get Report Stats', 'error', String(error));
+    }
+  };
+
+  const testGetRoomOccupancy = async () => {
+    try {
+      const occupancy = await invoke('get_room_occupancy_command', {
+        startDate: '2025-01-01',
+        endDate: '2025-12-31',
+      });
+      addResult('Get Room Occupancy', 'success', `${Array.isArray(occupancy) ? occupancy.length : 0} Zimmer-Statistiken`, occupancy);
+    } catch (error) {
+      addResult('Get Room Occupancy', 'error', String(error));
+    }
+  };
+
   // ==================== COMPLETE TEST SUITE ====================
 
   const runCompleteTest = async () => {
@@ -320,12 +384,21 @@ export default function DevTools() {
     await testCalculateNights();
     await testCalculatePrice(room.id);
 
-    // 12. Cleanup: Delete (optional - kann FK constraint errors geben)
+    // 12. Email Tests
+    await testGetEmailConfig();
+    await testGetEmailTemplates();
+    await testGetEmailLogs(booking.id);
+
+    // 13. Report Tests
+    await testGetReportStats();
+    await testGetRoomOccupancy();
+
+    // 14. Cleanup: Delete (optional - kann FK constraint errors geben)
     // await testDeleteRoom(room.id);
     // await testDeleteGuest(guest.id);
 
     setRunning(false);
-    addResult('Complete Test', 'success', '✅ Alle Tests durchgelaufen!');
+    addResult('Complete Test', 'success', '✅ Alle Tests durchgelaufen (inkl. Email & Reports)!');
   };
 
   if (!isOpen) {
@@ -399,6 +472,34 @@ export default function DevTools() {
           className="px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg transition-colors"
         >
           Calculate Nights
+        </button>
+
+        <button
+          onClick={testGetEmailTemplates}
+          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors text-sm"
+        >
+          📧 Templates
+        </button>
+
+        <button
+          onClick={testGetEmailConfig}
+          className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition-colors text-sm"
+        >
+          📧 Config
+        </button>
+
+        <button
+          onClick={testGetReportStats}
+          className="px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white font-semibold rounded-lg transition-colors text-sm"
+        >
+          📊 Stats
+        </button>
+
+        <button
+          onClick={testGetRoomOccupancy}
+          className="px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white font-semibold rounded-lg transition-colors text-sm"
+        >
+          📊 Occupancy
         </button>
 
         <button

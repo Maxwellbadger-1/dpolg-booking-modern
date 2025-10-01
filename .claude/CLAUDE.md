@@ -271,6 +271,9 @@ Nachher:
 - Sicherheits-relevanten Themen (Encryption, Authentication)
 - Performance-Optimierungen (neueste Benchmarks)
 - PDF/Email Libraries (aktuelle Empfehlungen)
+- **Hartnäckigen UI/CSS Problemen (KRITISCH!)**: Wenn mehrere Lösungsversuche fehlschlagen, SOFORT Web-Recherche durchführen
+- Debug-Methoden und Browser DevTools Features
+- CSS Layout-Probleme (overflow, z-index, positioning)
 
 ### Recherche-Pattern:
 ```typescript
@@ -280,7 +283,22 @@ if (task.involves("neue_library") || task.involves("best_practices") || task.inv
     focus: "recent documentation, benchmarks, security"
   });
 }
+
+// KRITISCH: Bei hartnäckigen Problemen nach 2-3 fehlgeschlagenen Versuchen
+if (attempts >= 3 && problem.still_exists) {
+  await webSearch({
+    query: "specific problem description + debugging + solution 2025",
+    focus: "StackOverflow, official docs, debugging guides"
+  });
+}
 ```
+
+### Web-Recherche Trigger-Regel:
+**Wenn ein Problem nach 3 Lösungsversuchen NICHT gelöst ist:**
+1. STOP weitere Versuche ohne Recherche
+2. Führe Web-Recherche durch mit präziser Problembeschreibung
+3. Suche nach: Problem + Technologie + "debugging" + "2025"
+4. Fokus: StackOverflow Answers, Browser DevTools Guides, Official Docs
 
 ### Beispiel-Queries:
 - "Tauri 2 SQLite connection pooling best practices 2025"

@@ -2,7 +2,7 @@
 // VALIDATION MODULE - Phase 2: Business Logic & Validierung
 // ============================================================================
 //
-// Dieses Modul enthält alle Validierungsfunktionen für das DPolG-Buchungssystem.
+// Dieses Modul enthält alle Validierungsfunktionen für das DPolG Stiftung Buchungssystem.
 // Entwickelt nach TDD-Prinzipien: Jede Funktion hat umfassende Unit-Tests.
 
 use chrono::NaiveDate;
@@ -194,6 +194,120 @@ pub fn validate_reservation_number(nummer: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ============================================================================
+// PLZ (POSTAL CODE) VALIDATION
+// ============================================================================
+
+// Statische Regex für deutsche Postleitzahlen
+static PLZ_REGEX: Lazy<Regex> = Lazy::new(|| {
+    // Deutsche PLZ: Genau 5 Ziffern
+    Regex::new(r"^[0-9]{5}$").unwrap()
+});
+
+/// Validiert eine deutsche Postleitzahl
+///
+/// Deutsche PLZ bestehen aus genau 5 Ziffern (00000 - 99999)
+///
+/// # Arguments
+/// * `plz` - Postleitzahl als String
+///
+/// # Returns
+/// * `Ok(())` - PLZ ist gültig
+/// * `Err(String)` - Fehlermeldung in Deutsch
+pub fn validate_plz(plz: &str) -> Result<(), String> {
+    if plz.trim().is_empty() {
+        return Err("Postleitzahl darf nicht leer sein".to_string());
+    }
+
+    if !PLZ_REGEX.is_match(plz) {
+        return Err("Ungültige Postleitzahl. Bitte 5 Ziffern eingeben (z.B. 12345)".to_string());
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// RESERVATION NUMBER GENERATION
+// ============================================================================
+
+use chrono::Local;
+use std::sync::Mutex;
+
+// Globaler Counter für Reservierungsnummern (Thread-safe)
+static RESERVATION_COUNTER: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(1));
+
+/// Generiert eine eindeutige Reservierungsnummer
+///
+/// Format: DPOLG-YYYYMMDD-NNNN
+/// - DPOLG: Prefix
+/// - YYYYMMDD: Aktuelles Datum
+/// - NNNN: 4-stelliger Counter (wird täglich zurückgesetzt)
+///
+/// # Returns
+/// * Eindeutige Reservierungsnummer als String
+///
+/// # Example
+/// ```
+/// let nummer = generate_reservation_number();
+/// // Beispiel: "DPOLG-20251001-0001"
+/// ```
+pub fn generate_reservation_number() -> String {
+    let now = Local::now();
+    let date_part = now.format("%Y%m%d").to_string();
+
+    // Thread-safe Counter erhöhen
+    let mut counter = RESERVATION_COUNTER.lock().unwrap();
+    let number = *counter;
+    *counter += 1;
+
+    // Format: DPOLG-YYYYMMDD-NNNN
+    format!("DPOLG-{}-{:04}", date_part, number)
+}
+
+/// Prüft ob eine Reservierungsnummer eindeutig ist
+///
+/// # Arguments
+/// * `nummer` - Zu prüfende Reservierungsnummer
+/// * `conn` - SQLite Datenbankverbindung
+///
+/// # Returns
+/// * `Ok(true)` - Nummer ist eindeutig (existiert noch nicht)
+/// * `Ok(false)` - Nummer existiert bereits
+/// * `Err(String)` - Datenbankfehler
+pub fn is_reservation_number_unique(nummer: &str, conn: &Connection) -> Result<bool, String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM bookings WHERE reservierungsnummer = ?1",
+            [nummer],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Datenbankfehler bei Eindeutigkeitsprüfung: {}", e))?;
+
+    Ok(count == 0)
+}
+
+/// Generiert eine eindeutige Reservierungsnummer und prüft Eindeutigkeit in DB
+///
+/// Falls die generierte Nummer bereits existiert (sehr unwahrscheinlich),
+/// wird eine neue generiert (max. 100 Versuche).
+///
+/// # Arguments
+/// * `conn` - SQLite Datenbankverbindung
+///
+/// # Returns
+/// * `Ok(String)` - Eindeutige Reservierungsnummer
+/// * `Err(String)` - Fehler falls nach 100 Versuchen keine eindeutige Nummer gefunden
+pub fn generate_unique_reservation_number(conn: &Connection) -> Result<String, String> {
+    for _ in 0..100 {
+        let nummer = generate_reservation_number();
+        if is_reservation_number_unique(&nummer, conn)? {
+            return Ok(nummer);
+        }
+    }
+
+    Err("Konnte keine eindeutige Reservierungsnummer generieren".to_string())
 }
 
 // ============================================================================
@@ -751,5 +865,124 @@ mod tests {
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
+    }
+
+    // ========================================================================
+    // PLZ VALIDATION TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_validate_plz_valid() {
+        // Gültige deutsche PLZ
+        assert!(validate_plz("12345").is_ok());
+        assert!(validate_plz("00000").is_ok());
+        assert!(validate_plz("99999").is_ok());
+        assert!(validate_plz("10115").is_ok()); // Berlin Mitte
+        assert!(validate_plz("80331").is_ok()); // München
+    }
+
+    #[test]
+    fn test_validate_plz_invalid() {
+        // Ungültige Formate
+        assert!(validate_plz("").is_err());
+        assert!(validate_plz("   ").is_err());
+        assert!(validate_plz("1234").is_err()); // Zu kurz
+        assert!(validate_plz("123456").is_err()); // Zu lang
+        assert!(validate_plz("12 345").is_err()); // Mit Leerzeichen
+        assert!(validate_plz("ABCDE").is_err()); // Buchstaben
+        assert!(validate_plz("12-345").is_err()); // Mit Bindestrich
+
+        // Prüfe Fehlermeldung
+        let result = validate_plz("");
+        assert_eq!(result.unwrap_err(), "Postleitzahl darf nicht leer sein");
+
+        let result = validate_plz("1234");
+        assert!(result.unwrap_err().contains("Ungültige Postleitzahl"));
+    }
+
+    // ========================================================================
+    // RESERVATION NUMBER GENERATION TESTS
+    // ========================================================================
+
+    #[test]
+    fn test_generate_reservation_number_format() {
+        let nummer = generate_reservation_number();
+
+        // Prüfe, dass die Nummer dem Format entspricht
+        assert!(nummer.starts_with("DPOLG-"));
+        assert!(validate_reservation_number(&nummer).is_ok());
+
+        // Format: DPOLG-YYYYMMDD-NNNN (mindestens 19 Zeichen)
+        assert!(nummer.len() >= 19);
+    }
+
+    #[test]
+    fn test_generate_reservation_number_unique_sequence() {
+        let num1 = generate_reservation_number();
+        let num2 = generate_reservation_number();
+        let num3 = generate_reservation_number();
+
+        // Jede generierte Nummer sollte unterschiedlich sein
+        assert_ne!(num1, num2);
+        assert_ne!(num2, num3);
+        assert_ne!(num1, num3);
+    }
+
+    #[test]
+    fn test_is_reservation_number_unique() {
+        let conn = setup_test_db();
+
+        // Erstelle Buchungen-Tabelle mit reservierungsnummer
+        conn.execute(
+            "ALTER TABLE bookings ADD COLUMN reservierungsnummer TEXT",
+            [],
+        )
+        .unwrap();
+
+        // Neue Nummer sollte eindeutig sein
+        assert_eq!(is_reservation_number_unique("DPOLG-20251001-0001", &conn).unwrap(), true);
+
+        // Füge Buchung mit dieser Nummer hinzu
+        conn.execute(
+            "INSERT INTO bookings (room_id, checkin_date, checkout_date, status, reservierungsnummer)
+             VALUES (1, '2025-10-01', '2025-10-05', 'bestaetigt', 'DPOLG-20251001-0001')",
+            [],
+        )
+        .unwrap();
+
+        // Jetzt sollte die Nummer nicht mehr eindeutig sein
+        assert_eq!(is_reservation_number_unique("DPOLG-20251001-0001", &conn).unwrap(), false);
+
+        // Andere Nummer sollte weiterhin eindeutig sein
+        assert_eq!(is_reservation_number_unique("DPOLG-20251001-0002", &conn).unwrap(), true);
+    }
+
+    #[test]
+    fn test_generate_unique_reservation_number() {
+        let conn = setup_test_db();
+
+        // Erstelle Buchungen-Tabelle mit reservierungsnummer
+        conn.execute(
+            "ALTER TABLE bookings ADD COLUMN reservierungsnummer TEXT",
+            [],
+        )
+        .unwrap();
+
+        // Generiere erste eindeutige Nummer
+        let num1 = generate_unique_reservation_number(&conn).unwrap();
+        assert!(is_reservation_number_unique(&num1, &conn).unwrap());
+
+        // Füge Buchung hinzu
+        conn.execute(
+            "INSERT INTO bookings (room_id, checkin_date, checkout_date, status, reservierungsnummer)
+             VALUES (1, '2025-10-01', '2025-10-05', 'bestaetigt', ?1)",
+            [&num1],
+        )
+        .unwrap();
+
+        // Generiere zweite eindeutige Nummer (sollte unterschiedlich sein)
+        let num2 = generate_unique_reservation_number(&conn).unwrap();
+        assert_ne!(num1, num2);
+        assert!(is_reservation_number_unique(&num2, &conn).unwrap());
     }
 }

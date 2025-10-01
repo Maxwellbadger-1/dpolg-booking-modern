@@ -4,26 +4,25 @@ import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase
 
 // HMR Force Reload - Padding Fix Applied
 
+interface Guest {
+  id: number;
+  vorname: string;
+  nachname: string;
+  email: string;
+  telefon: string;
+  dpolg_mitglied: boolean;
+  strasse?: string;
+  plz?: string;
+  ort?: string;
+  mitgliedsnummer?: string;
+  notizen?: string;
+}
+
 interface GuestDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  guestToEdit?: {
-    id: number;
-    vorname: string;
-    nachname: string;
-    email: string;
-    telefon: string;
-    dpolgMitglied: boolean;
-    strasse?: string;
-    plz?: string;
-    ort?: string;
-    mitgliedsnummer?: string;
-    beruf?: string;
-    bundesland?: string;
-    dienststelle?: string;
-    notizen?: string;
-  };
+  guest?: Guest;
 }
 
 interface FormData {
@@ -54,7 +53,7 @@ interface Toast {
   message: string;
 }
 
-export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }: GuestDialogProps) {
+export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: GuestDialogProps) {
   const [formData, setFormData] = useState<FormData>({
     vorname: '',
     nachname: '',
@@ -78,21 +77,21 @@ export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }:
 
   // Initialize form with guest data when editing
   useEffect(() => {
-    if (guestToEdit) {
+    if (guest) {
       setFormData({
-        vorname: guestToEdit.vorname,
-        nachname: guestToEdit.nachname,
-        email: guestToEdit.email,
-        telefon: guestToEdit.telefon,
-        strasse: guestToEdit.strasse || '',
-        plz: guestToEdit.plz || '',
-        ort: guestToEdit.ort || '',
-        dpolgMitglied: guestToEdit.dpolgMitglied,
-        mitgliedsnummer: guestToEdit.mitgliedsnummer || '',
-        beruf: guestToEdit.beruf || '',
-        bundesland: guestToEdit.bundesland || '',
-        dienststelle: guestToEdit.dienststelle || '',
-        notizen: guestToEdit.notizen || '',
+        vorname: guest.vorname,
+        nachname: guest.nachname,
+        email: guest.email,
+        telefon: guest.telefon,
+        strasse: guest.strasse || '',
+        plz: guest.plz || '',
+        ort: guest.ort || '',
+        dpolgMitglied: guest.dpolg_mitglied,
+        mitgliedsnummer: guest.mitgliedsnummer || '',
+        beruf: '',
+        bundesland: '',
+        dienststelle: '',
+        notizen: guest.notizen || '',
       });
     } else {
       // Reset form for new guest
@@ -113,7 +112,8 @@ export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }:
       });
     }
     setErrors({});
-  }, [guestToEdit, isOpen]);
+    setToast(null);
+  }, [guest, isOpen]);
 
   // Show toast notification
   const showToast = (type: 'success' | 'error', message: string) => {
@@ -222,10 +222,10 @@ export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }:
         notizen: formData.notizen.trim() || null,
       };
 
-      if (guestToEdit) {
+      if (guest) {
         // Update existing guest
         await invoke('update_guest_command', {
-          id: guestToEdit.id,
+          id: guest.id,
           ...guestData,
         });
         showToast('success', 'Gast erfolgreich aktualisiert');
@@ -290,7 +290,7 @@ export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }:
                 <User className="w-5 h-5 text-white" />
               </div>
               <h2 className="text-xl font-bold text-white">
-                {guestToEdit ? 'Gast bearbeiten' : 'Neuer Gast'}
+                {guest ? 'Gast bearbeiten' : 'Neuer Gast'}
               </h2>
             </div>
             <button
@@ -579,7 +579,7 @@ export default function GuestDialog({ isOpen, onClose, guestToEdit, onSuccess }:
                     <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></div>
                   </div>
                   <span className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">
-                    DPolG Mitglied
+                    DPolG Stiftung Mitglied
                   </span>
                 </label>
               </div>

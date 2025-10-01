@@ -1,9 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../lib/utils';
-import { useData } from '../context/DataContext';
 import {
   DndContext,
   DragEndEvent,
@@ -43,6 +41,8 @@ interface Booking {
 }
 
 interface TapeChartProps {
+  rooms: Room[];
+  bookings: Booking[];
   startDate?: Date;
   endDate?: Date;
 }
@@ -320,10 +320,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
   );
 }
 
-export default function TapeChart({ startDate, endDate }: TapeChartProps) {
-  // Get data from global context
-  const { rooms, bookings, refreshAll, updateBooking } = useData();
-
+export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeChartProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [localBookings, setLocalBookings] = useState<Booking[]>(bookings);
@@ -410,8 +407,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
     const checkout = new Date(booking.checkout_date);
 
     const startOffset = differenceInDays(checkin, defaultStart);
-    // Include checkout day: add +1 to duration
-    const duration = differenceInDays(checkout, checkin) + 1;
+    const duration = differenceInDays(checkout, checkin);
 
     // Add padding: 4px on each side
     const padding = 4;
@@ -526,21 +522,6 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
     setActiveBooking(null);
     setDragHasOverlap(false);
     setOverlapDropZone(null);
-
-    // Save to database
-    invoke('update_booking_dates_and_room_command', {
-      id: activeBooking.id,
-      roomId: targetRoomId,
-      checkinDate: format(newCheckinDate, 'yyyy-MM-dd'),
-      checkoutDate: format(newCheckoutDate, 'yyyy-MM-dd'),
-    }).then(() => {
-      console.log('Buchung erfolgreich in DB gespeichert');
-      refreshAll(); // Refresh to get updated data
-    }).catch(err => {
-      console.error('Fehler beim Speichern der Buchung:', err);
-      alert('Fehler beim Speichern der Buchungsänderung');
-      refreshAll(); // Reload to get original state
-    });
   };
 
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
@@ -601,7 +582,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
         new_checkout: format(newCheckout, 'yyyy-MM-dd'),
       });
 
-      const updatedBookings = prev.map(booking => {
+      return prev.map(booking => {
         if (booking.id !== bookingId) return booking;
 
         return {
@@ -610,28 +591,8 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
           checkout_date: format(newCheckout, 'yyyy-MM-dd'),
         };
       });
-
-      // Save resize to database
-      const booking = prev.find(b => b.id === bookingId);
-      if (booking) {
-        invoke('update_booking_dates_and_room_command', {
-          id: bookingId,
-          roomId: booking.room_id,
-          checkinDate: format(newCheckin, 'yyyy-MM-dd'),
-          checkoutDate: format(newCheckout, 'yyyy-MM-dd'),
-        }).then(() => {
-          console.log('Resize erfolgreich in DB gespeichert');
-          refreshAll();
-        }).catch(err => {
-          console.error('Fehler beim Speichern der Resize-Änderung:', err);
-          alert('Fehler beim Speichern der Buchungsänderung');
-          refreshAll();
-        });
-      }
-
-      return updatedBookings;
     });
-  }, [updateBooking, refreshAll]);
+  }, []);
 
   return (
     <DndContext
@@ -896,7 +857,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
                 {/* Room sidebar */}
                 <div
-                  className={cn("sticky left-0 z-20 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
+                  className={cn("sticky left-0 z-10 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
                     height: `${density.rowHeight}px`,
@@ -961,7 +922,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
           </div>
 
           {/* Legend */}
-          <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-8 py-5 shadow-2xl">
+          <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-8 py-5 shadow-2xl">
             <div className="flex gap-8 justify-center items-center flex-wrap">
               <div className="text-white font-bold text-sm uppercase tracking-wider mr-4">Status:</div>
               {Object.entries(STATUS_COLORS).map(([status, colors]) => (

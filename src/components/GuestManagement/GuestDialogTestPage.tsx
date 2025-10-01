@@ -194,7 +194,7 @@ export default function GuestDialogTestPage() {
               'Required fields show validation errors when empty',
               'Email validation triggers on blur',
               'Invalid email shows error message',
-              'DPolG Mitglied checkbox shows/hides Mitgliedsnummer field',
+              'DPolG Stiftung Mitglied checkbox shows/hides Mitgliedsnummer field',
               'Submit button shows loading state during save',
               'Success toast appears after successful save',
               'Error toast appears on failure',

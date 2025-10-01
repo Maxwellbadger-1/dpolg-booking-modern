@@ -2,12 +2,35 @@
 
 ## Aktueller Stand
 ✅ **Bereits implementiert:**
-- Tape Chart Visualisierung mit Drag & Drop
-- Monatsnavigation mit Kalenderpicker
-- Grundlegende Datenbank (rooms, guests, bookings)
-- Status-Farbcodierung
-- Moderne UI mit TailwindCSS 4
-- Rust Backend mit Tauri 2
+- **Tape Chart Visualisierung** (TapeChart.tsx)
+  - Drag & Drop mit @dnd-kit/core v6.3.1
+  - Resize Funktionalität (virtuelle Handles, 30px Breite)
+  - Overlap Prevention (Bookings können sich berühren aber nicht überlappen)
+  - Density Modes (Compact/Comfortable/Spacious) mit localStorage
+  - Visuelle Feedback (rot bei Overlap, blau bei gültiger Position)
+  - Monatliche Kalenderansicht mit Navigation
+  - Status-basierte Farbcodierung (5 Status-Typen)
+  - "Heute" Button mit Auto-Scroll
+  - Wochenend-Hervorhebung
+- **Datenbank** (SQLite via Rusqlite)
+  - Vollständiges Schema (rooms, guests, bookings, accompanying_guests, additional_services, discounts)
+  - Foreign Key Enforcement + CASCADE DELETE
+  - Performance-Indexes für alle wichtigen Queries
+  - Migration-safe ALTER TABLE Statements
+- **Backend** (Rust/Tauri 2)
+  - 25 Database Functions
+  - 24 Tauri Commands (CRUD für Bookings, Guests, Rooms, Services, Discounts)
+  - Validation Module (Email, Phone, Dates, Room Availability, PLZ, Reservierungsnummer)
+  - Pricing Module (Nights, Base Price, Services, Discounts, Total mit DB-Integration)
+  - Deutsche Error Messages
+  - 76 Unit Tests (alle bestanden)
+- **Frontend** (React 18 + TypeScript)
+  - Vollständige Buchungsverwaltung (Dialog, List, Details)
+  - Vollständige Gästeverwaltung (Dialog, List, Details)
+  - Vollständige Zimmerverwaltung (Dialog, List)
+  - Tab Navigation zwischen allen Bereichen
+  - Moderne UI mit TailwindCSS v3
+  - Header mit Stats (Zimmer, Aktive Buchungen, Auslastung)
 
 ---
 
@@ -265,135 +288,178 @@
 ## Phase 3: Frontend UI-Komponenten
 **Ziel:** React-Komponenten für alle Verwaltungsfunktionen
 
-### 3.1 Buchungsverwaltung
-**Neuer Ordner:** `src/components/BookingManagement/`
+### 3.1 Buchungsverwaltung ✅ ERLEDIGT
+**Ordner:** `src/components/BookingManagement/`
 
-- [ ] **BookingDialog.tsx** - Neue Buchung erstellen/bearbeiten
+- [x] **BookingDialog.tsx** - Neue Buchung erstellen/bearbeiten ✅ KOMPLETT
   ```tsx
   Felder:
-  - Gast auswählen (Dropdown mit Autocomplete)
-  - Check-in Datum (DatePicker)
-  - Check-out Datum (DatePicker)
-  - Zimmer auswählen (Dropdown mit Verfügbarkeits-Check)
-  - Anzahl Gäste (Number Input)
-  - Status (Select: reserviert, bestätigt, eingecheckt, ausgecheckt, storniert)
-  - Bemerkungen (Textarea)
-  - Begleitpersonen (Dynamic List)
-  - Zusätzliche Services (Dynamic List mit Preisen)
-  - Rabatte (Dynamic List)
-  - Live-Preisberechnung anzeigen
+  ✅ Gast auswählen (Dropdown mit allen Gästen, zeigt Mitgliedschaft)
+  ✅ Check-in Datum (DatePicker mit HTML5 date input)
+  ✅ Check-out Datum (DatePicker mit HTML5 date input)
+  ✅ Zimmer auswählen (Dropdown mit Kapazität-Info)
+  ✅ Anzahl Gäste (Number Input mit Validierung)
+  ✅ Status (Select: 5 Status-Optionen mit Farben)
+  ✅ Bemerkungen (Textarea)
+  ✅ Live-Preisberechnung (zeigt Nächte, Preis/Nacht, Grundpreis, Services, Rabatte, Gesamtpreis)
+  ✅ Mitglied vs Nicht-Mitglied Preise
+  ✅ Validierung (Kapazität, Datumsbereich, Pflichtfelder)
+  ✅ Verfügbarkeits-Check mit Live-Anzeige (grün/rot/checking)
+  ✅ Begleitpersonen (Dynamic List mit Add/Remove, Vorname, Nachname, Geburtsdatum)
+  ✅ Zusätzliche Services (Dynamic List mit Add/Remove, Name + Preis)
+  ✅ Rabatte (Dynamic List mit Add/Remove, Name + Typ[percent/fixed] + Wert)
+  ✅ Automatische Preisberechnung inkl. Services & Rabatte
+  ✅ Speicherung aller Komponenten bei Buchungserstellung
+  ✅ Sofortiges Speichern bei Bearbeitung bestehender Buchung
   ```
 
-- [ ] **BookingList.tsx** - Übersicht aller Buchungen
+- [x] **BookingList.tsx** - Übersicht aller Buchungen ✅ KOMPLETT
   ```tsx
   Features:
-  - Tabellen-Ansicht mit Sortierung
-  - Suche nach Reservierungsnummer
-  - Suche nach Gastname
-  - Filter nach Status
-  - Filter nach Zeitraum
-  - Filter nach Zimmer
-  - Edit/Delete Actions
+  ✅ Tabellen-Ansicht mit hover effects
+  ✅ Suche nach Reservierungsnummer, Gastname, Zimmer
+  ✅ Filter nach Status (6 Optionen)
+  ✅ Filter nach Zimmer (Dropdown)
+  ✅ Zeitraum-Filter (Von/Bis Datum mit Intervall-Check)
+  ✅ Sortierung für alle Spalten (Reservierung, Gast, Zimmer, Check-in, Check-out, Status, Preis)
+  ✅ Sort-Indikatoren mit Icons (Auf/Ab/Neutral)
+  ✅ Status-Badges mit Icons & Farben
+  ✅ Formatierte Daten (DD.MM.YYYY)
+  ✅ Preis-Anzeige
+  ✅ Edit Actions (funktional)
+  ✅ Connected mit BookingDialog
+  ✅ Delete Actions mit Bestätigung
+  ✅ Empty State mit hilfreichen Messages
   ```
 
-- [ ] **BookingDetails.tsx** - Detailansicht einer Buchung
+- [x] **BookingDetails.tsx** - Detailansicht einer Buchung ✅ KOMPLETT
   ```tsx
   Anzeige:
-  - Alle Buchungsdaten
-  - Gast-Details
-  - Zimmer-Details
-  - Begleitpersonen
-  - Services mit Preisen
-  - Rabatte
-  - Preisaufschlüsselung
-  - Aktionen: Bearbeiten, Stornieren, Email senden
+  ✅ Alle Buchungsdaten mit Status-Badge
+  ✅ Gast-Details (Name, Email, Telefon, Adresse, Mitgliedschaft)
+  ✅ Zimmer-Details (Name, Typ, Ort, Kapazität, Schlüsselcode)
+  ✅ Aufenthaltszeitraum (Check-in, Check-out, Nächte)
+  ✅ Begleitpersonen-Liste mit Geburtsdaten
+  ✅ Services mit Preisen
+  ✅ Rabatte mit Typen (Prozent/Fest)
+  ✅ Preisaufschlüsselung (Grundpreis, Services, Rabatte, Gesamtpreis)
+  ✅ Bemerkungen
+  ✅ Aktionen: Bearbeiten, Stornieren
+  ✅ Modal mit Gradient-Header
   ```
 
-### 3.2 Gästeverwaltung
-**Neuer Ordner:** `src/components/GuestManagement/`
+### 3.2 Gästeverwaltung ✅ ERLEDIGT
+**Ordner:** `src/components/GuestManagement/`
 
-- [ ] **GuestDialog.tsx** - Gast erstellen/bearbeiten
+- [x] **GuestDialog.tsx** - Gast erstellen/bearbeiten
   ```tsx
   Felder:
-  - Vorname* (required)
-  - Nachname* (required)
-  - Email* (mit Validierung)
-  - Telefon (mit Format-Validierung)
-  - Straße
-  - PLZ (mit Validierung)
-  - Ort
-  - DPolG Mitglied (Checkbox)
-  - Mitgliedsnummer (wenn Mitglied)
-  - Notizen (Textarea)
+  ✅ Vorname* (required)
+  ✅ Nachname* (required)
+  ✅ Email* (mit Validierung)
+  ✅ Telefon (mit Format-Validierung)
+  ✅ Straße
+  ✅ PLZ (mit Validierung)
+  ✅ Ort
+  ✅ DPolG Mitglied (Checkbox)
+  ✅ Mitgliedsnummer (wenn Mitglied)
+  ✅ Notizen (Textarea)
   ```
+  ✅ Vollständig implementiert mit Toast-Benachrichtigungen
 
-- [ ] **GuestList.tsx** - Übersicht aller Gäste
+- [x] **GuestList.tsx** - Übersicht aller Gäste
   ```tsx
   Features:
-  - Tabellen-Ansicht
-  - Suche nach Name
-  - Suche nach Email
-  - Filter: Mitglieder/Nicht-Mitglieder
-  - Anzahl Buchungen pro Gast anzeigen
-  - Edit/Delete Actions
+  ✅ Tabellen-Ansicht mit hover effects
+  ✅ Suche nach Name, Email, Telefon
+  ✅ Filter: Alle/Mitglieder/Nicht-Mitglieder
+  ✅ Edit/Delete Actions mit Bestätigung
+  ✅ Membership Badges mit Icons
+  ✅ Kontaktdaten mit Icons (Mail, Phone)
+  ✅ Adress-Display
   ```
+  ✅ Implementiert mit Live-Daten via `get_all_guests_command`
 
-- [ ] **GuestDetails.tsx** - Detailansicht eines Gastes
+- [x] **GuestDetails.tsx** - Detailansicht eines Gastes ✅ KOMPLETT
   ```tsx
   Anzeige:
-  - Alle Gast-Daten
-  - Buchungshistorie
-  - Gesamtumsatz
-  - Letzte Buchung
+  ✅ Alle Gast-Daten (Name, Email, Telefon, Adresse, Mitgliedschaft, Notizen)
+  ✅ Erstellt-am Datum
+  ✅ Statistik-Cards (Gesamt Buchungen, Aktive, Abgeschlossen, Gesamtumsatz)
+  ✅ Letzte Buchung Highlight
+  ✅ Buchungshistorie (sortiert, scrollbar, alle Details)
+  ✅ Status-Badges für jede Buchung
+  ✅ Aktionen: Bearbeiten-Button
+  ✅ Modal mit Gradient-Header (Emerald)
   ```
 
-### 3.3 Zimmerverwaltung
-**Neuer Ordner:** `src/components/RoomManagement/`
+### 3.3 Zimmerverwaltung ✅ ERLEDIGT
+**Ordner:** `src/components/RoomManagement/`
 
-- [ ] **RoomDialog.tsx** - Zimmer erstellen/bearbeiten
+- [x] **RoomDialog.tsx** - Zimmer erstellen/bearbeiten
   ```tsx
   Felder:
-  - Zimmername* (required)
-  - Gebäude/Typ* (required)
-  - Kapazität* (number)
-  - Preis Mitglied* (number)
-  - Preis Nicht-Mitglied* (number)
-  - Ort* (required)
-  - Schlüsselcode (optional)
-  - Beschreibung (Textarea)
+  ✅ Zimmername* (required)
+  ✅ Gebäude/Typ* (required)
+  ✅ Kapazität* (number, 1-20)
+  ✅ Preis Mitglied* (number mit € Symbol)
+  ✅ Preis Nicht-Mitglied* (number mit € Symbol)
+  ✅ Ort* (required)
+  ✅ Schlüsselcode (optional, monospace font)
   ```
+  ✅ Vollständig implementiert mit Error Handling
 
-- [ ] **RoomList.tsx** - Übersicht aller Zimmer
+- [x] **RoomList.tsx** - Übersicht aller Zimmer
   ```tsx
   Features:
-  - Karten-Ansicht oder Tabelle
-  - Filter nach Gebäude/Typ
-  - Filter nach Ort
-  - Sortierung nach Name/Preis/Kapazität
-  - Verfügbarkeits-Status anzeigen
-  - Edit/Delete Actions
+  ✅ Card-basierte Grid-Ansicht (responsive)
+  ✅ Filter nach Ort (dynamisch aus Daten)
+  ✅ Suche nach Name, Gebäude, Ort
+  ✅ Edit/Delete Actions mit Bestätigung
+  ✅ Gradient-Header mit Icons
+  ✅ Preisanzeige (Mitglieder vs Nicht-Mitglieder)
+  ✅ Kapazitäts-Display mit Icon
+  ✅ Schlüsselcode-Anzeige (wenn vorhanden)
   ```
+  ✅ Implementiert mit Live-Daten via `get_all_rooms`
 
-### 3.4 Navigation & Layout
+### 3.4 Navigation & Layout ✅ ERLEDIGT
 **Dateien:** `src/components/Layout/`, `src/App.tsx`
 
-- [ ] **Sidebar Navigation** implementieren
+- [x] **Tab Navigation** implementieren
   ```tsx
-  Menüpunkte:
-  - Dashboard (Tape Chart)
-  - Buchungen
-  - Gäste
-  - Zimmer
-  - Reports
-  - Einstellungen
+  Tabs:
+  ✅ Dashboard (Tape Chart)
+  ✅ Buchungen (BookingList mit Live-Daten)
+  ✅ Gäste (GuestList mit Live-Daten)
+  ✅ Zimmer (RoomList mit Live-Daten, Grid Layout)
   ```
+  ✅ Implementiert in `App.tsx:199-231`
+  - Type-safe tab switching mit `type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms'`
+  - Visual active state mit Tailwind
+  - Icons von Lucide React
+  - Smooth transitions
 
-- [ ] **Header** erweitern
+- [x] **Header** fertig
   ```tsx
   Features:
-  - Schnellsuche (Global)
-  - Benachrichtigungen (später)
-  - Benutzer-Menü (später)
+  ✅ Logo + Title
+  ✅ Stats (Zimmer, Aktive Buchungen, Auslastung)
+  ✅ Action Buttons (Neuer Gast)
+  ✅ Datums-Anzeige
+  ```
+
+- [x] **List Views mit CRUD** implementiert
+  ```tsx
+  ✅ BookingList.tsx - Tabelle mit Status-Badges, Suche, Filter
+  ✅ GuestList.tsx - Tabelle mit Membership-Badges, Suche, Filter
+  ✅ RoomList.tsx - Card-basiertes Grid mit Pricing, Suche, Filter
+  ```
+
+- [x] **Dialog Components verbunden**
+  ```tsx
+  ✅ RoomDialog - Create/Edit Zimmer (connected zu RoomList)
+  ✅ GuestDialog - Create/Edit Gäste (connected zu GuestList)
   ```
 
 ---
@@ -478,78 +544,166 @@
 
 ---
 
-## Phase 6: Email-System
+## Phase 6: Email-System ✅ ERLEDIGT
 **Ziel:** Automatische Emails und Templates
 
-### 6.1 Email Backend
-**Neue Datei:** `src-tauri/src/email.rs`
+### 6.1 Email Backend ✅ KOMPLETT
+**Datei:** `src-tauri/src/email.rs`
 
-- [ ] **SMTP-Konfiguration**
+- [x] **SMTP-Konfiguration**
   ```rust
   Tabelle: email_config
   - smtp_server: TEXT
   - smtp_port: INTEGER
   - smtp_username: TEXT
-  - smtp_password: TEXT (verschlüsselt)
+  - smtp_password: TEXT (verschlüsselt mit Base64)
   - from_email: TEXT
   - from_name: TEXT
   - use_tls: INTEGER (boolean)
   ```
+  ✅ Implementiert mit save_email_config(), get_email_config()
+  ✅ Passwort-Verschlüsselung mit Base64
 
-- [ ] **Email-Templates**
+- [x] **Email-Templates**
   ```rust
   Tabelle: email_templates
   - id: INTEGER PRIMARY KEY
-  - template_name: TEXT (confirmation/reminder/invoice)
+  - template_name: TEXT UNIQUE (confirmation/reminder/invoice)
   - subject: TEXT
   - body: TEXT (mit Platzhaltern)
+  - description: TEXT
   - created_at: TEXT
+  - updated_at: TEXT
   ```
+  ✅ Implementiert mit get_all_templates(), get_template_by_name(), update_template()
+  ✅ 3 Standard-Templates automatisch erstellt
 
-- [ ] **Email-Funktionen**
+- [x] **Email-Logs**
   ```rust
-  - send_confirmation_email(booking_id)
-  - send_reminder_email(booking_id)
-  - send_invoice_email(booking_id)
-  - send_custom_email(guest_id, subject, body)
+  Tabelle: email_logs
+  - id: INTEGER PRIMARY KEY
+  - booking_id: INTEGER (FK)
+  - guest_id: INTEGER (FK)
+  - template_name: TEXT
+  - recipient_email: TEXT
+  - subject: TEXT
+  - status: TEXT (gesendet/fehler)
+  - error_message: TEXT
+  - sent_at: TEXT
   ```
+  ✅ Vollständige Versandhistorie mit Logging
 
-### 6.2 Email Frontend
-**Neuer Ordner:** `src/components/Email/`
+- [x] **Email-Funktionen**
+  ```rust
+  - send_confirmation_email(booking_id) ✅
+  - send_reminder_email(booking_id) ✅
+  - send_invoice_email(booking_id) ✅
+  - test_email_connection() ✅
+  - get_email_logs_for_booking(booking_id) ✅
+  ```
+  ✅ Alle Funktionen mit async/await und lettre v0.11
+  ✅ 10 Tauri Commands registriert
 
-- [ ] **EmailTemplateEditor.tsx**
+### 6.2 Email Frontend ✅ KOMPLETT
+**Ordner:** `src/components/Email/`
+
+- [x] **EmailConfigDialog.tsx**
   ```tsx
   Features:
-  - Template bearbeiten
-  - Platzhalter-Liste anzeigen
-  - Preview-Funktion
-  - Test-Email senden
+  ✅ SMTP-Einstellungen konfigurieren
+  ✅ Verbindung testen (Test-Email senden)
+  ✅ Standard-Absender festlegen
+  ✅ TLS-Option
+  ✅ Passwort-Feld (verschlüsselt gespeichert)
   ```
+  ✅ Vollständig implementiert mit Validierung und Test-Funktion
 
-- [ ] **EmailConfigDialog.tsx**
+- [x] **Email-Buttons in BookingDetails.tsx**
   ```tsx
-  Features:
-  - SMTP-Einstellungen konfigurieren
-  - Verbindung testen
-  - Standard-Absender festlegen
+  ✅ 3 Email-Buttons im Footer:
+     - Bestätigung (send_confirmation_email)
+     - Reminder (send_reminder_email)
+     - Rechnung (send_invoice_email)
+  ✅ Loading-States während Email-Versand
+  ✅ Error-Handling mit User-Feedback
   ```
 
-### 6.3 Template-Platzhalter
-- [ ] **Platzhalter definieren**
+- [x] **DevTools Email-Tests**
+  ```tsx
+  ✅ "📧 Templates" - Alle Templates anzeigen
+  ✅ "📧 Config" - Email-Konfiguration prüfen
+  ✅ Integration in Complete Test Suite
   ```
-  {gast_vorname}
-  {gast_nachname}
-  {gast_email}
-  {buchung_reservierungsnummer}
-  {zimmer_name}
-  {checkin_date}
-  {checkout_date}
-  {anzahl_naechte}
-  {anzahl_gaeste}
-  {gesamtpreis}
-  {grundpreis}
-  {services_preis}
-  {rabatt_preis}
+
+### 6.3 Template-Platzhalter ✅ IMPLEMENTIERT
+- [x] **Platzhalter-System**
+  ```
+  ✅ {gast_vorname}
+  ✅ {gast_nachname}
+  ✅ {gast_email}
+  ✅ {reservierungsnummer}
+  ✅ {zimmer_name}
+  ✅ {checkin_date}
+  ✅ {checkout_date}
+  ✅ {anzahl_naechte}
+  ✅ {anzahl_gaeste}
+  ✅ {gesamtpreis}
+  ✅ {grundpreis}
+  ✅ {services_preis}
+  ✅ {rabatt_preis}
+  ```
+  ✅ replace_placeholders() Funktion implementiert
+
+### 6.4 Zahlungsverwaltung & Erweiterte Features 🚧 IN ARBEIT
+
+- [ ] **Zahlungsstatus-Tracking**
+  ```rust
+  Neue Felder in bookings:
+  - bezahlt: BOOLEAN DEFAULT 0
+  - bezahlt_am: TEXT
+  - zahlungsmethode: TEXT (Bar/Überweisung/Karte)
+  - mahnung_gesendet_am: TEXT
+  ```
+
+- [ ] **Neue Email-Templates**
+  ```rust
+  - payment_reminder (Zahlungserinnerung nach 14 Tagen)
+  - cancellation (Stornierungsbestätigung)
+  ```
+
+- [ ] **Settings-Dialog mit Tabs**
+  ```tsx
+  SettingsDialog.tsx:
+  - Tab 1: Email-Konfiguration (EmailConfigDialog Inhalt)
+  - Tab 2: Email-Templates (Template-Editor)
+  - Tab 3: Zahlungseinstellungen (Zahlungsziel, Bankdaten, MwSt)
+  - Tab 4: Allgemeine Einstellungen (Hotel-Daten, Logo)
+  - Tab 5: Benachrichtigungen (Auto-Email Trigger)
+  ```
+
+- [ ] **Email-Verlauf Tab**
+  ```tsx
+  EmailHistoryView.tsx:
+  - Alle versendeten Emails anzeigen
+  - Filter: Status, Template-Typ, Zeitraum
+  - Suche nach Gast/Buchung
+  - Email erneut senden
+  - Email-Details anzeigen
+  ```
+
+- [ ] **Automatische Email-Trigger**
+  ```rust
+  - Bei create_booking() → Bestätigung + Rechnung senden
+  - Bei cancel_booking() → Stornierungsbestätigung senden
+  - Cronjob: Zahlungserinnerung nach 14 Tagen (wenn nicht bezahlt)
+  - Optional: Reminder X Tage vor Check-in
+  ```
+
+- [ ] **Bezahlt-Status UI**
+  ```tsx
+  - BookingList: Neue Spalte "Bezahlt" mit Status-Icon
+  - BookingDetails: Zahlungsstatus-Sektion mit "Als bezahlt markieren" Button
+  - Filter: Nur unbezahlte Buchungen anzeigen
   ```
 
 ---

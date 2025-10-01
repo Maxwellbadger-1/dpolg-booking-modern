@@ -171,6 +171,39 @@ const createBooking = async (bookingData: CreateBookingRequest): Promise<Booking
 5. **Responsive**: Use Tailwind responsive prefixes (`sm:`, `md:`, `lg:`)
 6. **Performance**: Use `React.memo` for expensive components
 7. **Consistency**: Follow existing design patterns from `App.tsx`
+8. **Focus Rings NEVER clipped**:
+   - CRITICAL: All containers with `overflow-hidden` or `overflow-y-auto` MUST have padding (min `px-1`) to prevent focus rings from being clipped
+   - Focus ring uses `focus:ring-2` which adds 2px outline outside the element
+   - Example: Tab content containers need `px-1` to show focus rings on input fields
+   - Test: Focus all form inputs to verify blue ring is fully visible
+9. **Debugging UI Problems - Multi-Method Approach**:
+
+   **Method 1: Browser DevTools (PREFERRED)**
+   - Right-click element → "Inspect" / "Untersuchen"
+   - Check **Computed** tab to see final CSS values
+   - Look for `overflow: hidden` clipping elements
+   - Verify z-index stacking contexts
+   - Check if element exists in DOM
+
+   **Method 2: Border Debugging (Quick Visual)**
+   - When DevTools aren't enough, use colored borders
+   - Add `border-4 border-red-500`, `border-4 border-blue-500`, etc.
+   - Colors: Use contrasting colors (red, blue, green, yellow, purple, pink, orange)
+   - Purpose: Instantly see exact position, size, overlap, spacing issues
+   - Example:
+     ```tsx
+     {/* DEBUG */}
+     <div className="border-4 border-red-500">      {/* Container */}
+       <div className="border-2 border-blue-500">   {/* Child */}
+     ```
+
+   **Common Issues & Solutions:**
+   - **Element not visible**: Check `overflow: hidden` on parents
+   - **z-index not working**: Ensure element has `position: relative/absolute/fixed`
+   - **Absolutely positioned element clipped**: Parent needs `overflow: visible`
+   - **Border/line disappears**: Check if `overflow-x-auto` or `overflow-y-auto` clips it
+
+   **Critical Rule**: When using `position: absolute` with negative offsets (like `bottom: -1px`), parent MUST have `overflow: visible`, NOT `overflow-auto` or `overflow-hidden`!
 
 ## Color Palette:
 ```tsx
@@ -239,3 +272,4 @@ hover:bg-slate-600
 - Hardcode colors (use Tailwind classes)
 - Forget to handle form validation
 - Use default browser alerts (use custom toast/modal components)
+- **NEVER clip focus rings**: Containers with `overflow-*` MUST have padding (min `px-1`) for visible focus rings

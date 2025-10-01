@@ -52,6 +52,11 @@ pub struct Booking {
     pub rabatt_preis: f64,
     pub anzahl_naechte: i32,
     pub updated_at: Option<String>,
+    // Phase 6.4: Zahlungsstatus
+    pub bezahlt: bool,
+    pub bezahlt_am: Option<String>,
+    pub zahlungsmethode: Option<String>,
+    pub mahnung_gesendet_am: Option<String>,
 }
 
 // Neue Tabelle: Begleitpersonen für eine Buchung
@@ -83,6 +88,45 @@ pub struct Discount {
     pub discount_type: String, // 'percent' oder 'fixed'
     pub discount_value: f64,
     pub created_at: String,
+}
+
+// Phase 6: Email-System Structs
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailConfig {
+    pub id: i64,
+    pub smtp_server: String,
+    pub smtp_port: i32,
+    pub smtp_username: String,
+    pub smtp_password: String,
+    pub from_email: String,
+    pub from_name: String,
+    pub use_tls: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailTemplate {
+    pub id: i64,
+    pub template_name: String,
+    pub subject: String,
+    pub body: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmailLog {
+    pub id: i64,
+    pub booking_id: Option<i64>,
+    pub guest_id: i64,
+    pub template_name: String,
+    pub recipient_email: String,
+    pub subject: String,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub sent_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -180,6 +224,12 @@ pub fn init_database() -> Result<()> {
     add_column_if_not_exists(&conn, "bookings", "rabatt_preis", "REAL DEFAULT 0")?;
     add_column_if_not_exists(&conn, "bookings", "anzahl_naechte", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "bookings", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")?;
+
+    // Phase 6.4: Zahlungsstatus-Tracking
+    add_column_if_not_exists(&conn, "bookings", "bezahlt", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(&conn, "bookings", "bezahlt_am", "TEXT")?;
+    add_column_if_not_exists(&conn, "bookings", "zahlungsmethode", "TEXT")?;
+    add_column_if_not_exists(&conn, "bookings", "mahnung_gesendet_am", "TEXT")?;
 
     // Phase 1.1: Neue Tabelle für Begleitpersonen
     // CASCADE DELETE: Wenn Buchung gelöscht wird, werden auch die Begleitpersonen gelöscht
@@ -297,6 +347,181 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_guests_email ON guests(email)",
         [],
     )?;
+
+    // Phase 6: Email-System Tabellen
+    // Tabelle für Email-Konfiguration (SMTP Settings)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            smtp_server TEXT NOT NULL,
+            smtp_port INTEGER NOT NULL,
+            smtp_username TEXT NOT NULL,
+            smtp_password TEXT NOT NULL,
+            from_email TEXT NOT NULL,
+            from_name TEXT NOT NULL,
+            use_tls INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Tabelle für Email-Templates
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_name TEXT NOT NULL UNIQUE,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Tabelle für Email-Logs (Versandhistorie)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER,
+            guest_id INTEGER NOT NULL,
+            template_name TEXT NOT NULL,
+            recipient_email TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error_message TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE SET NULL,
+            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Index für Email-Logs
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_logs_booking ON email_logs(booking_id)",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_email_logs_guest ON email_logs(guest_id)",
+        [],
+    )?;
+
+    // Standard-Email-Templates einfügen (falls noch nicht vorhanden)
+    insert_default_email_templates(&conn)?;
+
+    Ok(())
+}
+
+// Hilfsfunktion zum Einfügen der Standard-Email-Templates
+fn insert_default_email_templates(conn: &Connection) -> Result<()> {
+    // Prüfe ob bereits Templates existieren
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM email_templates",
+        [],
+        |row| row.get(0)
+    )?;
+
+    if count == 0 {
+        // Buchungsbestätigung Template
+        conn.execute(
+            "INSERT INTO email_templates (template_name, subject, body, description) VALUES (?1, ?2, ?3, ?4)",
+            [
+                "confirmation",
+                "Buchungsbestätigung - Reservierung {reservierungsnummer}",
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nvielen Dank für Ihre Buchung!\n\n\
+                Reservierungsnummer: {reservierungsnummer}\n\
+                Zimmer: {zimmer_name}\n\
+                Check-in: {checkin_date}\n\
+                Check-out: {checkout_date}\n\
+                Anzahl Gäste: {anzahl_gaeste}\n\
+                Anzahl Nächte: {anzahl_naechte}\n\
+                Gesamtpreis: {gesamtpreis} €\n\n\
+                Wir freuen uns auf Ihren Besuch!\n\n\
+                Mit freundlichen Grüßen\n\
+                DPolG Stiftung Buchungssystem",
+                "Standard-Template für Buchungsbestätigungen"
+            ],
+        )?;
+
+        // Check-in Reminder Template
+        conn.execute(
+            "INSERT INTO email_templates (template_name, subject, body, description) VALUES (?1, ?2, ?3, ?4)",
+            [
+                "reminder",
+                "Erinnerung - Check-in morgen für Reservierung {reservierungsnummer}",
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir möchten Sie daran erinnern, dass Ihr Check-in morgen ansteht.\n\n\
+                Reservierungsnummer: {reservierungsnummer}\n\
+                Zimmer: {zimmer_name}\n\
+                Check-in: {checkin_date}\n\
+                Check-out: {checkout_date}\n\n\
+                Wir freuen uns auf Ihren Besuch!\n\n\
+                Mit freundlichen Grüßen\n\
+                DPolG Stiftung Buchungssystem",
+                "Reminder-Email einen Tag vor Check-in"
+            ],
+        )?;
+
+        // Rechnung Template
+        conn.execute(
+            "INSERT INTO email_templates (template_name, subject, body, description) VALUES (?1, ?2, ?3, ?4)",
+            [
+                "invoice",
+                "Rechnung - Reservierung {reservierungsnummer}",
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nanbei erhalten Sie die Rechnung für Ihren Aufenthalt.\n\n\
+                Reservierungsnummer: {reservierungsnummer}\n\
+                Zimmer: {zimmer_name}\n\
+                Zeitraum: {checkin_date} - {checkout_date}\n\
+                Anzahl Nächte: {anzahl_naechte}\n\n\
+                Grundpreis: {grundpreis} €\n\
+                Services: {services_preis} €\n\
+                Rabatt: -{rabatt_preis} €\n\
+                Gesamtpreis: {gesamtpreis} €\n\n\
+                Vielen Dank für Ihren Aufenthalt!\n\n\
+                Mit freundlichen Grüßen\n\
+                DPolG Stiftung Buchungssystem",
+                "Rechnungs-Email nach Check-out"
+            ],
+        )?;
+
+        // Zahlungserinnerung Template
+        conn.execute(
+            "INSERT INTO email_templates (template_name, subject, body, description) VALUES (?1, ?2, ?3, ?4)",
+            [
+                "payment_reminder",
+                "Zahlungserinnerung - Reservierung {reservierungsnummer}",
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir möchten Sie freundlich daran erinnern, dass die Zahlung für Ihre Buchung noch aussteht.\n\n\
+                Reservierungsnummer: {reservierungsnummer}\n\
+                Zimmer: {zimmer_name}\n\
+                Zeitraum: {checkin_date} - {checkout_date}\n\
+                Gesamtbetrag: {gesamtpreis} €\n\n\
+                Bitte überweisen Sie den Betrag innerhalb der nächsten 7 Tage.\n\n\
+                Bei Fragen stehen wir Ihnen gerne zur Verfügung.\n\n\
+                Mit freundlichen Grüßen\n\
+                DPolG Stiftung Buchungssystem",
+                "Zahlungserinnerung nach 14 Tagen"
+            ],
+        )?;
+
+        // Stornierungsbestätigung Template
+        conn.execute(
+            "INSERT INTO email_templates (template_name, subject, body, description) VALUES (?1, ?2, ?3, ?4)",
+            [
+                "cancellation",
+                "Stornierungsbestätigung - Reservierung {reservierungsnummer}",
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir bestätigen die Stornierung Ihrer Buchung.\n\n\
+                Reservierungsnummer: {reservierungsnummer}\n\
+                Zimmer: {zimmer_name}\n\
+                Ursprünglicher Zeitraum: {checkin_date} - {checkout_date}\n\
+                Storniert am: {heute}\n\n\
+                Falls Sie erneut buchen möchten, kontaktieren Sie uns gerne.\n\n\
+                Mit freundlichen Grüßen\n\
+                DPolG Stiftung Buchungssystem",
+                "Bestätigung bei Stornierung"
+            ],
+        )?;
+    }
 
     Ok(())
 }
@@ -889,6 +1114,30 @@ pub fn delete_booking(id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Aktualisiert nur Zimmer und Daten einer Buchung (für Drag & Drop im TapeChart)
+pub fn update_booking_dates_and_room(
+    id: i64,
+    room_id: i64,
+    checkin_date: String,
+    checkout_date: String,
+) -> Result<Booking> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let rows_affected = conn.execute(
+        "UPDATE bookings SET
+         room_id = ?1, checkin_date = ?2, checkout_date = ?3, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?4",
+        rusqlite::params![room_id, checkin_date, checkout_date, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    get_booking_by_id(id)
+}
+
 /// Storniert eine Buchung (setzt Status auf 'storniert')
 pub fn cancel_booking(id: i64) -> Result<Booking> {
     let conn = Connection::open(get_db_path())?;
@@ -906,6 +1155,26 @@ pub fn cancel_booking(id: i64) -> Result<Booking> {
     get_booking_by_id(id)
 }
 
+/// Markiert eine Buchung als bezahlt
+pub fn mark_booking_as_paid(id: i64, zahlungsmethode: String) -> Result<Booking> {
+    use chrono::Local;
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let bezahlt_am = Local::now().format("%Y-%m-%d").to_string();
+
+    let rows_affected = conn.execute(
+        "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, zahlungsmethode = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
+        rusqlite::params![bezahlt_am, zahlungsmethode, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    get_booking_by_id(id)
+}
+
 /// Gibt eine Buchung anhand der ID zurück
 pub fn get_booking_by_id(id: i64) -> Result<Booking> {
     let conn = Connection::open(get_db_path())?;
@@ -914,7 +1183,8 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
     conn.query_row(
         "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
          anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at, anzahl_begleitpersonen,
-         grundpreis, services_preis, rabatt_preis, anzahl_naechte, updated_at
+         grundpreis, services_preis, rabatt_preis, anzahl_naechte, updated_at,
+         bezahlt, bezahlt_am, zahlungsmethode, mahnung_gesendet_am
          FROM bookings WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -936,6 +1206,10 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
                 rabatt_preis: row.get(14)?,
                 anzahl_naechte: row.get(15)?,
                 updated_at: row.get(16)?,
+                bezahlt: row.get::<_, i32>(17)? != 0,
+                bezahlt_am: row.get(18)?,
+                zahlungsmethode: row.get(19)?,
+                mahnung_gesendet_am: row.get(20)?,
             })
         },
     )
@@ -1180,4 +1454,155 @@ pub fn get_booking_discounts(booking_id: i64) -> Result<Vec<Discount>> {
     })?;
 
     discounts.collect()
+}
+
+// ============================================================================
+// REPORTS & STATISTICS
+// ============================================================================
+
+/// Statistiken für Reports
+#[derive(Debug, serde::Serialize)]
+pub struct ReportStats {
+    pub total_bookings: i32,
+    pub active_bookings: i32,
+    pub total_revenue: f64,
+    pub total_nights: i32,
+    pub average_price_per_night: f64,
+    pub occupancy_rate: f64,
+}
+
+/// Belegung pro Zimmer
+#[derive(Debug, serde::Serialize)]
+pub struct RoomOccupancy {
+    pub room_id: i64,
+    pub room_name: String,
+    pub total_bookings: i32,
+    pub total_nights: i32,
+    pub total_revenue: f64,
+    pub occupancy_rate: f64,
+}
+
+/// Gibt Gesamt-Statistiken für einen Zeitraum zurück
+pub fn get_report_stats(start_date: &str, end_date: &str) -> Result<ReportStats> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Total bookings (nicht storniert)
+    let total_bookings: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM bookings
+         WHERE status != 'storniert'
+         AND checkin_date >= ?1 AND checkout_date <= ?2",
+        rusqlite::params![start_date, end_date],
+        |row| row.get(0),
+    )?;
+
+    // Active bookings (reserviert, bestätigt, eingecheckt)
+    let active_bookings: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM bookings
+         WHERE status IN ('reserviert', 'bestaetigt', 'eingecheckt')
+         AND checkin_date >= ?1 AND checkout_date <= ?2",
+        rusqlite::params![start_date, end_date],
+        |row| row.get(0),
+    )?;
+
+    // Total revenue (nicht storniert)
+    let total_revenue: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(gesamtpreis), 0.0) FROM bookings
+         WHERE status != 'storniert'
+         AND checkin_date >= ?1 AND checkout_date <= ?2",
+        rusqlite::params![start_date, end_date],
+        |row| row.get(0),
+    )?;
+
+    // Total nights
+    let total_nights: i32 = conn.query_row(
+        "SELECT COALESCE(SUM(anzahl_naechte), 0) FROM bookings
+         WHERE status != 'storniert'
+         AND checkin_date >= ?1 AND checkout_date <= ?2",
+        rusqlite::params![start_date, end_date],
+        |row| row.get(0),
+    )?;
+
+    // Average price per night
+    let average_price_per_night = if total_nights > 0 {
+        total_revenue / total_nights as f64
+    } else {
+        0.0
+    };
+
+    // Occupancy rate (simplified: booked nights / available nights)
+    // Available nights = number of rooms × days in period
+    let room_count: i32 = conn.query_row("SELECT COUNT(*) FROM rooms", [], |row| row.get(0))?;
+
+    // Calculate days in period
+    let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let end = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let days_in_period = (end - start).num_days() as i32 + 1;
+
+    let available_nights = room_count * days_in_period;
+    let occupancy_rate = if available_nights > 0 {
+        (total_nights as f64 / available_nights as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    Ok(ReportStats {
+        total_bookings,
+        active_bookings,
+        total_revenue,
+        total_nights,
+        average_price_per_night,
+        occupancy_rate,
+    })
+}
+
+/// Gibt Belegungsstatistiken pro Zimmer zurück
+pub fn get_room_occupancy(start_date: &str, end_date: &str) -> Result<Vec<RoomOccupancy>> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let mut stmt = conn.prepare(
+        "SELECT
+            r.id,
+            r.name,
+            COUNT(b.id) as total_bookings,
+            COALESCE(SUM(b.anzahl_naechte), 0) as total_nights,
+            COALESCE(SUM(b.gesamtpreis), 0.0) as total_revenue
+         FROM rooms r
+         LEFT JOIN bookings b ON r.id = b.room_id
+            AND b.status != 'storniert'
+            AND b.checkin_date >= ?1
+            AND b.checkout_date <= ?2
+         GROUP BY r.id, r.name
+         ORDER BY total_revenue DESC",
+    )?;
+
+    // Calculate days in period for occupancy rate
+    let start = chrono::NaiveDate::parse_from_str(start_date, "%Y-%m-%d")
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let end = chrono::NaiveDate::parse_from_str(end_date, "%Y-%m-%d")
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+    let days_in_period = (end - start).num_days() as i32 + 1;
+
+    let occupancies = stmt.query_map(rusqlite::params![start_date, end_date], |row| {
+        let total_nights: i32 = row.get(3)?;
+        let occupancy_rate = if days_in_period > 0 {
+            (total_nights as f64 / days_in_period as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(RoomOccupancy {
+            room_id: row.get(0)?,
+            room_name: row.get(1)?,
+            total_bookings: row.get(2)?,
+            total_nights,
+            total_revenue: row.get(4)?,
+            occupancy_rate,
+        })
+    })?;
+
+    occupancies.collect()
 }

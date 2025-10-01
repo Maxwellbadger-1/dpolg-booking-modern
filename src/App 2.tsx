@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { DataProvider } from './context/DataContext';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
 import GuestList from './components/GuestManagement/GuestList';
 import RoomList from './components/RoomManagement/RoomList';
+import ReportsView from './components/Reports/ReportsView';
 import DevTools from './components/DevTools';
 import GuestDialog from './components/GuestManagement/GuestDialog';
-import SettingsDialog from './components/Settings/SettingsDialog';
-import EmailHistoryView from './components/Email/EmailHistoryView';
-import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail } from 'lucide-react';
+import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, BarChart3 } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -46,7 +44,7 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails';
+type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'reports';
 
 function App() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -54,7 +52,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
-  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   useEffect(() => {
@@ -118,12 +115,11 @@ function App() {
     { id: 'bookings' as Tab, label: 'Buchungen', icon: CalendarCheck },
     { id: 'guests' as Tab, label: 'Gäste', icon: Users },
     { id: 'rooms' as Tab, label: 'Zimmer', icon: Hotel },
-    { id: 'emails' as Tab, label: 'Email-Verlauf', icon: Mail },
+    { id: 'reports' as Tab, label: 'Reports', icon: BarChart3 },
   ];
 
   return (
-    <DataProvider>
-      <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header - Compact Single Row */}
       <header className="bg-gradient-to-r from-slate-800 to-slate-900 shadow-2xl border-b border-slate-700">
         <div className="px-6 py-3 flex items-center justify-between">
@@ -183,14 +179,6 @@ function App() {
           {/* Right: Actions + Date */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowSettingsDialog(true)}
-              className="flex items-center gap-2 p-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
-              title="Einstellungen"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-
-            <button
               onClick={() => setShowGuestDialog(true)}
               className="flex items-center gap-2 btn-primary bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-xl"
             >
@@ -239,22 +227,17 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === 'dashboard' && <TapeChart />}
+        {activeTab === 'dashboard' && <TapeChart rooms={rooms} bookings={bookings} />}
         {activeTab === 'bookings' && <BookingList />}
         {activeTab === 'guests' && <GuestList />}
         {activeTab === 'rooms' && <RoomList />}
-        {activeTab === 'emails' && <EmailHistoryView />}
+        {activeTab === 'reports' && <ReportsView />}
       </main>
 
       {/* DevTools - nur während Development */}
       <DevTools />
 
       {/* Guest Dialog */}
-      <SettingsDialog
-        isOpen={showSettingsDialog}
-        onClose={() => setShowSettingsDialog(false)}
-      />
-
       <GuestDialog
         isOpen={showGuestDialog}
         onClose={() => setShowGuestDialog(false)}
@@ -263,8 +246,7 @@ function App() {
           setShowGuestDialog(false);
         }}
       />
-      </div>
-    </DataProvider>
+    </div>
   );
 }
 
