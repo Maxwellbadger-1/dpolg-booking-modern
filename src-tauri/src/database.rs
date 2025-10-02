@@ -1698,3 +1698,45 @@ pub fn get_room_occupancy(start_date: &str, end_date: &str) -> Result<Vec<RoomOc
 
     occupancies.collect()
 }
+/// Aktualisiert Buchungs-Status basierend auf Check-in/Check-out Daten
+///
+/// Logik:
+/// - heute >= checkout_date → "ausgecheckt"
+/// - heute >= checkin_date AND heute < checkout_date → "eingecheckt"
+/// - Status "storniert" wird nicht geändert
+pub fn update_booking_statuses_by_date() -> Result<usize> {
+    let conn = Connection::open(get_db_path())?;
+
+    // Aktuelles Datum in YYYY-MM-DD Format
+    let heute = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+    println!("📅 [database::update_booking_statuses_by_date] Heute: {}", heute);
+
+    // 1. Ausgecheckt: heute >= checkout_date
+    let ausgecheckt_count = conn.execute(
+        "UPDATE bookings
+         SET status = 'ausgecheckt'
+         WHERE status IN ('bestaetigt', 'eingecheckt')
+         AND checkout_date <= ?1",
+        rusqlite::params![heute],
+    )?;
+
+    println!("✅ {} Buchungen auf 'ausgecheckt' gesetzt", ausgecheckt_count);
+
+    // 2. Eingecheckt: heute >= checkin AND heute < checkout
+    let eingecheckt_count = conn.execute(
+        "UPDATE bookings
+         SET status = 'eingecheckt'
+         WHERE status = 'bestaetigt'
+         AND checkin_date <= ?1
+         AND checkout_date > ?1",
+        rusqlite::params![heute],
+    )?;
+
+    println!("✅ {} Buchungen auf 'eingecheckt' gesetzt", eingecheckt_count);
+
+    let total_changed = ausgecheckt_count + eingecheckt_count;
+    println!("📊 Gesamt {} Status-Änderungen", total_changed);
+
+    Ok(total_changed)
+}

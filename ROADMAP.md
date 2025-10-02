@@ -708,13 +708,29 @@
 
 ---
 
-## Phase 7: PDF-Generierung
+## Phase 7: PDF-Generierung ✅ ERLEDIGT
 **Ziel:** Professionelle PDF-Dokumente
 
-### 7.1 PDF-Layouts
-**Neue Datei:** `src-tauri/src/pdf_generator.rs`
+### 7.1 PDF-Layouts ✅ ERLEDIGT
+**Datei:** `src-tauri/src/pdf_generator.rs`
 
-- [ ] **Buchungsbestätigung**
+- [x] **Rechnungs-PDF mit automatischem Email-Versand** ✅
+  - `printpdf = "0.7"` zu Cargo.toml hinzugefügt
+  - `generate_invoice_pdf()` - Generiert PDF-Rechnung im App-Data Ordner
+  - `generate_invoice_pdf_command` - Tauri Command für PDF-Generierung
+  - `generate_and_send_invoice_command` - Kombinierte PDF + Email Funktion
+  - Automatischer Versand bei Buchungserstellung in BookingDialog.tsx
+  - Email-Attachment Support in `email.rs` (`send_invoice_email_with_pdf`)
+  - PDF enthält:
+    * DPolG Stiftung Header
+    * Reservierungsnummer
+    * Gast-Details
+    * Zimmer & Zeitraum
+    * Anzahl Nächte
+    * Gesamtpreis
+    * Zahlungshinweis (IBAN, Verwendungszweck)
+
+- [ ] **Buchungsbestätigung** (Future)
   ```rust
   Inhalt:
   - Header mit Logo

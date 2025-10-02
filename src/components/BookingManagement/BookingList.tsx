@@ -7,6 +7,7 @@ import BookingDialog from './BookingDialog';
 import BookingDetails from './BookingDetails';
 import ErrorBoundary from '../ErrorBoundary';
 import ConfirmDialog from '../ConfirmDialog';
+import { useData } from '../../context/DataContext';
 
 interface Room {
   id: number;
@@ -46,6 +47,8 @@ type SortField = 'reservierungsnummer' | 'guest' | 'room' | 'checkin' | 'checkou
 type SortDirection = 'asc' | 'desc' | null;
 
 export default function BookingList() {
+  const { deleteBooking } = useData();
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,8 +101,8 @@ export default function BookingList() {
     if (!bookingToDelete) return;
 
     try {
-      await invoke('delete_booking_command', { id: bookingToDelete.id });
-      await loadBookings();
+      await deleteBooking(bookingToDelete.id);
+      await loadBookings(); // Reload für lokale Liste
       setShowDeleteConfirm(false);
       setBookingToDelete(null);
     } catch (error) {

@@ -48,12 +48,6 @@ interface TapeChartProps {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; shadow: string }> = {
-  reserviert: {
-    bg: 'bg-gradient-to-r from-blue-500 to-blue-600',
-    border: 'border-blue-700',
-    text: 'text-white',
-    shadow: 'shadow-lg shadow-blue-500/50'
-  },
   bestaetigt: {
     bg: 'bg-gradient-to-r from-emerald-500 to-emerald-600',
     border: 'border-emerald-700',
@@ -61,10 +55,10 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
     shadow: 'shadow-lg shadow-emerald-500/50'
   },
   eingecheckt: {
-    bg: 'bg-gradient-to-r from-purple-500 to-purple-600',
-    border: 'border-purple-700',
+    bg: 'bg-gradient-to-r from-blue-500 to-blue-600',
+    border: 'border-blue-700',
     text: 'text-white',
-    shadow: 'shadow-lg shadow-purple-500/50'
+    shadow: 'shadow-lg shadow-blue-500/50'
   },
   ausgecheckt: {
     bg: 'bg-gradient-to-r from-gray-400 to-gray-500',
@@ -138,7 +132,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
     disabled: isResizing, // Disable drag during resize
   });
 
-  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.reserviert;
+  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt;
 
   // Detect if pointer is in resize zone (dnd-timeline pattern)
   const getResizeDirection = useCallback((e: React.PointerEvent, element: HTMLElement): ResizeDirection => {
@@ -836,6 +830,29 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
                 </svg>
               </button>
             </div>
+
+            <button
+              onClick={async () => {
+                try {
+                  const changedCount = await invoke<number>('update_booking_statuses_command');
+                  if (changedCount > 0) {
+                    console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
+                    window.location.reload(); // Einfacher Reload
+                  } else {
+                    console.log('ℹ️ Keine Status-Änderungen nötig');
+                  }
+                } catch (error) {
+                  console.error('❌ Fehler beim Status-Update:', error);
+                }
+              }}
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-blue-400/40 hover:border-blue-300/60"
+              title="Buchungs-Status aktualisieren (basierend auf Datum)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="px-1">Status Update</span>
+            </button>
 
             <button
               onClick={goToToday}

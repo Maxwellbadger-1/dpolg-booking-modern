@@ -59,7 +59,31 @@ function App() {
 
   useEffect(() => {
     loadData();
+    updateBookingStatuses(); // Status-Update bei App-Start
   }, []);
+
+  // Auto-Update der Buchungs-Status alle 10 Minuten
+  useEffect(() => {
+    const interval = setInterval(() => {
+      updateBookingStatuses();
+    }, 10 * 60 * 1000); // 10 Minuten
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const updateBookingStatuses = async () => {
+    try {
+      console.log('🔄 Updating booking statuses...');
+      const changedCount = await invoke<number>('update_booking_statuses_command');
+      if (changedCount > 0) {
+        console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
+        // Daten neu laden wenn sich etwas geändert hat
+        loadData();
+      }
+    } catch (error) {
+      console.error('❌ Fehler beim Status-Update:', error);
+    }
+  };
 
   const loadData = async () => {
     try {

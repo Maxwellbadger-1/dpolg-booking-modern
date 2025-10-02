@@ -1,11 +1,13 @@
 use rusqlite::{Connection, Result};
 use lettre::{
     Message, SmtpTransport, Transport,
-    message::header::ContentType,
+    message::{header::ContentType, Attachment, SinglePart, MultiPart},
     transport::smtp::authentication::Credentials,
+    transport::smtp::client::{Tls, TlsParameters},
 };
 use crate::database::{EmailConfig, EmailTemplate, EmailLog, get_db_path};
 use base64::{Engine as _, engine::general_purpose};
+use std::path::PathBuf;
 
 // ============================================================================
 // EMAIL CONFIGURATION FUNCTIONS
@@ -338,7 +340,7 @@ pub async fn send_reminder_email(booking_id: i64) -> Result<String, String> {
     send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "reminder").await
 }
 
-/// Rechnungs-Email senden
+/// Rechnungs-Email senden (ohne PDF-Anhang - Legacy)
 pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
     use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
 
@@ -368,6 +370,47 @@ pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
     let body = replace_placeholders(&template.body, &placeholders);
 
     send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "invoice").await
+}
+
+/// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
+pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
+    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+
+    let booking = get_booking_by_id(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
+    let guest = get_guest_by_id(booking.guest_id)
+        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
+    let room = get_room_by_id(booking.room_id)
+        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+    let config = get_email_config()?;
+    let template = get_template_by_name("invoice")?;
+
+    let mut placeholders = std::collections::HashMap::new();
+    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
+    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
+    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
+    placeholders.insert("zimmer_name".to_string(), room.name.clone());
+    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
+    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
+    placeholders.insert("anzahl_naechte".to_string(), booking.anzahl_naechte.to_string());
+    placeholders.insert("grundpreis".to_string(), format!("{:.2}", booking.grundpreis));
+    placeholders.insert("services_preis".to_string(), format!("{:.2}", booking.services_preis));
+    placeholders.insert("rabatt_preis".to_string(), format!("{:.2}", booking.rabatt_preis));
+    placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
+
+    let subject = replace_placeholders(&template.subject, &placeholders);
+    let body = replace_placeholders(&template.body, &placeholders);
+
+    send_email_with_attachment_internal(
+        &config,
+        &guest.email,
+        &subject,
+        &body,
+        &pdf_path,
+        booking_id,
+        guest.id,
+        "invoice"
+    ).await
 }
 
 /// Zahlungserinnerungs-Email senden
@@ -453,17 +496,115 @@ async fn send_email_internal(
     // Erstelle SMTP Transport
     let creds = Credentials::new(config.smtp_username.clone(), password);
 
-    let mailer = SmtpTransport::relay(&config.smtp_server)
-        .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
-        .port(config.smtp_port as u16)
-        .credentials(creds)
-        .build();
+    // Entscheide zwischen direktem SSL/TLS (Port 465) und STARTTLS (Port 587)
+    let mailer = if config.smtp_port == 465 {
+        // Port 465 = direktes SSL/TLS (Implicit TLS) - für web.de, GMX, Gmail, Yahoo, Strato
+        // Verwendet Tls::Wrapper für SSL-wrapped connection von Anfang an (wie Python's SMTP_SSL)
+        let tls = TlsParameters::builder(config.smtp_server.clone())
+            .build()
+            .map_err(|e| format!("TLS-Konfiguration fehlgeschlagen: {}", e))?;
+
+        SmtpTransport::relay(&config.smtp_server)
+            .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
+            .tls(Tls::Wrapper(tls))
+            .port(465)
+            .credentials(creds)
+            .build()
+    } else {
+        // Port 587 = STARTTLS (Explicit TLS) - für Office365, Apple Mail, IONOS, Telekom
+        SmtpTransport::starttls_relay(&config.smtp_server)
+            .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
+            .port(config.smtp_port as u16)
+            .credentials(creds)
+            .build()
+    };
 
     // Sende Email und logge Ergebnis
     match mailer.send(&email) {
         Ok(_) => {
             log_email(booking_id, guest_id, template_name, recipient, subject, "gesendet", None)?;
             Ok(format!("Email erfolgreich an {} gesendet", recipient))
+        }
+        Err(e) => {
+            let error_msg = format!("Fehler beim Senden: {}", e);
+            log_email(booking_id, guest_id, template_name, recipient, subject, "fehler", Some(&error_msg))?;
+            Err(error_msg)
+        }
+    }
+}
+
+/// Interne Funktion zum Senden von Emails MIT Anhang (z.B. PDF)
+async fn send_email_with_attachment_internal(
+    config: &EmailConfig,
+    recipient: &str,
+    subject: &str,
+    body: &str,
+    attachment_path: &PathBuf,
+    booking_id: i64,
+    guest_id: i64,
+    template_name: &str,
+) -> Result<String, String> {
+    // Entschlüssele Passwort
+    let password = decrypt_password(&config.smtp_password)?;
+
+    // PDF-Datei lesen
+    let pdf_content = std::fs::read(attachment_path)
+        .map_err(|e| format!("Fehler beim Lesen der PDF-Datei: {}", e))?;
+
+    // Dateiname extrahieren
+    let filename = attachment_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("rechnung.pdf");
+
+    // Erstelle Email mit Attachment
+    let from_address = format!("{} <{}>", config.from_name, config.from_email);
+
+    let attachment = Attachment::new(filename.to_string())
+        .body(pdf_content, ContentType::parse("application/pdf").unwrap());
+
+    let email = Message::builder()
+        .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+        .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+        .subject(subject)
+        .multipart(
+            MultiPart::mixed()
+                .singlepart(SinglePart::plain(body.to_string()))
+                .singlepart(attachment)
+        )
+        .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?;
+
+    // Erstelle SMTP Transport
+    let creds = Credentials::new(config.smtp_username.clone(), password);
+
+    // Entscheide zwischen direktem SSL/TLS (Port 465) und STARTTLS (Port 587)
+    let mailer = if config.smtp_port == 465 {
+        // Port 465 = direktes SSL/TLS (Implicit TLS) - für web.de, GMX, Gmail, Yahoo, Strato
+        // Verwendet Tls::Wrapper für SSL-wrapped connection von Anfang an (wie Python's SMTP_SSL)
+        let tls = TlsParameters::builder(config.smtp_server.clone())
+            .build()
+            .map_err(|e| format!("TLS-Konfiguration fehlgeschlagen: {}", e))?;
+
+        SmtpTransport::relay(&config.smtp_server)
+            .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
+            .tls(Tls::Wrapper(tls))
+            .port(465)
+            .credentials(creds)
+            .build()
+    } else {
+        // Port 587 = STARTTLS (Explicit TLS) - für Office365, Apple Mail, IONOS, Telekom
+        SmtpTransport::starttls_relay(&config.smtp_server)
+            .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
+            .port(config.smtp_port as u16)
+            .credentials(creds)
+            .build()
+    };
+
+    // Sende Email und logge Ergebnis
+    match mailer.send(&email) {
+        Ok(_) => {
+            log_email(booking_id, guest_id, template_name, recipient, subject, "gesendet", None)?;
+            Ok(format!("Email mit PDF-Anhang erfolgreich an {} gesendet", recipient))
         }
         Err(e) => {
             let error_msg = format!("Fehler beim Senden: {}", e);

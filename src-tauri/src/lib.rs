@@ -5,6 +5,7 @@ mod database;
 mod validation;
 mod pricing;
 mod email;
+mod pdf_generator;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -309,6 +310,12 @@ fn update_booking_dates_and_room_command(
 }
 
 #[tauri::command]
+fn update_booking_statuses_command() -> Result<usize, String> {
+    database::update_booking_statuses_by_date()
+        .map_err(|e| format!("Fehler beim Aktualisieren der Buchungs-Status: {}", e))
+}
+
+#[tauri::command]
 fn cancel_booking_command(id: i64) -> Result<database::Booking, String> {
     database::cancel_booking(id)
         .map_err(|e| format!("Fehler beim Stornieren der Buchung: {}", e))
@@ -596,6 +603,123 @@ fn mark_booking_as_paid_command(
         .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))
 }
 
+// ============================================================================
+// PDF INVOICE GENERATION - Phase 7.1
+// ============================================================================
+
+#[tauri::command]
+fn generate_invoice_pdf_command(booking_id: i64) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    // 1. Buchung mit Details laden
+    let booking = database::get_booking_with_details_by_id(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
+
+    // 2. App-Data Ordner ermitteln (Platform-spezifisch)
+    let app_data_dir = if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
+        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
+    } else if cfg!(target_os = "windows") {
+        let appdata = std::env::var("APPDATA")
+            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
+        PathBuf::from(appdata).join("com.dpolg.booking")
+    } else {
+        // Linux
+        let home = std::env::var("HOME")
+            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
+        PathBuf::from(home).join(".local/share/com.dpolg.booking")
+    };
+
+    // Invoices-Unterordner erstellen
+    let invoices_dir = app_data_dir.join("invoices");
+    std::fs::create_dir_all(&invoices_dir)
+        .map_err(|e| format!("Fehler beim Erstellen des Invoices-Ordners: {}", e))?;
+
+    // 3. PDF-Dateiname generieren
+    let pdf_filename = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
+    let pdf_path = invoices_dir.join(&pdf_filename);
+
+    // 4. PDF generieren
+    let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
+
+    pdf_generator::generate_invoice_pdf(
+        booking.id,
+        &booking.reservierungsnummer,
+        &guest_name,
+        &booking.room.name,
+        &booking.checkin_date,
+        &booking.checkout_date,
+        booking.anzahl_gaeste,
+        booking.gesamtpreis,
+        &pdf_path,
+    )?;
+
+    // 5. Pfad zurückgeben
+    Ok(pdf_path.to_string_lossy().to_string())
+}
+
+/// Generiert PDF-Rechnung UND sendet sie automatisch per Email
+#[tauri::command]
+async fn generate_and_send_invoice_command(booking_id: i64) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    println!("📧 Generiere PDF-Rechnung und sende Email für Buchung {}...", booking_id);
+
+    // 1. Buchung mit Details laden
+    let booking = database::get_booking_with_details_by_id(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
+
+    // 2. App-Data Ordner ermitteln (Platform-spezifisch)
+    let app_data_dir = if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME")
+            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
+        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
+    } else if cfg!(target_os = "windows") {
+        let appdata = std::env::var("APPDATA")
+            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
+        PathBuf::from(appdata).join("com.dpolg.booking")
+    } else {
+        // Linux
+        let home = std::env::var("HOME")
+            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
+        PathBuf::from(home).join(".local/share/com.dpolg.booking")
+    };
+
+    // Invoices-Unterordner erstellen
+    let invoices_dir = app_data_dir.join("invoices");
+    std::fs::create_dir_all(&invoices_dir)
+        .map_err(|e| format!("Fehler beim Erstellen des Invoices-Ordners: {}", e))?;
+
+    // 3. PDF-Dateiname generieren
+    let pdf_filename = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
+    let pdf_path = invoices_dir.join(&pdf_filename);
+
+    // 4. PDF generieren
+    let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
+
+    pdf_generator::generate_invoice_pdf(
+        booking.id,
+        &booking.reservierungsnummer,
+        &guest_name,
+        &booking.room.name,
+        &booking.checkin_date,
+        &booking.checkout_date,
+        booking.anzahl_gaeste,
+        booking.gesamtpreis,
+        &pdf_path,
+    )?;
+
+    println!("✅ PDF erstellt: {:?}", pdf_path);
+
+    // 5. Email mit PDF versenden
+    let email_result = email::send_invoice_email_with_pdf(booking_id, pdf_path.clone()).await?;
+
+    println!("✅ Email gesendet: {}", email_result);
+
+    Ok(format!("PDF erstellt und Email gesendet: {}", email_result))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -630,6 +754,7 @@ pub fn run() {
             create_booking_command,
             update_booking_command,
             update_booking_dates_and_room_command,
+            update_booking_statuses_command,
             delete_booking_command,
             cancel_booking_command,
             get_booking_by_id_command,
@@ -670,6 +795,9 @@ pub fn run() {
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,
+            // PDF Invoice Generation
+            generate_invoice_pdf_command,
+            generate_and_send_invoice_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

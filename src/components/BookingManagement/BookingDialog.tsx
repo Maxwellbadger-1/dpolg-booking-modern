@@ -60,9 +60,8 @@ interface BookingDialogProps {
 }
 
 const STATUS_OPTIONS = [
-  { value: 'reserviert', label: 'Reserviert', color: 'bg-blue-100 text-blue-700' },
   { value: 'bestaetigt', label: 'Bestätigt', color: 'bg-emerald-100 text-emerald-700' },
-  { value: 'eingecheckt', label: 'Eingecheckt', color: 'bg-purple-100 text-purple-700' },
+  { value: 'eingecheckt', label: 'Eingecheckt', color: 'bg-blue-100 text-blue-700' },
   { value: 'ausgecheckt', label: 'Ausgecheckt', color: 'bg-slate-100 text-slate-700' },
   { value: 'storniert', label: 'Storniert', color: 'bg-red-100 text-red-700' },
 ];
@@ -76,7 +75,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
     checkin_date: '',
     checkout_date: '',
     anzahl_gaeste: 1,
-    status: 'reserviert',
+    status: 'bestaetigt',
     bemerkungen: '',
   });
 
@@ -135,7 +134,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         checkin_date: '',
         checkout_date: '',
         anzahl_gaeste: 1,
-        status: 'reserviert',
+        status: 'bestaetigt',
         bemerkungen: '',
       });
       setAccompanyingGuests([]);
@@ -605,6 +604,18 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
               discountType: discount.discount_type,
               discountValue: discount.discount_value,
             });
+          }
+        }
+
+        // 🆕 AUTOMATISCH: PDF-Rechnung generieren und per Email senden
+        if (result.id) {
+          console.log('📧 Sende automatisch PDF-Rechnung per Email...');
+          try {
+            await invoke('generate_and_send_invoice_command', { bookingId: result.id });
+            console.log('✅ PDF-Rechnung erfolgreich generiert und versendet!');
+          } catch (emailError) {
+            console.error('⚠️ Fehler beim Versand der Rechnung (Buchung wurde trotzdem erstellt):', emailError);
+            // Buchung wurde erstellt, nur Email hat nicht funktioniert - kein kritischer Fehler
           }
         }
       }
