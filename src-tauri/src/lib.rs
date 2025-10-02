@@ -256,6 +256,22 @@ fn update_booking_command(
     rabatt_preis: f64,
     anzahl_naechte: i32,
 ) -> Result<database::Booking, String> {
+    println!("🔍 DEBUG: update_booking_command called");
+    println!("  id: {}", id);
+    println!("  room_id: {}", room_id);
+    println!("  guest_id: {}", guest_id);
+    println!("  checkin_date: {}", checkin_date);
+    println!("  checkout_date: {}", checkout_date);
+    println!("  anzahl_gaeste: {}", anzahl_gaeste);
+    println!("  status: {}", status);
+    println!("  gesamtpreis: {}", gesamtpreis);
+    println!("  bemerkungen: {:?}", bemerkungen);
+    println!("  anzahl_begleitpersonen: {}", anzahl_begleitpersonen);
+    println!("  grundpreis: {}", grundpreis);
+    println!("  services_preis: {}", services_preis);
+    println!("  rabatt_preis: {}", rabatt_preis);
+    println!("  anzahl_naechte: {}", anzahl_naechte);
+
     database::update_booking(
         id,
         room_id,
@@ -300,8 +316,32 @@ fn cancel_booking_command(id: i64) -> Result<database::Booking, String> {
 
 #[tauri::command]
 fn get_booking_by_id_command(id: i64) -> Result<database::Booking, String> {
-    database::get_booking_by_id(id)
-        .map_err(|e| format!("Fehler beim Abrufen der Buchung: {}", e))
+    println!("🔍 get_booking_by_id_command called with id: {}", id);
+    match database::get_booking_by_id(id) {
+        Ok(booking) => {
+            println!("✅ Successfully got booking: {}", booking.reservierungsnummer);
+            Ok(booking)
+        }
+        Err(e) => {
+            eprintln!("❌ Error getting booking: {}", e);
+            Err(format!("Fehler beim Abrufen der Buchung: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+fn get_booking_with_details_by_id_command(id: i64) -> Result<database::BookingWithDetails, String> {
+    println!("🔍 get_booking_with_details_by_id_command called with id: {}", id);
+    match database::get_booking_with_details_by_id(id) {
+        Ok(booking) => {
+            println!("✅ Successfully got booking with details: {}", booking.reservierungsnummer);
+            Ok(booking)
+        }
+        Err(e) => {
+            eprintln!("❌ Error getting booking with details: {}", e);
+            Err(format!("Fehler beim Abrufen der Buchungsdetails: {}", e))
+        }
+    }
 }
 
 // ============================================================================
@@ -593,6 +633,7 @@ pub fn run() {
             delete_booking_command,
             cancel_booking_command,
             get_booking_by_id_command,
+            get_booking_with_details_by_id_command,
             // Additional Services
             add_service_command,
             delete_service_command,

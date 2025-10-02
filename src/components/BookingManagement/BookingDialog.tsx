@@ -484,7 +484,14 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
 
     try {
       if (booking?.id) {
-        await invoke('update_booking_command', {
+        // Calculate price info for update
+        const nights = priceInfo?.nights || 1;
+        const basePrice = priceInfo?.basePrice || 0;
+        const servicesTotal = priceInfo?.servicesTotal || 0;
+        const discountsTotal = priceInfo?.discountsTotal || 0;
+        const totalPrice = priceInfo?.totalPrice || basePrice;
+
+        const updatePayload = {
           id: booking.id,
           roomId: formData.room_id,
           guestId: formData.guest_id,
@@ -492,8 +499,20 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
           checkoutDate: formData.checkout_date,
           anzahlGaeste: formData.anzahl_gaeste,
           status: formData.status,
+          gesamtpreis: totalPrice,
           bemerkungen: formData.bemerkungen || null,
-        });
+          anzahlBegleitpersonen: 0,
+          grundpreis: basePrice,
+          servicesPreis: servicesTotal,
+          rabattPreis: discountsTotal,
+          anzahlNaechte: nights,
+        };
+
+        console.log('🔍 DEBUG: update_booking_command payload:', JSON.stringify(updatePayload, null, 2));
+        console.log('🔍 DEBUG: formData:', JSON.stringify(formData, null, 2));
+        console.log('🔍 DEBUG: priceInfo:', JSON.stringify(priceInfo, null, 2));
+
+        await invoke('update_booking_command', updatePayload);
       } else {
         // Create booking - need to generate reservation number first
         const reservierungsnummer = `RES-${Date.now()}`;

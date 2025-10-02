@@ -9,6 +9,109 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
+## 🐛 Debugging-Workflow (KRITISCH!)
+
+**WICHTIG:** Bei React White Screen, TypeError oder unerklärlichen Fehlern IMMER dieser Workflow:
+
+### 1. **Error Boundary SOFORT einbauen**
+```typescript
+// src/components/ErrorBoundary.tsx - IMMER um komplexe Komponenten wrappen!
+class ErrorBoundary extends Component {
+  componentDidCatch(error, errorInfo) {
+    console.error('ERROR BOUNDARY:', error, errorInfo);
+    // Zeigt EXAKTE Fehlermeldung + Stack Trace statt White Screen
+  }
+}
+
+// Usage in Parent:
+<ErrorBoundary>
+  <ComplexComponent />
+</ErrorBoundary>
+```
+
+**Warum:** Fängt Fehler ab, zeigt exakte Fehlermeldung mit Zeilennummer statt White Screen!
+
+### 2. **Extensive Debug Logging**
+```typescript
+// ❌ FALSCH - zu wenig Info
+console.log('loading...');
+
+// ✅ RICHTIG - komplette Struktur-Analyse
+console.log('═══════════════════════════════════════');
+console.log('📦 RAW DATA:', JSON.stringify(data, null, 2));
+console.log('🔍 Structure check:');
+console.log('  - data.id:', data?.id);
+console.log('  - data.guest:', data?.guest);
+console.log('  - data.guest type:', typeof data?.guest);
+console.log('  - data.guest.vorname:', data?.guest?.vorname);
+console.log('═══════════════════════════════════════');
+
+// Validierung BEVOR render
+if (!data.guest) {
+  throw new Error('❌ data.guest is missing! Got: ' + typeof data.guest);
+}
+```
+
+**Warum:** JSON.stringify zeigt ALLE Properties, typeof zeigt ob undefined/object/number etc.
+
+### 3. **Web-Recherche für Best Practices**
+```
+Query-Beispiele:
+- "React white screen TypeError debugging 2025"
+- "React component briefly loads then goes white"
+- "Error Boundary best practices React"
+```
+
+**Warum:** Community hat diese Probleme schon gelöst, spart Stunden!
+
+### 4. **Type-Safety Backend ↔ Frontend prüfen**
+```rust
+// Backend Rust struct
+#[derive(Serialize)]
+pub struct BookingWithDetails {
+    pub grundpreis: f64,
+    pub guest: Guest,  // ← Nested object!
+}
+```
+
+```typescript
+// Frontend TypeScript interface - MUSS EXAKT MATCHEN!
+interface Booking {
+  grundpreis: number;  // ← Muss vorhanden sein!
+  guest: Guest;        // ← Muss nested object sein, nicht nur guest_id!
+}
+```
+
+**Häufiger Fehler:** Backend gibt `guest_id: i64`, Frontend erwartet `guest: Guest` → TypeError!
+
+### 5. **Systematische Fehlersuche**
+
+**Bei TypeError "undefined is not an object (evaluating 'x.y')":**
+1. ✅ Error Boundary zeigt EXAKTE Zeile (z.B. line 974: `booking.grundpreis.toFixed`)
+2. ✅ Debug Log zeigt: `booking.grundpreis: undefined`
+3. ✅ Backend struct prüfen: Fehlt `grundpreis` im struct?
+4. ✅ SQL Query prüfen: Wird `grundpreis` im SELECT gelesen?
+5. ✅ Frontend Interface prüfen: Ist `grundpreis` typisiert?
+
+**Debugging-Checkliste:**
+- [ ] Error Boundary eingebaut?
+- [ ] JSON.stringify des kompletten Objekts geloggt?
+- [ ] Struktur-Validierung (if !data.field throw Error)?
+- [ ] Backend struct hat alle Felder?
+- [ ] SQL Query liest alle Felder?
+- [ ] Frontend Interface matched Backend struct?
+- [ ] Web-Recherche für Best Practices gemacht?
+
+### 6. **Nach dem Fix: Debug Code entfernen**
+```typescript
+// Entferne excessive Logs nach erfolgreichem Fix
+// Behalte nur wichtige Error-Handling
+```
+
+**Warum:** Production Code soll sauber sein, aber Error Boundaries bleiben!
+
+---
+
 ## 🧪 Test-Driven Development (TDD)
 
 **KRITISCH:** Alle Features MÜSSEN nach TDD-Prinzipien entwickelt werden!

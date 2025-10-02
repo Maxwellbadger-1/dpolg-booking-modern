@@ -138,16 +138,25 @@ pub struct BookingWithDetails {
     pub checkin_date: String,
     pub checkout_date: String,
     pub anzahl_gaeste: i32,
+    pub anzahl_begleitpersonen: i32,
     pub status: String,
+    pub grundpreis: f64,
+    pub services_preis: f64,
+    pub rabatt_preis: f64,
     pub gesamtpreis: f64,
+    pub anzahl_naechte: i32,
     pub bemerkungen: Option<String>,
+    pub bezahlt: bool,
+    pub bezahlt_am: Option<String>,
+    pub zahlungsmethode: Option<String>,
+    pub mahnung_gesendet_am: Option<String>,
     pub room: Room,
     pub guest: Guest,
 }
 
 pub fn get_db_path() -> PathBuf {
-    // Use a simple path in the project directory for now
-    PathBuf::from("booking_system.db")
+    // Store DB outside src-tauri to avoid triggering file watcher rebuilds
+    PathBuf::from("../booking_system.db")
 }
 
 pub fn init_database() -> Result<()> {
@@ -619,8 +628,9 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
     let mut stmt = conn.prepare(
         "SELECT
             b.id, b.room_id, b.guest_id, b.reservierungsnummer,
-            b.checkin_date, b.checkout_date, b.anzahl_gaeste,
-            b.status, b.gesamtpreis, b.bemerkungen,
+            b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
+            b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
+            b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
@@ -638,35 +648,44 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             checkin_date: row.get(4)?,
             checkout_date: row.get(5)?,
             anzahl_gaeste: row.get(6)?,
-            status: row.get(7)?,
-            gesamtpreis: row.get(8)?,
-            bemerkungen: row.get(9)?,
+            anzahl_begleitpersonen: row.get(7)?,
+            status: row.get(8)?,
+            grundpreis: row.get(9)?,
+            services_preis: row.get(10)?,
+            rabatt_preis: row.get(11)?,
+            gesamtpreis: row.get(12)?,
+            anzahl_naechte: row.get(13)?,
+            bemerkungen: row.get(14)?,
+            bezahlt: row.get::<_, i32>(15)? != 0,
+            bezahlt_am: row.get(16)?,
+            zahlungsmethode: row.get(17)?,
+            mahnung_gesendet_am: row.get(18)?,
             room: Room {
-                id: row.get(10)?,
-                name: row.get(11)?,
-                gebaeude_typ: row.get(12)?,
-                capacity: row.get(13)?,
-                price_member: row.get(14)?,
-                price_non_member: row.get(15)?,
-                ort: row.get(16)?,
-                schluesselcode: row.get(17)?,
+                id: row.get(19)?,
+                name: row.get(20)?,
+                gebaeude_typ: row.get(21)?,
+                capacity: row.get(22)?,
+                price_member: row.get(23)?,
+                price_non_member: row.get(24)?,
+                ort: row.get(25)?,
+                schluesselcode: row.get(26)?,
             },
             guest: Guest {
-                id: row.get(18)?,
-                vorname: row.get(19)?,
-                nachname: row.get(20)?,
-                email: row.get(21)?,
-                telefon: row.get(22)?,
-                dpolg_mitglied: row.get(23)?,
-                strasse: row.get(24)?,
-                plz: row.get(25)?,
-                ort: row.get(26)?,
-                mitgliedsnummer: row.get(27)?,
-                notizen: row.get(28)?,
-                beruf: row.get(29)?,
-                bundesland: row.get(30)?,
-                dienststelle: row.get(31)?,
-                created_at: row.get(32)?,
+                id: row.get(27)?,
+                vorname: row.get(28)?,
+                nachname: row.get(29)?,
+                email: row.get(30)?,
+                telefon: row.get(31)?,
+                dpolg_mitglied: row.get(32)?,
+                strasse: row.get(33)?,
+                plz: row.get(34)?,
+                ort: row.get(35)?,
+                mitgliedsnummer: row.get(36)?,
+                notizen: row.get(37)?,
+                beruf: row.get(38)?,
+                bundesland: row.get(39)?,
+                dienststelle: row.get(40)?,
+                created_at: row.get(41)?,
             },
         })
     })?;
@@ -1211,6 +1230,78 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
                 bezahlt_am: row.get(18)?,
                 zahlungsmethode: row.get(19)?,
                 mahnung_gesendet_am: row.get(20)?,
+            })
+        },
+    )
+}
+
+/// Gibt eine Buchung mit allen Details (Room + Guest) anhand der ID zurück
+pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.query_row(
+        "SELECT
+            b.id, b.room_id, b.guest_id, b.reservierungsnummer,
+            b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
+            b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
+            b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
+            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.ort, r.schluesselcode,
+            g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
+            g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
+         FROM bookings b
+         JOIN rooms r ON b.room_id = r.id
+         JOIN guests g ON b.guest_id = g.id
+         WHERE b.id = ?1",
+        rusqlite::params![id],
+        |row| {
+            Ok(BookingWithDetails {
+                id: row.get(0)?,
+                room_id: row.get(1)?,
+                guest_id: row.get(2)?,
+                reservierungsnummer: row.get(3)?,
+                checkin_date: row.get(4)?,
+                checkout_date: row.get(5)?,
+                anzahl_gaeste: row.get(6)?,
+                anzahl_begleitpersonen: row.get(7)?,
+                status: row.get(8)?,
+                grundpreis: row.get(9)?,
+                services_preis: row.get(10)?,
+                rabatt_preis: row.get(11)?,
+                gesamtpreis: row.get(12)?,
+                anzahl_naechte: row.get(13)?,
+                bemerkungen: row.get(14)?,
+                bezahlt: row.get::<_, i32>(15)? != 0,
+                bezahlt_am: row.get(16)?,
+                zahlungsmethode: row.get(17)?,
+                mahnung_gesendet_am: row.get(18)?,
+                room: Room {
+                    id: row.get(19)?,
+                    name: row.get(20)?,
+                    gebaeude_typ: row.get(21)?,
+                    capacity: row.get(22)?,
+                    price_member: row.get(23)?,
+                    price_non_member: row.get(24)?,
+                    ort: row.get(25)?,
+                    schluesselcode: row.get(26)?,
+                },
+                guest: Guest {
+                    id: row.get(27)?,
+                    vorname: row.get(28)?,
+                    nachname: row.get(29)?,
+                    email: row.get(30)?,
+                    telefon: row.get(31)?,
+                    dpolg_mitglied: row.get(32)?,
+                    strasse: row.get(33)?,
+                    plz: row.get(34)?,
+                    ort: row.get(35)?,
+                    mitgliedsnummer: row.get(36)?,
+                    notizen: row.get(37)?,
+                    beruf: row.get(38)?,
+                    bundesland: row.get(39)?,
+                    dienststelle: row.get(40)?,
+                    created_at: row.get(41)?,
+                },
             })
         },
     )

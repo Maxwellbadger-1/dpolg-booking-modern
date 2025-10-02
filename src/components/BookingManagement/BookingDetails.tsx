@@ -105,8 +105,19 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     try {
       setLoading(true);
 
-      // Load booking
-      const bookingData = await invoke<Booking>('get_booking_by_id_command', { id: bookingId });
+      // Load booking WITH nested guest and room details
+      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_command', { id: bookingId });
+
+      if (!bookingData) {
+        throw new Error('Buchungsdaten konnten nicht geladen werden');
+      }
+      if (!bookingData.guest) {
+        throw new Error('Gastdaten fehlen');
+      }
+      if (!bookingData.room) {
+        throw new Error('Zimmerdaten fehlen');
+      }
+
       setBooking(bookingData);
 
       // Load accompanying guests
@@ -228,6 +239,37 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
 
   if (!isOpen) return null;
 
+  // Show loading overlay while data is being fetched
+  if (loading || !booking) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-12">
+          <div className="flex flex-col items-center justify-center">
+            <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mb-4"></div>
+            <p className="text-slate-600 text-lg">Lade Buchungsdetails...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Safety check - should never happen due to validation in loadBookingDetails
+  if (!booking.guest || !booking.room) {
+    console.error('Missing guest or room data in booking');
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-12">
+          <div className="flex flex-col items-center justify-center">
+            <p className="text-red-600 text-lg font-bold">❌ Fehler: Gast- oder Zimmerdaten fehlen!</p>
+            <button onClick={onClose} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg">
+              Schließen
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden">
@@ -239,9 +281,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">Buchungsdetails</h2>
-              {booking && (
-                <p className="text-sm text-blue-100">{booking.reservierungsnummer}</p>
-              )}
+              <p className="text-sm text-blue-100">{booking.reservierungsnummer}</p>
             </div>
           </div>
           <button
@@ -254,12 +294,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
 
         {/* Content */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-          ) : booking ? (
-            <div className="space-y-6">
+          <div className="space-y-6">
               {/* Status & Basic Info */}
               <div className="flex items-start justify-between">
                 <div>
@@ -577,12 +612,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   <p className="text-slate-700 whitespace-pre-wrap">{booking.bemerkungen}</p>
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <p className="text-slate-600">Buchung konnte nicht geladen werden.</p>
-            </div>
-          )}
+          </div>
         </div>
 
         {/* Footer */}

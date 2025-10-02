@@ -5,6 +5,7 @@ import { format, isWithinInterval, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import BookingDialog from './BookingDialog';
 import BookingDetails from './BookingDetails';
+import ErrorBoundary from '../ErrorBoundary';
 
 interface Room {
   id: number;
@@ -534,22 +535,24 @@ export default function BookingList() {
 
       {/* Booking Details */}
       {detailsBookingId && (
-        <BookingDetails
-          bookingId={detailsBookingId}
-          isOpen={showDetails}
-          onClose={() => {
-            setShowDetails(false);
-            setDetailsBookingId(null);
-          }}
-          onEdit={() => {
-            const booking = bookings.find(b => b.id === detailsBookingId);
-            if (booking) {
-              setSelectedBooking(booking);
+        <ErrorBoundary>
+          <BookingDetails
+            bookingId={detailsBookingId}
+            isOpen={showDetails}
+            onClose={() => {
               setShowDetails(false);
-              setShowDialog(true);
-            }
-          }}
-        />
+              setDetailsBookingId(null);
+            }}
+            onEdit={() => {
+              const booking = bookings.find(b => b.id === detailsBookingId);
+              if (booking) {
+                setSelectedBooking(booking);
+                setShowDetails(false);
+                setShowDialog(true);
+              }
+            }}
+          />
+        </ErrorBoundary>
       )}
     </div>
   );
