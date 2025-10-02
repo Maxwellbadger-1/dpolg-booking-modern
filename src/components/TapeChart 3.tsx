@@ -324,12 +324,6 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
   // Get data from global context
   const { rooms, bookings, refreshAll, updateBooking } = useData();
 
-  console.log('🎨 [TapeChart] Render:', {
-    roomsCount: rooms.length,
-    bookingsCount: bookings.length,
-    bookings: bookings.map(b => ({ id: b.id, reservierungsnummer: b.reservierungsnummer }))
-  });
-
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [localBookings, setLocalBookings] = useState<Booking[]>(bookings);
@@ -341,15 +335,6 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
     const saved = localStorage.getItem('tapechart-density');
     return (saved as DensityMode) || 'comfortable';
   });
-
-  // KRITISCH: Sync localBookings mit bookings aus Context
-  useEffect(() => {
-    console.log('🔄 [TapeChart] useEffect: bookings changed', {
-      bookingsLength: bookings.length,
-      localBookingsLength: localBookings.length
-    });
-    setLocalBookings(bookings);
-  }, [bookings]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Persist density mode to localStorage
@@ -907,11 +892,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
             </div>
 
             {/* Rows */}
-            {rooms.map((room, roomIdx) => {
-              const roomBookings = localBookings.filter((b) => b.room_id === room.id);
-              console.log(`🏨 [TapeChart] Zimmer ${roomIdx}: ${room.name} (ID: ${room.id}) hat ${roomBookings.length} Buchungen:`, roomBookings.map(b => ({ booking_id: b.id, room_id: b.room_id, checkin: b.checkin_date, checkout: b.checkout_date })));
-
-              return (
+            {rooms.map((room) => (
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
                 {/* Room sidebar */}
                 <div
@@ -976,8 +957,7 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
                     })}
                 </div>
               </div>
-            );
-            })}
+            ))}
           </div>
 
           {/* Legend */}

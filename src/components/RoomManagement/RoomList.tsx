@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Hotel, Search, Plus, Edit2, MapPin, Users, Euro, Trash2 } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import RoomDialog from './RoomDialog';
+import ConfirmDialog from '../ConfirmDialog';
 
 interface Room {
   id: number;
@@ -22,18 +23,47 @@ export default function RoomList() {
   const [locationFilter, setLocationFilter] = useState<string>('all');
   const [showDialog, setShowDialog] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<Room | undefined>(undefined);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [roomToDelete, setRoomToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
-  const handleDeleteRoom = async (id: number, name: string) => {
-    if (!confirm(`Zimmer ${name} wirklich löschen?`)) {
-      return;
-    }
+  const handleDeleteRoom = (id: number, name: string) => {
+    setRoomToDelete({ id, name });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!roomToDelete) return;
 
     try {
-      await deleteRoom(id);
+      await deleteRoom(roomToDelete.id);
+      setShowDeleteConfirm(false);
+      setRoomToDelete(null);
     } catch (error) {
       console.error('Fehler beim Löschen des Zimmers:', error);
-      alert('Fehler beim Löschen des Zimmers');
+
+      // User-friendly error message
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('FOREIGN KEY') || errMsg.toLowerCase().includes('foreign key constraint')) {
+        setErrorMessage(
+          `Zimmer kann nicht gelöscht werden!\n\n` +
+          `${roomToDelete.name} hat noch aktive Buchungen.\n\n` +
+          `Bitte löschen Sie zuerst alle Buchungen für dieses Zimmer.`
+        );
+      } else {
+        setErrorMessage(`Fehler beim Löschen des Zimmers:\n\n${errMsg}`);
+      }
+
+      setShowDeleteConfirm(false);
+      setShowErrorDialog(true);
+      // roomToDelete wird nach Schließen des Error Dialogs zurückgesetzt
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setRoomToDelete(null);
   };
 
   const uniqueLocations = Array.from(new Set(rooms.map(r => r.ort))).sort();
@@ -219,10 +249,40 @@ export default function RoomList() {
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
         onSuccess={() => {
-          loadRooms();
+          // Data wird automatisch durch DataContext refresht
           setShowDialog(false);
         }}
         room={selectedRoom}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Zimmer löschen"
+        message={`Möchten Sie ${roomToDelete?.name} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`}
+        confirmLabel="Ja, löschen"
+        cancelLabel="Abbrechen"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+        variant="danger"
+      />
+
+      {/* Error Dialog */}
+      <ConfirmDialog
+        isOpen={showErrorDialog}
+        title="Fehler"
+        message={errorMessage}
+        confirmLabel="OK"
+        cancelLabel=""
+        onConfirm={() => {
+          setShowErrorDialog(false);
+          setRoomToDelete(null);
+        }}
+        onCancel={() => {
+          setShowErrorDialog(false);
+          setRoomToDelete(null);
+        }}
+        variant="danger"
       />
     </div>
   );

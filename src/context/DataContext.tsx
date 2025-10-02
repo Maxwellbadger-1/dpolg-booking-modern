@@ -147,14 +147,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const createGuest = useCallback(async (data: any): Promise<Guest> => {
     const guest = await invoke<Guest>('create_guest_command', data);
     await refreshGuests();
+    await refreshBookings(); // Bookings könnten Gast-Info brauchen
     return guest;
-  }, [refreshGuests]);
+  }, [refreshGuests, refreshBookings]);
 
   const updateGuest = useCallback(async (id: number, data: any): Promise<Guest> => {
     const guest = await invoke<Guest>('update_guest_command', { id, ...data });
     await refreshGuests();
+    await refreshBookings(); // Bookings könnten Gast-Info brauchen
     return guest;
-  }, [refreshGuests]);
+  }, [refreshGuests, refreshBookings]);
 
   const deleteGuest = useCallback(async (id: number): Promise<void> => {
     await invoke('delete_guest_command', { id });
@@ -164,21 +166,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Booking CRUD Operations
   const createBooking = useCallback(async (data: any): Promise<Booking> => {
-    const booking = await invoke<Booking>('create_booking_command', data);
-    await refreshBookings();
-    return booking;
-  }, [refreshBookings]);
+    console.log('🔍 [DataContext] createBooking aufgerufen mit:', data);
+    try {
+      const booking = await invoke<Booking>('create_booking_command', data);
+      console.log('✅ [DataContext] Buchung erstellt:', booking);
+      await refreshBookings();
+      await refreshRooms(); // Rooms könnten Verfügbarkeit ändern
+      return booking;
+    } catch (error) {
+      console.error('❌ [DataContext] Fehler beim Erstellen der Buchung:', error);
+      throw error;
+    }
+  }, [refreshBookings, refreshRooms]);
 
   const updateBooking = useCallback(async (id: number, data: any): Promise<Booking> => {
     const booking = await invoke<Booking>('update_booking_command', { id, ...data });
     await refreshBookings();
+    await refreshRooms(); // Rooms könnten Verfügbarkeit ändern
     return booking;
-  }, [refreshBookings]);
+  }, [refreshBookings, refreshRooms]);
 
   const deleteBooking = useCallback(async (id: number): Promise<void> => {
     await invoke('delete_booking_command', { id });
     await refreshBookings();
-  }, [refreshBookings]);
+    await refreshRooms(); // Rooms könnten Verfügbarkeit ändern
+  }, [refreshBookings, refreshRooms]);
 
   const value: DataContextType = {
     // Data

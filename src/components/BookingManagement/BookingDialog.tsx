@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent } from 'lucide-react';
+import { useData } from '../../context/DataContext';
 
 interface Guest {
   id: number;
@@ -67,6 +68,8 @@ const STATUS_OPTIONS = [
 ];
 
 export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: BookingDialogProps) {
+  const { createBooking, updateBooking } = useData();
+
   const [formData, setFormData] = useState<Booking>({
     room_id: 0,
     guest_id: 0,
@@ -227,6 +230,13 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
 
   const checkAvailability = async () => {
     try {
+      console.log('🔍 [BookingDialog] checkAvailability gestartet', {
+        room_id: formData.room_id,
+        checkin: formData.checkin_date,
+        checkout: formData.checkout_date,
+        excludeBookingId: booking?.id || null
+      });
+
       setAvailabilityStatus({ checking: true, available: null });
 
       const isAvailable = await invoke<boolean>('check_room_availability_command', {
@@ -236,9 +246,10 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         excludeBookingId: booking?.id || null,
       });
 
+      console.log('✅ [BookingDialog] checkAvailability Ergebnis:', isAvailable);
       setAvailabilityStatus({ checking: false, available: isAvailable });
     } catch (err) {
-      console.error('Fehler bei Verfügbarkeitsprüfung:', err);
+      console.error('❌ [BookingDialog] Fehler bei Verfügbarkeitsprüfung:', err);
       setAvailabilityStatus({ checking: false, available: null });
     }
   };
@@ -438,6 +449,14 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
   };
 
   const validateForm = (): boolean => {
+    console.log('🔍 [BookingDialog] validateForm aufgerufen', {
+      guest_id: formData.guest_id,
+      room_id: formData.room_id,
+      checkin_date: formData.checkin_date,
+      checkout_date: formData.checkout_date,
+      availabilityStatus
+    });
+
     if (!formData.guest_id) {
       setError('Bitte wählen Sie einen Gast aus');
       return false;
@@ -465,12 +484,30 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
       return false;
     }
 
-    // Check room availability
+    // Check room availability - KRITISCH!
+    console.log('🔍 [BookingDialog] Availability Check:', {
+      checking: availabilityStatus.checking,
+      available: availabilityStatus.available
+    });
+
+    if (availabilityStatus.checking) {
+      setError('Bitte warten Sie, während die Verfügbarkeit geprüft wird...');
+      return false;
+    }
+
     if (availabilityStatus.available === false) {
+      console.log('❌ [BookingDialog] Zimmer NICHT verfügbar - Validierung fehlgeschlagen');
       setError('Das Zimmer ist für den gewählten Zeitraum nicht verfügbar');
       return false;
     }
 
+    if (availabilityStatus.available === null) {
+      console.log('⚠️ [BookingDialog] Verfügbarkeit noch nicht geprüft!');
+      setError('Verfügbarkeit konnte nicht geprüft werden. Bitte warten...');
+      return false;
+    }
+
+    console.log('✅ [BookingDialog] Validierung erfolgreich - Zimmer verfügbar');
     return true;
   };
 
@@ -492,7 +529,6 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         const totalPrice = priceInfo?.totalPrice || basePrice;
 
         const updatePayload = {
-          id: booking.id,
           roomId: formData.room_id,
           guestId: formData.guest_id,
           checkinDate: formData.checkin_date,
@@ -508,11 +544,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
           anzahlNaechte: nights,
         };
 
-        console.log('🔍 DEBUG: update_booking_command payload:', JSON.stringify(updatePayload, null, 2));
-        console.log('🔍 DEBUG: formData:', JSON.stringify(formData, null, 2));
-        console.log('🔍 DEBUG: priceInfo:', JSON.stringify(priceInfo, null, 2));
-
-        await invoke('update_booking_command', updatePayload);
+        await updateBooking(booking.id, updatePayload);
       } else {
         // Create booking - need to generate reservation number first
         const reservierungsnummer = `RES-${Date.now()}`;
@@ -522,7 +554,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         const discountsTotal = priceInfo?.discountsTotal || 0;
         const totalPrice = priceInfo?.totalPrice || basePrice;
 
-        const result = await invoke<{ id: number }>('create_booking_command', {
+        const bookingData = {
           roomId: formData.room_id,
           guestId: formData.guest_id,
           reservierungsnummer,
@@ -537,7 +569,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
           servicesPreis: servicesTotal,
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
-        });
+        };
+
+        const result = await createBooking(bookingData) as any;
 
         // Save accompanying guests if any
         if (accompanyingGuests.length > 0 && result.id) {

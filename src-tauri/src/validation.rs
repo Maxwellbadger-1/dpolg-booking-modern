@@ -345,6 +345,12 @@ pub fn check_room_availability(
     exclude_booking_id: Option<i64>,
     conn: &Connection,
 ) -> Result<bool, String> {
+    println!("🔍 [validation::check_room_availability] Check gestartet:");
+    println!("   room_id: {}", room_id);
+    println!("   checkin: {}", checkin);
+    println!("   checkout: {}", checkout);
+    println!("   exclude_booking_id: {:?}", exclude_booking_id);
+
     // Validiere zuerst die Daten
     validate_date_range(checkin, checkout)?;
 
@@ -369,6 +375,8 @@ pub fn check_room_availability(
         }
     };
 
+    println!("🔍 [validation] SQL Query: {}", query);
+
     let count: i64 = if let Some(booking_id) = exclude_booking_id {
         conn.query_row(
             query,
@@ -384,8 +392,13 @@ pub fn check_room_availability(
     }
     .map_err(|e| format!("Datenbankfehler bei Verfügbarkeitsprüfung: {}", e))?;
 
+    println!("🔍 [validation] Anzahl überlappender Buchungen: {}", count);
+
     // Raum ist verfügbar, wenn KEINE überlappenden Buchungen existieren
-    Ok(count == 0)
+    let is_available = count == 0;
+    println!("✅ [validation] Zimmer verfügbar: {}", is_available);
+
+    Ok(is_available)
 }
 
 // ============================================================================

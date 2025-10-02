@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase, MapPinned, Building2 } from 'lucide-react';
+import { useData } from '../../context/DataContext';
 
 // HMR Force Reload - Padding Fix Applied
 
@@ -54,6 +55,8 @@ interface Toast {
 }
 
 export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: GuestDialogProps) {
+  const { createGuest, updateGuest } = useData();
+
   const [formData, setFormData] = useState<FormData>({
     vorname: '',
     nachname: '',
@@ -224,14 +227,11 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
 
       if (guest) {
         // Update existing guest
-        await invoke('update_guest_command', {
-          id: guest.id,
-          ...guestData,
-        });
+        await updateGuest(guest.id, guestData);
         showToast('success', 'Gast erfolgreich aktualisiert');
       } else {
         // Create new guest
-        await invoke('create_guest_command', guestData);
+        await createGuest(guestData);
         showToast('success', 'Gast erfolgreich erstellt');
       }
 

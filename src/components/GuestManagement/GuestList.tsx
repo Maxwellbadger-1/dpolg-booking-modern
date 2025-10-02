@@ -31,6 +31,8 @@ export default function GuestList() {
   const [detailsGuestId, setDetailsGuestId] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [guestToDelete, setGuestToDelete] = useState<{ id: number; name: string } | null>(null);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   const handleDeleteGuest = (id: number, name: string) => {
     setGuestToDelete({ id, name });
@@ -46,7 +48,22 @@ export default function GuestList() {
       setGuestToDelete(null);
     } catch (error) {
       console.error('Fehler beim Löschen des Gastes:', error);
-      alert('Fehler beim Löschen: ' + (error instanceof Error ? error.message : String(error)));
+
+      // User-friendly error message
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorMessage.includes('FOREIGN KEY') || errorMessage.toLowerCase().includes('foreign key constraint')) {
+        setErrorMessage(
+          `Gast kann nicht gelöscht werden!\n\n` +
+          `${guestToDelete.name} hat noch aktive Buchungen.\n\n` +
+          `Bitte löschen Sie zuerst alle Buchungen dieses Gastes.`
+        );
+      } else {
+        setErrorMessage(`Fehler beim Löschen des Gastes:\n\n${errorMessage}`);
+      }
+
+      setShowDeleteConfirm(false);
+      setShowErrorDialog(true);
     }
   };
 
@@ -267,7 +284,7 @@ export default function GuestList() {
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
         onSuccess={() => {
-          loadGuests();
+          // Data wird automatisch durch DataContext refresht
           setShowDialog(false);
         }}
         guest={selectedGuest}
@@ -302,6 +319,24 @@ export default function GuestList() {
         cancelLabel="Abbrechen"
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
+        variant="danger"
+      />
+
+      {/* Error Dialog */}
+      <ConfirmDialog
+        isOpen={showErrorDialog}
+        title="Fehler"
+        message={errorMessage}
+        confirmLabel="OK"
+        cancelLabel=""
+        onConfirm={() => {
+          setShowErrorDialog(false);
+          setGuestToDelete(null);
+        }}
+        onCancel={() => {
+          setShowErrorDialog(false);
+          setGuestToDelete(null);
+        }}
         variant="danger"
       />
     </div>
