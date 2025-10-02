@@ -6,6 +6,7 @@ import { de } from 'date-fns/locale';
 import BookingDialog from './BookingDialog';
 import BookingDetails from './BookingDetails';
 import ErrorBoundary from '../ErrorBoundary';
+import ConfirmDialog from '../ConfirmDialog';
 
 interface Room {
   id: number;
@@ -59,6 +60,8 @@ export default function BookingList() {
   const [selectedBooking, setSelectedBooking] = useState<Booking | undefined>(undefined);
   const [showDetails, setShowDetails] = useState(false);
   const [detailsBookingId, setDetailsBookingId] = useState<number | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [bookingToDelete, setBookingToDelete] = useState<{ id: number; reservierungsnummer: string } | null>(null);
 
   useEffect(() => {
     loadBookings();
@@ -86,18 +89,28 @@ export default function BookingList() {
     }
   };
 
-  const handleDeleteBooking = async (id: number, reservierungsnummer: string) => {
-    if (!confirm(`Buchung ${reservierungsnummer} wirklich löschen?`)) {
-      return;
-    }
+  const handleDeleteBooking = (id: number, reservierungsnummer: string) => {
+    setBookingToDelete({ id, reservierungsnummer });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!bookingToDelete) return;
 
     try {
-      await invoke('delete_booking_command', { id });
-      loadBookings();
+      await invoke('delete_booking_command', { id: bookingToDelete.id });
+      await loadBookings();
+      setShowDeleteConfirm(false);
+      setBookingToDelete(null);
     } catch (error) {
-      console.error('Fehler beim Löschen der Buchung:', error);
-      alert('Fehler beim Löschen der Buchung');
+      console.error('Fehler beim Löschen:', error);
+      alert('Fehler beim Löschen: ' + (error instanceof Error ? error.message : String(error)));
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setBookingToDelete(null);
   };
 
   const handleSort = (field: SortField) => {
@@ -554,6 +567,18 @@ export default function BookingList() {
           />
         </ErrorBoundary>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Buchung löschen"
+        message={`Möchten Sie die Buchung ${bookingToDelete?.reservierungsnummer} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`}
+        confirmLabel="Ja, löschen"
+        cancelLabel="Abbrechen"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+        variant="danger"
+      />
     </div>
   );
 }
