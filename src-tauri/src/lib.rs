@@ -643,14 +643,29 @@ fn generate_invoice_pdf_command(booking_id: i64) -> Result<String, String> {
     // 4. PDF generieren
     let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
 
+    // Adresse zusammenbauen
+    let guest_address = booking.guest.strasse.as_deref();
+    let guest_city = if let (Some(plz), Some(ort)) = (&booking.guest.plz, &booking.guest.ort) {
+        Some(format!("{} {}", plz, ort))
+    } else {
+        None
+    };
+    let guest_city_str = guest_city.as_deref();
+
     pdf_generator::generate_invoice_pdf(
         booking.id,
         &booking.reservierungsnummer,
         &guest_name,
+        guest_address,
+        guest_city_str,
+        Some("DEUTSCHLAND"), // Standardmäßig Deutschland
         &booking.room.name,
         &booking.checkin_date,
         &booking.checkout_date,
         booking.anzahl_gaeste,
+        booking.grundpreis,
+        booking.services_preis,
+        booking.rabatt_preis,
         booking.gesamtpreis,
         &pdf_path,
     )?;
@@ -698,14 +713,29 @@ async fn generate_and_send_invoice_command(booking_id: i64) -> Result<String, St
     // 4. PDF generieren
     let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
 
+    // Adresse zusammenbauen
+    let guest_address = booking.guest.strasse.as_deref();
+    let guest_city = if let (Some(plz), Some(ort)) = (&booking.guest.plz, &booking.guest.ort) {
+        Some(format!("{} {}", plz, ort))
+    } else {
+        None
+    };
+    let guest_city_str = guest_city.as_deref();
+
     pdf_generator::generate_invoice_pdf(
         booking.id,
         &booking.reservierungsnummer,
         &guest_name,
+        guest_address,
+        guest_city_str,
+        Some("DEUTSCHLAND"), // Standardmäßig Deutschland
         &booking.room.name,
         &booking.checkin_date,
         &booking.checkout_date,
         booking.anzahl_gaeste,
+        booking.grundpreis,
+        booking.services_preis,
+        booking.rabatt_preis,
         booking.gesamtpreis,
         &pdf_path,
     )?;
