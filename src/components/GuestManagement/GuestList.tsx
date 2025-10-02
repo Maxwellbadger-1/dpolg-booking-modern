@@ -3,6 +3,7 @@ import { Users, Search, UserPlus, Edit2, Mail, Phone, CheckCircle, X, Trash2, Ey
 import { useData } from '../../context/DataContext';
 import GuestDialog from './GuestDialog';
 import GuestDetails from './GuestDetails';
+import ConfirmDialog from '../ConfirmDialog';
 
 interface Guest {
   id: number;
@@ -28,18 +29,30 @@ export default function GuestList() {
   const [selectedGuest, setSelectedGuest] = useState<Guest | undefined>(undefined);
   const [showDetails, setShowDetails] = useState(false);
   const [detailsGuestId, setDetailsGuestId] = useState<number | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [guestToDelete, setGuestToDelete] = useState<{ id: number; name: string } | null>(null);
 
-  const handleDeleteGuest = async (id: number, name: string) => {
-    if (!confirm(`Gast ${name} wirklich löschen?`)) {
-      return;
-    }
+  const handleDeleteGuest = (id: number, name: string) => {
+    setGuestToDelete({ id, name });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!guestToDelete) return;
 
     try {
-      await deleteGuest(id);
+      await deleteGuest(guestToDelete.id);
+      setShowDeleteConfirm(false);
+      setGuestToDelete(null);
     } catch (error) {
       console.error('Fehler beim Löschen des Gastes:', error);
-      alert('Fehler beim Löschen des Gastes');
+      alert('Fehler beim Löschen: ' + (error instanceof Error ? error.message : String(error)));
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setGuestToDelete(null);
   };
 
   const filteredGuests = guests.filter(guest => {
@@ -279,6 +292,18 @@ export default function GuestList() {
           }}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="Gast löschen"
+        message={`Möchten Sie ${guestToDelete?.name} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`}
+        confirmLabel="Ja, löschen"
+        cancelLabel="Abbrechen"
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+        variant="danger"
+      />
     </div>
   );
 }
