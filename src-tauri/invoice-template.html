@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice #549512</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .invoice-container {
+            max-width: 800px;
+            margin: 20px auto;
+            background: white;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        
+        /* Header Section */
+        header {
+            display: flex;
+            background: linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%);
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header-left {
+            flex: 0 0 40%;
+            padding: 40px;
+            position: relative;
+            z-index: 2;
+        }
+        
+        .header-right {
+            flex: 1;
+            background: white;
+            color: #333;
+            padding: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .brand-name {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            letter-spacing: 1px;
+        }
+        
+        .bill-to {
+            margin-top: 20px;
+        }
+        
+        .bill-to-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .company-name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .address {
+            font-size: 13px;
+            opacity: 0.9;
+            line-height: 1.5;
+        }
+        
+        .invoice-title {
+            font-size: 48px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #333;
+        }
+        
+        /* Invoice Details Section */
+        .invoice-details {
+            padding: 30px 40px 30px 100px;
+            background: linear-gradient(to right, #3a3a3a 60px, #fafafa 60px);
+            position: relative;
+        }
+        
+        .invoice-details::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 60px;
+            right: 0;
+            height: 1px;
+            background-color: #e0e0e0;
+        }
+        
+        .invoice-details h3 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        
+        .invoice-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            font-size: 14px;
+        }
+        
+        .invoice-meta-item {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .invoice-meta-label {
+            color: #666;
+        }
+        
+        .invoice-meta-value {
+            font-weight: 600;
+            color: #333;
+        }
+        
+        /* Table Section - mit durchgehendem grauem Streifen */
+        .invoice-table-wrapper {
+            position: relative;
+            background: linear-gradient(to right, #3a3a3a 60px, white 60px);
+        }
+        
+        .invoice-table-container {
+            padding: 30px 40px 30px 100px;
+            background: transparent;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+        }
+        
+        thead tr {
+            background-color: #e8e8e8;
+        }
+        
+        thead th {
+            padding: 15px 10px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 600;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background-color: #e8e8e8;
+            border-bottom: 1px solid #d0d0d0;
+        }
+        
+        thead th:first-child {
+            padding-left: 15px;
+        }
+        
+        thead th:last-child,
+        tbody td:last-child {
+            text-align: right;
+            padding-right: 15px;
+        }
+        
+        tbody tr {
+            border-bottom: 1px solid #e0e0e0;
+            background: white;
+        }
+        
+        tbody td {
+            padding: 20px 10px;
+            font-size: 14px;
+            color: #333;
+            background: white;
+        }
+        
+        tbody td:first-child {
+            padding-left: 15px;
+        }
+        
+        .product-no {
+            font-weight: 600;
+            color: #666;
+        }
+        
+        /* Totals Section */
+        .totals-section {
+            padding: 0;
+            background: linear-gradient(to right, #3a3a3a 60px, #f5f5f5 60px);
+        }
+        
+        .totals-table {
+            width: 100%;
+            background-color: transparent;
+            padding: 20px 40px 30px 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+        
+        .totals-content {
+            width: 300px;
+        }
+        
+        .totals-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 14px;
+        }
+        
+        .totals-row.subtotal {
+            border-top: 1px solid #d0d0d0;
+            padding-top: 15px;
+        }
+        
+        .totals-row.grand-total {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+            border-top: 2px solid #333;
+            margin-top: 10px;
+            padding-top: 15px;
+        }
+        
+        /* Footer Section */
+        footer {
+            background: linear-gradient(135deg, #3a3a3a 0%, #2a2a2a 100%);
+            color: white;
+            display: flex;
+            position: relative;
+        }
+        
+        .footer-left {
+            flex: 0 0 40%;
+            padding: 40px;
+        }
+        
+        .footer-right {
+            flex: 1;
+            background: white;
+            padding: 40px;
+        }
+        
+        .thank-you {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 30px;
+        }
+        
+        .payment-info {
+            margin-top: 30px;
+        }
+        
+        .payment-info h4 {
+            font-size: 14px;
+            margin-bottom: 15px;
+            opacity: 0.9;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .payment-detail {
+            font-size: 13px;
+            margin-bottom: 8px;
+            opacity: 0.85;
+        }
+        
+        .payment-label {
+            display: inline-block;
+            width: 100px;
+        }
+        
+        .contact-info {
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 13px;
+            opacity: 0.9;
+        }
+        
+        .contact-icon {
+            width: 20px;
+            margin-right: 15px;
+        }
+        
+        .signature-section {
+            padding-bottom: 30px;
+        }
+        
+        .signature-section h4 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 40px;
+        }
+        
+        .signature-line {
+            border-bottom: 1px solid #333;
+            width: 200px;
+            margin-top: 60px;
+        }
+        
+        .terms-section {
+            padding-top: 0;
+        }
+        
+        .terms-section h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .terms-text {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .invoice-container {
+                margin: 0;
+                box-shadow: none;
+            }
+            
+            header, footer {
+                flex-direction: column;
+            }
+            
+            .header-left, .footer-left {
+                flex: 1;
+            }
+            
+            .header-right {
+                padding: 30px;
+            }
+            
+            .invoice-title {
+                font-size: 36px;
+            }
+            
+            .invoice-details {
+                padding: 20px 20px 20px 50px;
+                background: linear-gradient(to right, #3a3a3a 30px, #fafafa 30px);
+            }
+            
+            .invoice-meta {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .invoice-table-wrapper {
+                background: linear-gradient(to right, #3a3a3a 30px, white 30px);
+            }
+            
+            .invoice-table-container {
+                padding: 20px 20px 20px 50px;
+            }
+            
+            table {
+                min-width: 500px;
+            }
+            
+            .totals-section {
+                background: linear-gradient(to right, #3a3a3a 30px, #f5f5f5 30px);
+            }
+            
+            .totals-table {
+                padding: 20px 20px 20px 50px;
+            }
+            
+            .totals-content {
+                width: 100%;
+            }
+            
+            .thank-you {
+                font-size: 24px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .header-left, .footer-left, .header-right, .footer-right {
+                padding: 20px;
+            }
+            
+            .brand-name {
+                font-size: 20px;
+            }
+            
+            .invoice-title {
+                font-size: 28px;
+            }
+            
+            .invoice-details {
+                padding: 20px;
+            }
+            
+            thead th, tbody td {
+                padding: 10px 5px;
+                font-size: 12px;
+            }
+        }
+        
+        /* Logo Placeholder */
+        .logo-placeholder {
+            width: 60px;
+            height: 60px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 30px;
+            font-size: 10px;
+            color: rgba(0,0,0,0.6);
+        }
+        
+        .header-left .brand-name {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice-container">
+        <header>
+            <div class="header-left">
+                <div class="brand-name">FIRMENNAME</div>
+                <div class="bill-to">
+                    <div class="bill-to-label">RECHNUNG AN</div>
+                    <div class="company-name">FIRMENNAME</div>
+                    <div class="address">
+                        Musterstraße 24,<br>
+                        12345 Musterstadt
+                    </div>
+                </div>
+            </div>
+            <div class="header-right">
+                <h1 class="invoice-title">RECHNUNG</h1>
+            </div>
+        </header>
+        
+        <div class="invoice-details">
+            <h3>Rechnungsdetails</h3>
+            <div class="invoice-meta">
+                <div class="invoice-meta-item">
+                    <span class="invoice-meta-label">Rechnungsdatum:</span>
+                    <span class="invoice-meta-value">01.01.2020</span>
+                </div>
+                <div class="invoice-meta-item">
+                    <span class="invoice-meta-label">Fälligkeitsdatum:</span>
+                    <span class="invoice-meta-value">10.01.2020</span>
+                </div>
+                <div class="invoice-meta-item">
+                    <span class="invoice-meta-label">Rechnungsnr.:</span>
+                    <span class="invoice-meta-value">#549512</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="invoice-table-wrapper">
+            <div class="invoice-table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 10%;">NR</th>
+                            <th style="width: 45%;">PRODUKTBESCHREIBUNG</th>
+                            <th style="width: 15%;">EINZELPREIS</th>
+                            <th style="width: 10%;">MENGE</th>
+                            <th style="width: 20%;">GESAMT</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="product-no">01</td>
+                            <td>Flyer Design</td>
+                            <td>10,00 €</td>
+                            <td>1</td>
+                            <td style="text-align: right;">10,00 €</td>
+                        </tr>
+                        <tr>
+                            <td class="product-no">02</td>
+                            <td>Broschüren Design</td>
+                            <td>5,00 €</td>
+                            <td>2</td>
+                            <td style="text-align: right;">10,00 €</td>
+                        </tr>
+                        <tr>
+                            <td class="product-no">03</td>
+                            <td>Visitenkarten</td>
+                            <td>15,00 €</td>
+                            <td>3</td>
+                            <td style="text-align: right;">45,00 €</td>
+                        </tr>
+                        <tr>
+                            <td class="product-no">04</td>
+                            <td>Logo Design</td>
+                            <td>25,00 €</td>
+                            <td>4</td>
+                            <td style="text-align: right;">100,00 €</td>
+                        </tr>
+                        <tr>
+                            <td class="product-no">05</td>
+                            <td>Webdesign Konzept</td>
+                            <td>10,00 €</td>
+                            <td>5</td>
+                            <td style="text-align: right;">50,00 €</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="totals-section">
+                <div class="totals-table">
+                    <div class="totals-content">
+                        <div class="totals-row subtotal">
+                            <span>Zwischensumme</span>
+                            <span>215,00 €</span>
+                        </div>
+                        <div class="totals-row">
+                            <span>MwSt. 19%</span>
+                            <span>40,85 €</span>
+                        </div>
+                        <div class="totals-row grand-total">
+                            <span>Gesamtsumme</span>
+                            <span>255,85 €</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <div class="footer-left">
+                <div class="thank-you">Vielen Dank</div>
+                
+                <div class="payment-info">
+                    <h4>Zahlungsinformationen</h4>
+                    <div class="payment-detail">
+                        <span class="payment-label">Kontonummer:</span>
+                        <span>DE12 3456 7890</span>
+                    </div>
+                    <div class="payment-detail">
+                        <span class="payment-label">Kontoinhaber:</span>
+                        <span>Max Mustermann</span>
+                    </div>
+                    <div class="payment-detail">
+                        <span class="payment-label">Bank:</span>
+                        <span>Musterbank AG</span>
+                    </div>
+                </div>
+                
+                <div class="contact-info">
+                    <div class="contact-item">
+                        <span class="contact-icon">📞</span>
+                        <span>+49 123 456789<br>+49 123 456790</span>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">✉</span>
+                        <span>info@ihrefirma.de<br>support@ihrefirma.de</span>
+                    </div>
+                    <div class="contact-item">
+                        <span class="contact-icon">📍</span>
+                        <span>Ihre Adresse<br>Musterstadt</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="footer-right">
+                <div class="terms-section">
+                    <h4>GESCHÄFTSBEDINGUNGEN</h4>
+                    <p class="terms-text">
+                        Mit der Zahlung dieser Rechnung erkennen Sie unsere allgemeinen Geschäftsbedingungen an. Zahlbar innerhalb von 10 Tagen ohne Abzug.
+                    </p>
+                </div>
+                <div class="logo-placeholder">[LOGO]</div>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

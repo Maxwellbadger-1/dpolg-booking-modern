@@ -1,824 +1,351 @@
-use printpdf::*;
-use std::path::PathBuf;
-use chrono::NaiveDate;
+use crate::database::BookingWithDetails;
+use chrono::Local;
+use tauri::AppHandle;
+use pdf_writer::{Pdf, Ref, Content, Str, Name, Filter, Rect, Finish};
+use pdf_writer::types::ColorSpaceOperand;
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
+use std::io::Write;
 
-use crate::database::{get_company_settings, get_payment_settings};
+const MM_TO_PT: f32 = 2.834645669;
+const PAGE_WIDTH_PT: f32 = 595.0;
+const PAGE_HEIGHT_PT: f32 = 842.0;
+const PAGE_WIDTH_MM: f32 = 210.0;
+const PAGE_HEIGHT_MM: f32 = 297.0;
 
-/// Generiert eine moderne PDF-Rechnung mit dunkler Sidebar und Logo oben mittig
-///
-/// **REFACTORED für printpdf 0.8:**
-/// - Verwendet Op:: Pattern für alle Operationen
-/// - Logo via RawImage::decode_from_bytes + Op::UseXobject
-/// - Seiten mit PdfPage::new() + with_pages()
+// Layout EXAKT wie HTML-Template
+const GRAY_STRIP_MM: f32 = 21.2; // 60px konstant für Details/Table/Totals
+const CONTENT_MARGIN_LEFT_MM: f32 = 35.3; // 100px padding-left
+const SIDEBAR_WIDTH_PCT: f32 = 0.40; // Nur Header/Footer: 40%
+
+fn mm_to_pt(mm: f32) -> f32 { mm * MM_TO_PT }
+fn y_from_top(y_mm: f32) -> f32 { PAGE_HEIGHT_MM - y_mm }
+
+fn write_text(content: &mut Content, text: &str, x_mm: f32, y_mm_top: f32, font_size: f32, font: Name, r: f32, g: f32, b: f32) {
+    content.set_fill_color_space(ColorSpaceOperand::Named(Name(b"DeviceRGB")));
+    content.set_fill_color([r, g, b]);
+    content.set_font(font, font_size);
+    content.set_text_matrix([1.0, 0.0, 0.0, 1.0, mm_to_pt(x_mm), mm_to_pt(y_from_top(y_mm_top))]);
+    content.show(Str(text.as_bytes()));
+}
+
+fn text_black(content: &mut Content, text: &str, x_mm: f32, y_mm_top: f32, font_size: f32, font: Name) {
+    write_text(content, text, x_mm, y_mm_top, font_size, font, 0.0, 0.0, 0.0);
+}
+
+fn text_white(content: &mut Content, text: &str, x_mm: f32, y_mm_top: f32, font_size: f32, font: Name) {
+    write_text(content, text, x_mm, y_mm_top, font_size, font, 1.0, 1.0, 1.0);
+}
+
+fn draw_rect(content: &mut Content, x_mm: f32, y_mm_top: f32, width_mm: f32, height_mm: f32, r: f32, g: f32, b: f32) {
+    let y_bottom = y_from_top(y_mm_top + height_mm);
+    content.set_fill_color_space(ColorSpaceOperand::Named(Name(b"DeviceRGB")));
+    content.set_fill_color([r, g, b]);
+    content.rect(mm_to_pt(x_mm), mm_to_pt(y_bottom), mm_to_pt(width_mm), mm_to_pt(height_mm));
+    content.fill_nonzero();
+}
+
+fn draw_line(content: &mut Content, x1_mm: f32, y1_mm_top: f32, x2_mm: f32, y2_mm_top: f32, r: f32, g: f32, b: f32, width_pt: f32) {
+    content.set_stroke_color_space(ColorSpaceOperand::Named(Name(b"DeviceRGB")));
+    content.set_stroke_color([r, g, b]);
+    content.set_line_width(width_pt);
+    content.move_to(mm_to_pt(x1_mm), mm_to_pt(y_from_top(y1_mm_top)));
+    content.line_to(mm_to_pt(x2_mm), mm_to_pt(y_from_top(y2_mm_top)));
+    content.stroke();
+}
+
+#[tauri::command]
 pub fn generate_invoice_pdf(
-    _booking_id: i64,
-    reservierungsnummer: &str,
-    guest_name: &str,
-    guest_address: Option<&str>,
-    guest_city: Option<&str>,
-    _guest_country: Option<&str>,
-    room_name: &str,
-    checkin_date: &str,
-    checkout_date: &str,
-    _anzahl_gaeste: i32,
-    grundpreis: f64,
-    services_preis: f64,
-    rabatt_preis: f64,
-    gesamtpreis: f64,
-    output_path: &PathBuf,
-) -> Result<PathBuf, String> {
-    // ========================================================================
-    // DATEN LADEN AUS EINSTELLUNGEN
-    // ========================================================================
-    let company = get_company_settings()
-        .map_err(|e| format!("Fehler beim Laden der Firmeneinstellungen: {}", e))?;
+    app: AppHandle,
+    booking: BookingWithDetails,
+) -> Result<String, String> {
+    use tauri::Manager;
 
-    let payment = get_payment_settings()
-        .map_err(|e| format!("Fehler beim Laden der Zahlungseinstellungen: {}", e))?;
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| format!("Fehler: {}", e))?;
 
-    // ========================================================================
-    // DATUMS-VERARBEITUNG
-    // ========================================================================
-    let checkin = NaiveDate::parse_from_str(checkin_date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid checkin date: {}", e))?;
-    let checkout = NaiveDate::parse_from_str(checkout_date, "%Y-%m-%d")
-        .map_err(|e| format!("Invalid checkout date: {}", e))?;
-    let naechte = (checkout - checkin).num_days();
+    let invoices_dir = app_data_dir.join("invoices");
+    std::fs::create_dir_all(&invoices_dir)
+        .map_err(|e| format!("Fehler: {}", e))?;
 
-    // Formatiere Daten deutsch
-    let checkin_de = checkin.format("%d.%m.%Y").to_string();
-    let checkout_de = checkout.format("%d.%m.%Y").to_string();
-    let datum_heute = chrono::Local::now().format("%d.%m.%Y").to_string();
+    let file_name = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
+    let output_path = invoices_dir.join(&file_name);
 
-    // Zahlungsziel berechnen
-    let due_date = chrono::Local::now()
-        .naive_local()
-        .date()
-        + chrono::Duration::days(payment.payment_due_days as i64);
-    let due_date_de = due_date.format("%d.%m.%Y").to_string();
+    let logo_path = app_data_dir.join("logos").join("dpolg_logo.png");
+    let logo_exists = logo_path.exists();
 
-    // ========================================================================
-    // MWST-BERECHNUNG
-    // ========================================================================
-    let mwst_satz = payment.mwst_rate;
-    let netto = gesamtpreis / (1.0 + mwst_satz / 100.0);
-    let mwst_betrag = gesamtpreis - netto;
+    let mut pdf = Pdf::new();
 
-    // ========================================================================
-    // PDF DOKUMENT ERSTELLEN (A4)
-    // ========================================================================
-    let mut doc = PdfDocument::new("DPolG Stiftung - Rechnung");
+    let catalog_id = Ref::new(1);
+    let pages_id = Ref::new(2);
+    let page_id = Ref::new(3);
+    let content_id = Ref::new(4);
+    let helvetica_id = Ref::new(5);
+    let helvetica_bold_id = Ref::new(6);
+    let mut next_ref = 7;
 
-    // ========================================================================
-    // LOGO LADEN (wenn vorhanden)
-    // ========================================================================
-    let logo_image_id = if let Some(logo_path) = &company.logo_path {
-        if std::path::Path::new(logo_path).exists() {
-            println!("📂 [PDF DEBUG] Logo-Pfad existiert: {}", logo_path);
-            match load_logo_as_raw_image(logo_path) {
-                Ok(raw_image) => {
-                    let img_id = doc.add_image(&raw_image);
-                    println!("✅ [PDF DEBUG] Logo erfolgreich als RawImage geladen");
-                    Some(img_id)
-                }
-                Err(e) => {
-                    println!("❌ [PDF DEBUG] Logo konnte nicht geladen werden: {}", e);
-                    None
-                }
-            }
-        } else {
-            println!("⚠️ [PDF DEBUG] Logo-Pfad existiert NICHT: {}", logo_path);
-            None
-        }
+    let image_id = if logo_exists {
+        let img_id = Ref::new(next_ref);
+        next_ref += 1;
+
+        let image_data = std::fs::read(&logo_path)
+            .map_err(|e| format!("Logo-Fehler: {}", e))?;
+        let dynamic_image = image::load_from_memory(&image_data)
+            .map_err(|e| format!("Logo dekodieren: {}", e))?;
+        let rgb_image = dynamic_image.to_rgb8();
+        let (width, height) = rgb_image.dimensions();
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&rgb_image.into_raw())
+            .map_err(|e| format!("Komprimierung: {}", e))?;
+        let compressed = encoder.finish()
+            .map_err(|e| format!("Komprimierung: {}", e))?;
+
+        let mut image_obj = pdf.image_xobject(img_id, &compressed);
+        image_obj.filter(Filter::FlateDecode);
+        image_obj.width(width as i32);
+        image_obj.height(height as i32);
+        image_obj.color_space().device_rgb();
+        image_obj.bits_per_component(8);
+        image_obj.finish();
+
+        Some(img_id)
     } else {
-        println!("⚠️ [PDF DEBUG] Kein Logo-Pfad in Einstellungen gefunden");
         None
     };
 
-    // ========================================================================
-    // PAGE OPERATIONS ZUSAMMENSTELLEN
-    // ========================================================================
-    let mut ops: Vec<Op> = Vec::new();
-    println!("🔧 [PDF DEBUG] ===== OPERATIONS START =====");
+    pdf.type1_font(helvetica_id).base_font(Name(b"Helvetica"));
+    pdf.type1_font(helvetica_bold_id).base_font(Name(b"Helvetica-Bold"));
 
-    // ========================================================================
-    // FARB-DEFINITIONEN (Dark Sidebar Design)
-    // ========================================================================
-    let color_dark_bg = Rgb { r: 60.0/255.0, g: 60.0/255.0, b: 60.0/255.0, icc_profile: None }; // #3C3C3C Dunkelgrau
-    let color_white = Rgb { r: 1.0, g: 1.0, b: 1.0, icc_profile: None };
-    let color_text_dark = Rgb { r: 31.0/255.0, g: 41.0/255.0, b: 55.0/255.0, icc_profile: None }; // #1F2937
-    let color_text_light = Rgb { r: 0.8, g: 0.8, b: 0.8, icc_profile: None }; // Hellgrau für Sidebar
-    let color_table_header = Rgb { r: 0.95, g: 0.95, b: 0.95, icc_profile: None }; // #F3F3F3 Hellgrau
-    let color_border = Rgb { r: 0.85, g: 0.85, b: 0.85, icc_profile: None };
+    pdf.catalog(catalog_id).pages(pages_id);
+    pdf.pages(pages_id).kids([page_id]).count(1);
 
-    // ========================================================================
-    // DUNKLE SIDEBAR LINKS (1/3 der Breite = 70mm)
-    // ========================================================================
-    let sidebar_width = 70.0;
+    {
+        let mut page = pdf.page(page_id);
+        page.media_box(Rect::new(0.0, 0.0, PAGE_WIDTH_PT, PAGE_HEIGHT_PT));
+        page.parent(pages_id);
+        page.contents(content_id);
 
-    // Sidebar-Hintergrund als gefülltes Polygon
-    // Helper: Konvertierung Mm -> Pt (1mm = 2.834645669pt bei 72 DPI)
-    let mm_to_pt = |mm: f32| Pt(mm * 2.834645669);
+        let mut resources = page.resources();
+        let mut fonts = resources.fonts();
+        fonts.pair(Name(b"F1"), helvetica_id);
+        fonts.pair(Name(b"F2"), helvetica_bold_id);
+        fonts.finish();
 
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_dark_bg.clone()) });
-    ops.push(Op::SetOutlineColor { col: Color::Rgb(color_dark_bg.clone()) });
-    ops.push(Op::DrawPolygon {
-        polygon: Polygon {
-            rings: vec![PolygonRing {
-                points: vec![
-                    LinePoint { p: Point { x: mm_to_pt(0.0), y: mm_to_pt(0.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(sidebar_width), y: mm_to_pt(0.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(sidebar_width), y: mm_to_pt(297.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(0.0), y: mm_to_pt(297.0) }, bezier: false },
-                ],
-            }],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
-        },
-    });
-    println!("✅ [PDF DEBUG] Sidebar-Rechteck hinzugefügt, ops.len() = {}", ops.len());
-
-    // ========================================================================
-    // LAYOUT-VARIABLEN (für gesamtes PDF)
-    // ========================================================================
-    let _content_x = sidebar_width + 15.0;  // Linke Kante des Hauptbereichs
-    let content_y_start = 265.0;
-    let table_x = 35.0;
-    let table_width = 210.0 - table_x - 10.0;
-    let table_height = 60.0;
-    let col_widths = [15.0, 65.0, 30.0, 20.0, 30.0]; // NR, BESCHREIBUNG, EINZELPREIS, MENGE, GESAMT
-
-    // ========================================================================
-    // TABELLEN-HINTERGRÜNDE (Zeichnen BEVOR Text kommt!)
-    // ========================================================================
-    // Diese müssen ZUERST gezeichnet werden, damit der Text darüber erscheint
-    // WICHTIG: Tabelle muss UNTER "Rechnungsdetails" starten!
-    // content_y_start = 265mm (RECHNUNG Titel)
-    // Nach RECHNUNG: -18mm
-    // Nach "Rechnungsdetails": -6mm
-    // Nach 3 Zeilen Details (Datum, Fällig, Nummer): -3*4.5mm = -13.5mm
-    // Gesamt: 265 - 18 - 6 - 13.5 = 227.5mm
-    let table_y = 227.0; // Tabelle startet hier (Oberkante)
-
-    // Weißer Hintergrund für gesamte Tabelle
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_white.clone()) });
-    ops.push(Op::DrawPolygon {
-        polygon: Polygon {
-            rings: vec![PolygonRing {
-                points: vec![
-                    LinePoint { p: Point { x: mm_to_pt(table_x), y: mm_to_pt(table_y - table_height) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x + table_width), y: mm_to_pt(table_y - table_height) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x + table_width), y: mm_to_pt(table_y) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x), y: mm_to_pt(table_y) }, bezier: false },
-                ],
-            }],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
-        },
-    });
-
-    // Tabellen-Header Hintergrund (grau)
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_table_header.clone()) });
-    ops.push(Op::DrawPolygon {
-        polygon: Polygon {
-            rings: vec![PolygonRing {
-                points: vec![
-                    LinePoint { p: Point { x: mm_to_pt(table_x), y: mm_to_pt(table_y - 7.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x + table_width), y: mm_to_pt(table_y - 7.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x + table_width), y: mm_to_pt(table_y) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(table_x), y: mm_to_pt(table_y) }, bezier: false },
-                ],
-            }],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
-        },
-    });
-    println!("✅ [PDF DEBUG] Tabellen-Hintergründe hinzugefügt, ops.len() = {}", ops.len());
-
-    // ========================================================================
-    // LOGO EINFÜGEN (in der Sidebar, oben links mit weißem Hintergrund)
-    // ========================================================================
-    if let Some(logo_id) = logo_image_id {
-        // Logo-Dimensionen und Position
-        // Sidebar ist 70mm breit, Logo soll max 50mm breit sein, zentriert in Sidebar
-        let logo_max_width = 50.0; // mm
-        let logo_x = (sidebar_width - logo_max_width) / 2.0; // Zentriert in Sidebar
-        let logo_y = 270.0; // Höher platzieren (von unten gemessen) - Force recompile
-
-        // Weißer Hintergrund für Logo (Rechteck)
-        let logo_bg_padding = 2.0; // mm Padding um Logo
-        ops.push(Op::SetFillColor { col: Color::Rgb(color_white.clone()) });
-        ops.push(Op::DrawPolygon {
-            polygon: Polygon {
-                rings: vec![PolygonRing {
-                    points: vec![
-                        LinePoint { p: Point { x: mm_to_pt(logo_x - logo_bg_padding), y: mm_to_pt(logo_y - logo_bg_padding) }, bezier: false },
-                        LinePoint { p: Point { x: mm_to_pt(logo_x + logo_max_width + logo_bg_padding), y: mm_to_pt(logo_y - logo_bg_padding) }, bezier: false },
-                        LinePoint { p: Point { x: mm_to_pt(logo_x + logo_max_width + logo_bg_padding), y: mm_to_pt(logo_y + 20.0 + logo_bg_padding) }, bezier: false },
-                        LinePoint { p: Point { x: mm_to_pt(logo_x - logo_bg_padding), y: mm_to_pt(logo_y + 20.0 + logo_bg_padding) }, bezier: false },
-                    ],
-                }],
-                mode: PaintMode::Fill,
-                winding_order: WindingOrder::NonZero,
-            },
-        });
-        println!("✅ [LOGO DEBUG] Weißer Hintergrund für Logo hinzugefügt");
-
-        println!("🖼️  [LOGO DEBUG] Logo wird platziert bei X={}mm, Y={}mm", logo_x, logo_y);
-        println!("🖼️  [LOGO DEBUG] Logo-Position in Pt: X={}, Y={}", logo_x * 2.834645669, logo_y * 2.834645669);
-
-        // Transform für Logo (Position + Skalierung)
-        // Logo auf max 50mm Breite skalieren
-        let mut logo_transform = XObjectTransform::default();
-        logo_transform.translate_x = Some(Pt(logo_x * 2.834645669));
-        logo_transform.translate_y = Some(Pt(logo_y * 2.834645669));
-        logo_transform.scale_x = Some(0.2); // Kleiner skalieren (20% statt 50%)
-        logo_transform.scale_y = Some(0.2);
-        logo_transform.dpi = Some(72.0);
-
-        println!("🖼️  [LOGO DEBUG] XObjectTransform: translate_x={:?}, translate_y={:?}, scale_x={:?}, scale_y={:?}",
-                 logo_transform.translate_x, logo_transform.translate_y, logo_transform.scale_x, logo_transform.scale_y);
-
-        ops.push(Op::UseXobject {
-            id: logo_id,
-            transform: logo_transform,
-        });
-
-        println!("✅ [LOGO DEBUG] Logo mit Op::UseXobject hinzugefügt, ops.len() = {}", ops.len());
-    } else {
-        println!("⚠️ [LOGO DEBUG] Logo-ID ist None, überspringe Logo-Platzierung");
+        if image_id.is_some() {
+            resources.x_objects().pair(Name(b"Im1"), image_id.unwrap());
+        }
     }
 
-    // ========================================================================
-    // SIDEBAR CONTENT (Text, weiße Schrift)
-    // ========================================================================
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    println!("📝 [TEXT DEBUG] Sidebar Text Section START, ops.len() = {}", ops.len());
+    let mut content = Content::new();
 
-    let mut sidebar_y = 235.0; // Unterhalb des Logos
+    // Farben aus HTML
+    const DARK_GRAY: [f32; 3] = [0.227, 0.227, 0.227]; // #3a3a3a
+    const LIGHT_GRAY_BG: [f32; 3] = [0.910, 0.910, 0.910]; // #e8e8e8
+    const LIGHT_BG: [f32; 3] = [0.980, 0.980, 0.980]; // #fafafa
+    const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 
-    // Firmenname (mehrzeilig)
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(11.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::SetLineHeight { lh: Pt(5.0) });
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_white.clone()) });
+    // HEADER - 40% Sidebar (dunkel) + 60% weiß
+    let header_height = 70.0;
+    let sidebar_width = PAGE_WIDTH_MM * SIDEBAR_WIDTH_PCT; // 40% = 84mm
 
-    let words: Vec<&str> = company.company_name.split_whitespace().collect();
-    let words_count = words.len();
-    for word in words {
-        ops.push(Op::WriteTextBuiltinFont {
-            items: vec![TextItem::Text(word.to_string())],
-            font: BuiltinFont::HelveticaBold,
-        });
-        ops.push(Op::AddLineBreak);
+    draw_rect(&mut content, 0.0, 0.0, sidebar_width, header_height, DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2]);
+    draw_rect(&mut content, sidebar_width, 0.0, PAGE_WIDTH_MM - sidebar_width, header_height, WHITE[0], WHITE[1], WHITE[2]);
+
+    content.begin_text();
+
+    // Logo (mit weißem Hintergrund über Sidebar)
+    if image_id.is_some() {
+        content.end_text();
+        draw_rect(&mut content, 5.0, 5.0, sidebar_width - 10.0, 30.0, WHITE[0], WHITE[1], WHITE[2]);
+
+        let logo_width_mm = 60.0;
+        let logo_height_mm = 30.0;
+        let logo_x = (sidebar_width - logo_width_mm) / 2.0;
+        let logo_y_top = 10.0;
+
+        content.save_state();
+        content.transform([
+            mm_to_pt(logo_width_mm), 0.0, 0.0,
+            mm_to_pt(logo_height_mm),
+            mm_to_pt(logo_x),
+            mm_to_pt(y_from_top(logo_y_top + logo_height_mm))
+        ]);
+        content.x_object(Name(b"Im1"));
+        content.restore_state();
+        content.begin_text();
     }
 
-    sidebar_y -= (words_count as f32 * 5.0) + 12.0;
+    // RECHNUNG AN
+    text_white(&mut content, "RECHNUNG AN", 10.0, 42.0, 9.0, Name(b"F2"));
 
-    // Rechnungsempfänger
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(10.0), font: BuiltinFont::HelveticaBold });
-    println!("📝 [TEXT DEBUG] Writing 'RECHNUNG AN' at Y={}mm, font=HelveticaBold, size=10pt", sidebar_y);
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("RECHNUNG AN".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
-    sidebar_y -= 6.0;
+    let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
+    text_white(&mut content, &guest_name, 10.0, 50.0, 11.0, Name(b"F2"));
 
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_light.clone()) });
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(8.0), font: BuiltinFont::Helvetica });
-    println!("📝 [TEXT DEBUG] Writing guest name '{}' at Y={}mm, font=Helvetica, size=8pt", guest_name, sidebar_y);
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(guest_name.to_string())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 4.0;
-
-    if let Some(addr) = guest_address {
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-        ops.push(Op::WriteTextBuiltinFont {
-            items: vec![TextItem::Text(addr.to_string())],
-            font: BuiltinFont::Helvetica,
-        });
-        sidebar_y -= 4.0;
+    if let Some(strasse) = &booking.guest.strasse {
+        text_white(&mut content, strasse, 10.0, 58.0, 9.0, Name(b"F1"));
+    }
+    let ort = format!("{} {}",
+        booking.guest.plz.as_deref().unwrap_or(""),
+        booking.guest.ort.as_deref().unwrap_or("")
+    ).trim().to_string();
+    if !ort.is_empty() {
+        text_white(&mut content, &ort, 10.0, 64.0, 9.0, Name(b"F1"));
     }
 
-    if let Some(city) = guest_city {
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-        ops.push(Op::WriteTextBuiltinFont {
-            items: vec![TextItem::Text(city.to_string())],
-            font: BuiltinFont::Helvetica,
-        });
+    // RECHNUNG Titel (rechts, 48px = 32pt)
+    text_black(&mut content, "RECHNUNG", sidebar_width + 20.0, 30.0, 32.0, Name(b"F2"));
+
+    content.end_text();
+
+    // INVOICE DETAILS - 60px grauer Streifen + Rest #fafafa
+    let details_y = header_height;
+    let details_height = 28.0;
+
+    draw_rect(&mut content, 0.0, details_y, GRAY_STRIP_MM, details_height, DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2]);
+    draw_rect(&mut content, GRAY_STRIP_MM, details_y, PAGE_WIDTH_MM - GRAY_STRIP_MM, details_height, LIGHT_BG[0], LIGHT_BG[1], LIGHT_BG[2]);
+
+    content.begin_text();
+
+    text_black(&mut content, "Rechnungsdetails", CONTENT_MARGIN_LEFT_MM, details_y + 6.0, 14.0, Name(b"F2"));
+
+    let rechnungsdatum = Local::now().format("%d.%m.%Y").to_string();
+    let faellig_am = (Local::now() + chrono::Duration::days(14)).format("%d.%m.%Y").to_string();
+
+    let meta_y = details_y + 17.0;
+    let meta_x = CONTENT_MARGIN_LEFT_MM;
+
+    text_black(&mut content, &format!("Rechnungsdatum: {}", rechnungsdatum), meta_x, meta_y, 9.5, Name(b"F1"));
+    text_black(&mut content, &format!("Faelligkeitsdatum: {}", faellig_am), meta_x + 65.0, meta_y, 9.5, Name(b"F1"));
+    text_black(&mut content, &format!("Rechnungsnr.: {}", booking.reservierungsnummer), meta_x + 142.0, meta_y, 9.5, Name(b"F1"));
+
+    content.end_text();
+
+    draw_line(&mut content, GRAY_STRIP_MM, details_y + details_height - 0.5, PAGE_WIDTH_MM, details_y + details_height - 0.5, 0.88, 0.88, 0.88, 0.5);
+
+    // TABLE SECTION - 60px grauer Streifen + weiß
+    let table_y = details_y + details_height;
+    let table_header_height = 12.0;
+    let row_height = 15.0;
+
+    // Grauer Streifen für gesamte Table Section
+    let table_total_height = 90.0;
+    draw_rect(&mut content, 0.0, table_y, GRAY_STRIP_MM, table_total_height, DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2]);
+
+    // Table content Bereich weiß
+    draw_rect(&mut content, GRAY_STRIP_MM, table_y, PAGE_WIDTH_MM - GRAY_STRIP_MM, table_total_height, WHITE[0], WHITE[1], WHITE[2]);
+
+    // Table Header (hellgrau)
+    let table_x = CONTENT_MARGIN_LEFT_MM;
+    let table_width = PAGE_WIDTH_MM - CONTENT_MARGIN_LEFT_MM - 12.0;
+    draw_rect(&mut content, table_x, table_y, table_width, table_header_height, LIGHT_GRAY_BG[0], LIGHT_GRAY_BG[1], LIGHT_GRAY_BG[2]);
+
+    content.begin_text();
+
+    // Spalten (HTML: 10%, 45%, 15%, 10%, 20%)
+    let col_widths = [table_width * 0.10, table_width * 0.45, table_width * 0.15, table_width * 0.10, table_width * 0.20];
+    let headers = ["NR", "PRODUKTBESCHREIBUNG", "EINZELPREIS", "MENGE", "GESAMT"];
+
+    let header_y = table_y + 7.5;
+    let mut x = table_x + 3.0;
+    for (i, header) in headers.iter().enumerate() {
+        text_black(&mut content, header, x, header_y, 8.0, Name(b"F2"));
+        x += col_widths[i];
     }
 
-    // "Vielen Dank" (Mitte der Sidebar)
-    sidebar_y = 150.0;
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_white.clone()) });
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(12.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(16.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("Vielen Dank".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
+    draw_line(&mut content, table_x, table_y + table_header_height, table_x + table_width, table_y + table_header_height, 0.82, 0.82, 0.82, 0.8);
 
-    // Zahlungsinformationen (unten in Sidebar)
-    sidebar_y = 95.0;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("Zahlungs-".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
-    sidebar_y -= 4.0;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("informationen".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
-    sidebar_y -= 8.0;
+    // Tabellenzeile 1
+    let row1_y = table_y + table_header_height + 5.0;
+    x = table_x + 3.0;
 
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_light.clone()) });
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(7.0), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("IBAN:".to_string())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 3.5;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(6.5), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(payment.iban.clone())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 5.5;
+    text_black(&mut content, "01", x, row1_y, 9.5, Name(b"F1"));
+    x += col_widths[0];
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(7.0), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("Kontoinhaber:".to_string())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 3.5;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(6.5), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(payment.account_holder.clone())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 5.5;
+    let beschreibung = format!("Unterkunft {} vom {} bis {}",
+        booking.room.name,
+        booking.checkin_date,
+        booking.checkout_date
+    );
+    text_black(&mut content, &beschreibung, x, row1_y, 9.0, Name(b"F1"));
+    x += col_widths[1];
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(7.0), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("Bank:".to_string())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 3.5;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(6.5), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(payment.bank_name.clone())],
-        font: BuiltinFont::Helvetica,
-    });
+    let preis_pro_nacht = booking.grundpreis / booking.anzahl_naechte as f64;
+    text_black(&mut content, &format!("{:.2} EUR", preis_pro_nacht), x, row1_y, 9.5, Name(b"F1"));
+    x += col_widths[2];
 
-    // Kontaktdaten (ganz unten in Sidebar)
-    sidebar_y = 30.0;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(7.0), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(company.phone.clone())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 3.5;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(company.email.clone())],
-        font: BuiltinFont::Helvetica,
-    });
-    sidebar_y -= 3.5;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(10.0), y: mm_to_pt(sidebar_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(company.website.clone())],
-        font: BuiltinFont::Helvetica,
-    });
+    text_black(&mut content, &format!("{}", booking.anzahl_naechte), x + 5.0, row1_y, 9.5, Name(b"F1"));
+    x += col_widths[3];
 
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-    println!("📝 [TEXT DEBUG] Sidebar Text Section END, ops.len() = {}", ops.len());
+    text_black(&mut content, &format!("{:.2} EUR", booking.grundpreis), x, row1_y, 9.5, Name(b"F1"));
 
-    // ========================================================================
-    // RECHTER BEREICH (White Background) - RECHNUNG HEADER
-    // ========================================================================
-    let content_x = sidebar_width + 15.0;
-    let mut content_y = 265.0;
+    content.end_text();
 
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_dark.clone()) });
-    println!("📝 [TEXT DEBUG] Rechnung Header Section START, ops.len() = {}", ops.len());
+    draw_line(&mut content, table_x, row1_y + row_height - 5.0, table_x + table_width, row1_y + row_height - 5.0, 0.88, 0.88, 0.88, 0.5);
 
-    // "RECHNUNG" Titel
-    let title_x = content_x + 45.0;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(title_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(26.0), font: BuiltinFont::HelveticaBold });
-    println!("📝 [TEXT DEBUG] Writing 'RECHNUNG' at X={}mm, Y={}mm, size=26pt", title_x, content_y);
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("RECHNUNG".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
-    content_y -= 18.0;
+    // TOTALS SECTION - innerhalb Table Wrapper (grau/weiß Hintergrund schon da)
+    let totals_y = row1_y + row_height + 3.0;
+    draw_rect(&mut content, GRAY_STRIP_MM, totals_y, PAGE_WIDTH_MM - GRAY_STRIP_MM, 40.0, 0.96, 0.96, 0.96);
 
-    // Rechnungsdetails
-    let details_x = content_x + 55.0;
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(details_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(10.0), font: BuiltinFont::HelveticaBold });
-    println!("📝 [TEXT DEBUG] Writing 'Rechnungsdetails' at X={}mm, Y={}mm, size=10pt", details_x, content_y);
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text("Rechnungsdetails".to_string())],
-        font: BuiltinFont::HelveticaBold,
-    });
-    content_y -= 6.0;
+    content.begin_text();
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(details_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(8.5), font: BuiltinFont::Helvetica });
-    println!("📝 [TEXT DEBUG] Writing 'Rechnungsdatum: {}' at Y={}mm, size=8.5pt", datum_heute, content_y);
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!("Rechnungsdatum: {}", datum_heute))],
-        font: BuiltinFont::Helvetica,
-    });
-    content_y -= 4.5;
+    // Summen rechtsbündig (300px = 106mm)
+    let totals_width = 106.0;
+    let totals_x_end = PAGE_WIDTH_MM - 15.0;
+    let totals_x_label = totals_x_end - totals_width;
+    let totals_x_value = totals_x_end - 35.0;
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(details_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!("Fälligkeitsdatum: {}", due_date_de))],
-        font: BuiltinFont::Helvetica,
-    });
-    content_y -= 4.5;
+    let mut current_y = totals_y + 10.0;
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(details_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!("Rechnungsnr.: #{}", reservierungsnummer))],
-        font: BuiltinFont::Helvetica,
-    });
+    text_black(&mut content, "Zwischensumme", totals_x_label, current_y, 9.5, Name(b"F1"));
+    text_black(&mut content, &format!("{:.2} EUR", booking.grundpreis + booking.services_preis), totals_x_value, current_y, 9.5, Name(b"F1"));
 
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-
-    content_y -= 18.0;
-
-    // ========================================================================
-    // TABELLE TEXT (Hintergründe wurden bereits oben gezeichnet)
-    // ========================================================================
-    // col_widths wurde bereits am Anfang definiert
-
-    // Header Text (Tabellen-Hintergründe wurden bereits am Anfang gezeichnet!)
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_dark.clone()) });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + 2.0), y: mm_to_pt(content_y - 5.0) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("NR".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + 2.0), y: mm_to_pt(content_y - 5.0) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("LEISTUNGSBESCHREIBUNG".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + 2.0), y: mm_to_pt(content_y - 5.0) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("EINZELPREIS".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + 2.0), y: mm_to_pt(content_y - 5.0) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("MENGE".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 2.0), y: mm_to_pt(content_y - 5.0) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("GESAMT".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-
-    content_y -= 10.0;
-
-    // ========================================================================
-    // TABELLEN-ZEILEN
-    // ========================================================================
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::Helvetica });
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_dark.clone()) });
-
-    let mut row_num = 1;
-
-    // Zeile 1: Übernachtung
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format!("{:02}", row_num))], font: BuiltinFont::Helvetica });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!("{} ({} - {})", room_name, checkin_de, checkout_de))],
-        font: BuiltinFont::Helvetica
-    });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(grundpreis / naechte as f64))], font: BuiltinFont::Helvetica });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format!("{}", naechte))], font: BuiltinFont::Helvetica });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(grundpreis))], font: BuiltinFont::Helvetica });
-
-    content_y -= 6.0;
-    row_num += 1;
-
-    // Zeile 2: Zusatzleistungen
-    if services_preis > 0.01 {
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format!("{:02}", row_num))], font: BuiltinFont::Helvetica });
-
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("Zusatzleistungen".to_string())], font: BuiltinFont::Helvetica });
-
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(services_preis))], font: BuiltinFont::Helvetica });
-
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("1".to_string())], font: BuiltinFont::Helvetica });
-
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(services_preis))], font: BuiltinFont::Helvetica });
-
-        content_y -= 6.0;
-        row_num += 1;
+    if booking.rabatt_preis > 0.0 {
+        current_y += 8.0;
+        text_black(&mut content, "Rabatt", totals_x_label, current_y, 9.5, Name(b"F1"));
+        text_black(&mut content, &format!("-{:.2} EUR", booking.rabatt_preis), totals_x_value, current_y, 9.5, Name(b"F1"));
     }
 
-    // Zeile 3: Rabatt
-    if rabatt_preis.abs() > 0.01 {
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format!("{:02}", row_num))], font: BuiltinFont::Helvetica });
+    current_y += 13.0;
+    content.end_text();
+    draw_line(&mut content, totals_x_label, current_y - 3.0, totals_x_end, current_y - 3.0, 0.2, 0.2, 0.2, 1.8);
+    content.begin_text();
 
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("Rabatt".to_string())], font: BuiltinFont::Helvetica });
+    text_black(&mut content, "Gesamtsumme", totals_x_label, current_y, 12.0, Name(b"F2"));
+    text_black(&mut content, &format!("{:.2} EUR", booking.gesamtpreis), totals_x_value, current_y, 12.0, Name(b"F2"));
 
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(rabatt_preis))], font: BuiltinFont::Helvetica });
+    content.end_text();
 
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("1".to_string())], font: BuiltinFont::Helvetica });
+    // FOOTER - 40% Sidebar + 60% weiß (wie Header)
+    let footer_y = PAGE_HEIGHT_MM - 85.0;
+    let footer_height = 85.0;
 
-        ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(table_x + col_widths[0] + col_widths[1] + col_widths[2] + col_widths[3] + 2.0), y: mm_to_pt(content_y) } });
-        ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(rabatt_preis))], font: BuiltinFont::Helvetica });
+    draw_rect(&mut content, 0.0, footer_y, sidebar_width, footer_height, DARK_GRAY[0], DARK_GRAY[1], DARK_GRAY[2]);
+    draw_rect(&mut content, sidebar_width, footer_y, PAGE_WIDTH_MM - sidebar_width, footer_height, WHITE[0], WHITE[1], WHITE[2]);
 
-        content_y -= 6.0;
-    }
+    content.begin_text();
 
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
+    text_white(&mut content, "Vielen Dank", 10.0, footer_y + 10.0, 18.0, Name(b"F2"));
 
-    // Trennlinie
-    ops.push(Op::SetOutlineColor { col: Color::Rgb(color_border.clone()) });
-    ops.push(Op::SetOutlineThickness { pt: Pt(0.5) });
-    ops.push(Op::DrawLine {
-        line: Line {
-            points: vec![
-                LinePoint { p: Point { x: mm_to_pt(table_x), y: mm_to_pt(content_y) }, bezier: false },
-                LinePoint { p: Point { x: mm_to_pt(table_x + table_width), y: mm_to_pt(content_y) }, bezier: false },
-            ],
-            is_closed: false,
-        },
-    });
+    text_white(&mut content, "ZAHLUNGSINFORMATIONEN", 10.0, footer_y + 32.0, 9.0, Name(b"F2"));
+    text_white(&mut content, "IBAN: DE70 7009 0500 0001 9999 90", 10.0, footer_y + 41.0, 8.5, Name(b"F1"));
+    text_white(&mut content, "BIC: GENODEF1S04", 10.0, footer_y + 48.0, 8.5, Name(b"F1"));
+    text_white(&mut content, "Bank: Sparda Bank Muenchen", 10.0, footer_y + 55.0, 8.5, Name(b"F1"));
 
-    content_y -= 8.0;
+    text_white(&mut content, "+49 8042 9725-20", 10.0, footer_y + 65.0, 8.5, Name(b"F1"));
+    text_white(&mut content, "info@dpolg-stiftung.de", 10.0, footer_y + 72.0, 8.5, Name(b"F1"));
+    text_white(&mut content, "www.dpolg-stiftung.de", 10.0, footer_y + 79.0, 8.5, Name(b"F1"));
 
-    // ========================================================================
-    // SUMMEN-BLOCK (grauer Balken)
-    // ========================================================================
-    let summary_x = table_x - 25.0;
-    let summary_width = table_width + 25.0;
-    let summary_height = 18.0;
+    text_black(&mut content, "GESCHAEFTSBEDINGUNGEN", sidebar_width + 10.0, footer_y + 10.0, 9.5, Name(b"F2"));
+    text_black(&mut content, "Zahlbar innerhalb von 14 Tagen ohne Abzug.", sidebar_width + 10.0, footer_y + 22.0, 8.5, Name(b"F1"));
 
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_table_header.clone()) });
-    ops.push(Op::DrawPolygon {
-        polygon: Polygon {
-            rings: vec![PolygonRing {
-                points: vec![
-                    LinePoint { p: Point { x: mm_to_pt(summary_x), y: mm_to_pt(content_y - summary_height + 2.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(summary_x + summary_width), y: mm_to_pt(content_y - summary_height + 2.0) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(summary_x + summary_width), y: mm_to_pt(content_y) }, bezier: false },
-                    LinePoint { p: Point { x: mm_to_pt(summary_x), y: mm_to_pt(content_y) }, bezier: false },
-                ],
-            }],
-            mode: PaintMode::Fill,
-            winding_order: WindingOrder::NonZero,
-        },
-    });
+    content.end_text();
 
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_dark.clone()) });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::Helvetica });
+    pdf.stream(content_id, &content.finish());
+    let pdf_bytes = pdf.finish();
+    std::fs::write(&output_path, pdf_bytes)
+        .map_err(|e| format!("Fehler beim Speichern: {}", e))?;
 
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("Zwischensumme".to_string())], font: BuiltinFont::Helvetica });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 30.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(netto))], font: BuiltinFont::Helvetica });
-
-    content_y -= 5.0;
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format!("MwSt. {}%", mwst_satz as i32))], font: BuiltinFont::Helvetica });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 30.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(mwst_betrag))], font: BuiltinFont::Helvetica });
-
-    content_y -= 7.0;
-
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(11.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 2.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("Gesamtbetrag".to_string())], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(summary_x + 30.0), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text(format_price(gesamtpreis))], font: BuiltinFont::HelveticaBold });
-
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-
-    // ========================================================================
-    // ZAHLUNGSBEDINGUNGEN (unten mittig im weißen Bereich)
-    // ========================================================================
-    content_y = 65.0;
-    let terms_x = content_x + 10.0;
-
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetFillColor { col: Color::Rgb(color_text_dark.clone()) });
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(terms_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("ZAHLUNGSBEDINGUNGEN".to_string())], font: BuiltinFont::HelveticaBold });
-
-    content_y -= 5.5;
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(terms_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(7.5), font: BuiltinFont::Helvetica });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!(
-            "Der Betrag ist {} Tage nach Erhalt dieser Rechnung zur Zahlung fällig.",
-            payment.payment_due_days
-        ))],
-        font: BuiltinFont::Helvetica
-    });
-
-    content_y -= 4.0;
-
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(terms_x), y: mm_to_pt(content_y) } });
-    ops.push(Op::WriteTextBuiltinFont {
-        items: vec![TextItem::Text(format!("Bitte unter Angabe der Rechnungsnummer '{}' überweisen.", reservierungsnummer))],
-        font: BuiltinFont::Helvetica
-    });
-
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-
-    // Unterschrift (rechts unten)
-    let signature_x = terms_x + 65.0;
-    let signature_y = 50.0;
-
-    ops.push(Op::SaveGraphicsState);
-    ops.push(Op::StartTextSection);
-    ops.push(Op::SetTextCursor { pos: Point { x: mm_to_pt(signature_x), y: mm_to_pt(signature_y + 2.0) } });
-    ops.push(Op::SetFontSizeBuiltinFont { size: Pt(9.0), font: BuiltinFont::HelveticaBold });
-    ops.push(Op::WriteTextBuiltinFont { items: vec![TextItem::Text("Unterschrift".to_string())], font: BuiltinFont::HelveticaBold });
-    ops.push(Op::EndTextSection);
-    ops.push(Op::RestoreGraphicsState);
-
-    ops.push(Op::SetOutlineColor { col: Color::Rgb(color_border.clone()) });
-    ops.push(Op::SetOutlineThickness { pt: Pt(0.5) });
-    ops.push(Op::DrawLine {
-        line: Line {
-            points: vec![
-                LinePoint { p: Point { x: mm_to_pt(signature_x), y: mm_to_pt(signature_y) }, bezier: false },
-                LinePoint { p: Point { x: mm_to_pt(signature_x + 35.0), y: mm_to_pt(signature_y) }, bezier: false },
-            ],
-            is_closed: false,
-        },
-    });
-
-    // ========================================================================
-    // PDF SPEICHERN
-    // ========================================================================
-    // ========================================================================
-    // ANALYSE: Zähle wie viele Text-Ops tatsächlich im PDF sind (VOR dem Move!)
-    // ========================================================================
-    let ops_count = ops.len();
-    let text_ops_count = ops.iter().filter(|op| matches!(op, Op::WriteTextBuiltinFont { .. })).count();
-    let font_size_ops = ops.iter().filter(|op| matches!(op, Op::SetFontSizeBuiltinFont { .. })).count();
-    let cursor_ops = ops.iter().filter(|op| matches!(op, Op::SetTextCursor { .. })).count();
-    let polygon_ops = ops.iter().filter(|op| matches!(op, Op::DrawPolygon { .. })).count();
-    let start_text_sections = ops.iter().filter(|op| matches!(op, Op::StartTextSection)).count();
-    let end_text_sections = ops.iter().filter(|op| matches!(op, Op::EndTextSection)).count();
-
-    println!("🔧 [PDF DEBUG] ===== OPERATIONS GESAMT: {} =====", ops_count);
-    println!("📊 [FINAL DEBUG] Ops-Analyse:");
-    println!("   - Gesamt Ops: {}", ops_count);
-    println!("   - WriteTextBuiltinFont: {}", text_ops_count);
-    println!("   - SetFontSizeBuiltinFont: {}", font_size_ops);
-    println!("   - SetTextCursor: {}", cursor_ops);
-    println!("   - DrawPolygon: {}", polygon_ops);
-    println!("   - StartTextSection: {}", start_text_sections);
-    println!("   - EndTextSection: {}", end_text_sections);
-    println!("🔧 [PDF DEBUG] Erstelle PdfPage mit {} Operationen", ops_count);
-
-    let page = PdfPage::new(Mm(210.0), Mm(297.0), ops);
-
-    println!("🔧 [PDF DEBUG] PdfPage erstellt, speichere mit with_pages()");
-
-    let pdf_bytes = doc
-        .with_pages(vec![page])
-        .save(&PdfSaveOptions::default(), &mut Vec::new());
-
-    println!("🔧 [PDF DEBUG] PDF Bytes generiert: {} bytes", pdf_bytes.len());
-
-    std::fs::write(output_path, pdf_bytes)
-        .map_err(|e| format!("Fehler beim Schreiben der PDF-Datei: {}", e))?;
-
-    println!("✅ Moderne PDF-Rechnung mit Sidebar erstellt (printpdf 0.8): {:?}", output_path);
-    println!("📋 CRITICAL INFO: {} WriteTextBuiltinFont ops wurden hinzugefügt, aber nur wenige erscheinen im PDF!", text_ops_count);
-
-    Ok(output_path.clone())
-}
-
-// ============================================================================
-// HILFSFUNKTIONEN
-// ============================================================================
-
-/// Lädt ein PNG/JPG Logo als RawImage (printpdf 0.8 API)
-/// WICHTIG: Benötigt printpdf features = ["png", "jpeg"]
-fn load_logo_as_raw_image(logo_path: &str) -> Result<RawImage, String> {
-    println!("🖼️  [LOGO DEBUG] ===== LOGO LADEN START =====");
-    println!("🖼️  [LOGO DEBUG] Pfad: {}", logo_path);
-
-    // Prüfe ob Logo existiert
-    if !std::path::Path::new(logo_path).exists() {
-        println!("❌ [LOGO DEBUG] Datei nicht gefunden!");
-        return Err(format!("Logo-Datei nicht gefunden: {}", logo_path));
-    }
-
-    println!("✅ [LOGO DEBUG] Datei existiert");
-
-    // Lade Image-Bytes
-    let image_bytes = std::fs::read(logo_path)
-        .map_err(|e| format!("Fehler beim Lesen der Logo-Datei: {}", e))?;
-
-    println!("✅ [LOGO DEBUG] {} Bytes gelesen", image_bytes.len());
-
-    // Dekodiere mit printpdf (mit aktivierten png/jpeg features)
-    let raw_image = RawImage::decode_from_bytes(&image_bytes, &mut Vec::new())
-        .map_err(|e| format!("Fehler beim Dekodieren der Bilddatei: {}", e))?;
-
-    println!("✅ [LOGO DEBUG] RawImage erfolgreich dekodiert");
-
-    Ok(raw_image)
-}
-
-/// Formatiert Preis in deutschem Format "XXX,XX €"
-fn format_price(price: f64) -> String {
-    format!("{:.2} €", price).replace('.', ",")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::env;
-
-    #[test]
-    fn test_generate_invoice_pdf_sidebar_design() {
-        let temp_dir = env::temp_dir();
-        let pdf_path = temp_dir.join("test_invoice_sidebar_v08.pdf");
-
-        let result = generate_invoice_pdf(
-            123,
-            "25000201",
-            "Max Mustermann",
-            Some("Teststraße 123"),
-            Some("12345 Teststadt"),
-            Some("DEUTSCHLAND"),
-            "Zimmer 101",
-            "2025-01-10",
-            "2025-01-15",
-            2,
-            500.00,
-            50.00,
-            0.00,
-            550.00,
-            &pdf_path,
-        );
-
-        assert!(result.is_ok());
-        assert!(pdf_path.exists());
-
-        println!("Test-PDF mit printpdf 0.8 erstellt: {:?}", pdf_path);
-    }
+    println!("✅ PDF erstellt: {:?}", output_path);
+    Ok(output_path.to_string_lossy().to_string())
 }

@@ -5,7 +5,6 @@ mod database;
 mod validation;
 mod pricing;
 mod email;
-mod pdf_generator;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -310,12 +309,6 @@ fn update_booking_dates_and_room_command(
 }
 
 #[tauri::command]
-fn update_booking_statuses_command() -> Result<usize, String> {
-    database::update_booking_statuses_by_date()
-        .map_err(|e| format!("Fehler beim Aktualisieren der Buchungs-Status: {}", e))
-}
-
-#[tauri::command]
 fn cancel_booking_command(id: i64) -> Result<database::Booking, String> {
     database::cancel_booking(id)
         .map_err(|e| format!("Fehler beim Stornieren der Buchung: {}", e))
@@ -585,11 +578,6 @@ fn get_email_logs_for_booking_command(booking_id: i64) -> Result<Vec<database::E
 }
 
 #[tauri::command]
-fn get_all_email_logs_command() -> Result<Vec<database::EmailLog>, String> {
-    email::get_all_email_logs()
-}
-
-#[tauri::command]
 async fn send_payment_reminder_email_command(booking_id: i64) -> Result<String, String> {
     email::send_payment_reminder_email(booking_id).await
 }
@@ -608,437 +596,6 @@ fn mark_booking_as_paid_command(
         .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))
 }
 
-// ============================================================================
-// SETTINGS COMMANDS - Phase 8
-// ============================================================================
-
-#[tauri::command]
-fn upload_logo_command(source_path: String) -> Result<String, String> {
-    use std::path::PathBuf;
-
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("🔍 [LOGO DEBUG] upload_logo_command GESTARTET");
-    println!("📂 [LOGO DEBUG] Source Path: {}", source_path);
-    println!("💻 [LOGO DEBUG] OS: {}", std::env::consts::OS);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    // Prüfe ob Source existiert
-    let source_exists = std::path::Path::new(&source_path).exists();
-    println!("📍 [LOGO DEBUG] Source existiert: {}", source_exists);
-
-    if !source_exists {
-        return Err(format!("❌ Source-Datei existiert nicht: {}", source_path));
-    }
-
-    // App Data Directory bestimmen
-    let app_data_dir = if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME").map_err(|e| format!("HOME env fehlt: {}", e))?;
-        println!("🏠 [LOGO DEBUG] HOME: {}", home);
-        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
-    } else if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA").map_err(|e| format!("APPDATA env fehlt: {}", e))?;
-        println!("🏠 [LOGO DEBUG] APPDATA: {}", appdata);
-        PathBuf::from(appdata).join("com.dpolg.booking")
-    } else {
-        let home = std::env::var("HOME").map_err(|e| format!("HOME env fehlt: {}", e))?;
-        println!("🏠 [LOGO DEBUG] HOME: {}", home);
-        PathBuf::from(home).join(".local/share/com.dpolg.booking")
-    };
-
-    println!("📂 [LOGO DEBUG] App Data Dir: {:?}", app_data_dir);
-
-    let logos_dir = app_data_dir.join("logos");
-    println!("📂 [LOGO DEBUG] Logos Dir: {:?}", logos_dir);
-
-    // Erstelle Verzeichnis
-    match std::fs::create_dir_all(&logos_dir) {
-        Ok(_) => println!("✅ [LOGO DEBUG] Logos-Verzeichnis erstellt/existiert"),
-        Err(e) => {
-            println!("❌ [LOGO DEBUG] Fehler beim Erstellen: {}", e);
-            return Err(format!("Fehler beim Erstellen des Logo-Verzeichnisses: {}", e));
-        }
-    }
-
-    // Dateiname extrahieren
-    let source_path_buf = PathBuf::from(&source_path);
-    let filename = source_path_buf
-        .file_name()
-        .ok_or("Ungültiger Dateiname".to_string())?;
-
-    println!("📝 [LOGO DEBUG] Dateiname: {:?}", filename);
-
-    let dest_path = logos_dir.join(filename);
-    println!("📍 [LOGO DEBUG] Ziel-Pfad: {:?}", dest_path);
-
-    // Kopiere Datei
-    match std::fs::copy(&source_path, &dest_path) {
-        Ok(bytes) => {
-            println!("✅ [LOGO DEBUG] Logo kopiert: {} bytes", bytes);
-            println!("📍 [LOGO DEBUG] Gespeichert unter: {:?}", dest_path);
-        }
-        Err(e) => {
-            println!("❌ [LOGO DEBUG] Kopier-Fehler: {}", e);
-            return Err(format!("Fehler beim Kopieren der Logo-Datei: {}", e));
-        }
-    }
-
-    // Prüfe ob Ziel existiert
-    let dest_exists = dest_path.exists();
-    println!("✅ [LOGO DEBUG] Ziel existiert: {}", dest_exists);
-
-    if dest_exists {
-        if let Ok(metadata) = std::fs::metadata(&dest_path) {
-            println!("📊 [LOGO DEBUG] Dateigröße: {} bytes", metadata.len());
-            println!("📅 [LOGO DEBUG] Modified: {:?}", metadata.modified());
-        }
-    }
-
-    let result = dest_path.to_string_lossy().to_string();
-    println!("📤 [LOGO DEBUG] Rückgabe-Pfad: {}", result);
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-
-    Ok(result)
-}
-
-#[tauri::command]
-fn get_company_settings_command() -> Result<database::CompanySettings, String> {
-    println!("🏢 get_company_settings_command called");
-    database::get_company_settings()
-        .map_err(|e| format!("Fehler beim Laden der Firmeneinstellungen: {}", e))
-}
-
-#[tauri::command]
-fn save_company_settings_command(settings: database::CompanySettings) -> Result<database::CompanySettings, String> {
-    println!("💾 save_company_settings_command called");
-    database::save_company_settings(settings)
-        .map_err(|e| format!("Fehler beim Speichern der Firmeneinstellungen: {}", e))
-}
-
-#[tauri::command]
-fn get_payment_settings_command() -> Result<database::PaymentSettings, String> {
-    println!("💳 get_payment_settings_command called");
-    database::get_payment_settings()
-        .map_err(|e| format!("Fehler beim Laden der Zahlungseinstellungen: {}", e))
-}
-
-#[tauri::command]
-fn save_payment_settings_command(settings: database::PaymentSettings) -> Result<database::PaymentSettings, String> {
-    println!("💾 save_payment_settings_command called");
-    database::save_payment_settings(settings)
-        .map_err(|e| format!("Fehler beim Speichern der Zahlungseinstellungen: {}", e))
-}
-
-// ============================================================================
-// PDF INVOICE GENERATION - Phase 7.1
-// ============================================================================
-
-#[tauri::command]
-fn generate_invoice_pdf_command(booking_id: i64) -> Result<String, String> {
-    use std::path::PathBuf;
-
-    // 1. Buchung mit Details laden
-    let booking = database::get_booking_with_details_by_id(booking_id)
-        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-
-    // 2. App-Data Ordner ermitteln (Platform-spezifisch)
-    let app_data_dir = if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
-    } else if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
-        PathBuf::from(appdata).join("com.dpolg.booking")
-    } else {
-        // Linux
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join(".local/share/com.dpolg.booking")
-    };
-
-    // Invoices-Unterordner erstellen
-    let invoices_dir = app_data_dir.join("invoices");
-    std::fs::create_dir_all(&invoices_dir)
-        .map_err(|e| format!("Fehler beim Erstellen des Invoices-Ordners: {}", e))?;
-
-    // 3. PDF-Dateiname generieren
-    let pdf_filename = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
-    let pdf_path = invoices_dir.join(&pdf_filename);
-
-    // 4. PDF generieren
-    let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
-
-    // Adresse zusammenbauen
-    let guest_address = booking.guest.strasse.as_deref();
-    let guest_city = if let (Some(plz), Some(ort)) = (&booking.guest.plz, &booking.guest.ort) {
-        Some(format!("{} {}", plz, ort))
-    } else {
-        None
-    };
-    let guest_city_str = guest_city.as_deref();
-
-    pdf_generator::generate_invoice_pdf(
-        booking.id,
-        &booking.reservierungsnummer,
-        &guest_name,
-        guest_address,
-        guest_city_str,
-        Some("DEUTSCHLAND"), // Standardmäßig Deutschland
-        &booking.room.name,
-        &booking.checkin_date,
-        &booking.checkout_date,
-        booking.anzahl_gaeste,
-        booking.grundpreis,
-        booking.services_preis,
-        booking.rabatt_preis,
-        booking.gesamtpreis,
-        &pdf_path,
-    )?;
-
-    // 5. Pfad zurückgeben
-    Ok(pdf_path.to_string_lossy().to_string())
-}
-
-/// Generiert PDF-Rechnung UND sendet sie automatisch per Email
-#[tauri::command]
-async fn generate_and_send_invoice_command(booking_id: i64) -> Result<String, String> {
-    use std::path::PathBuf;
-
-    println!("📧 Generiere PDF-Rechnung und sende Email für Buchung {}...", booking_id);
-
-    // 1. Buchung mit Details laden
-    let booking = database::get_booking_with_details_by_id(booking_id)
-        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-
-    // 2. App-Data Ordner ermitteln (Platform-spezifisch)
-    let app_data_dir = if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
-    } else if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
-        PathBuf::from(appdata).join("com.dpolg.booking")
-    } else {
-        // Linux
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join(".local/share/com.dpolg.booking")
-    };
-
-    // Invoices-Unterordner erstellen
-    let invoices_dir = app_data_dir.join("invoices");
-    std::fs::create_dir_all(&invoices_dir)
-        .map_err(|e| format!("Fehler beim Erstellen des Invoices-Ordners: {}", e))?;
-
-    // 3. PDF-Dateiname generieren
-    let pdf_filename = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
-    let pdf_path = invoices_dir.join(&pdf_filename);
-
-    // 4. PDF generieren
-    let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname);
-
-    // Adresse zusammenbauen
-    let guest_address = booking.guest.strasse.as_deref();
-    let guest_city = if let (Some(plz), Some(ort)) = (&booking.guest.plz, &booking.guest.ort) {
-        Some(format!("{} {}", plz, ort))
-    } else {
-        None
-    };
-    let guest_city_str = guest_city.as_deref();
-
-    pdf_generator::generate_invoice_pdf(
-        booking.id,
-        &booking.reservierungsnummer,
-        &guest_name,
-        guest_address,
-        guest_city_str,
-        Some("DEUTSCHLAND"), // Standardmäßig Deutschland
-        &booking.room.name,
-        &booking.checkin_date,
-        &booking.checkout_date,
-        booking.anzahl_gaeste,
-        booking.grundpreis,
-        booking.services_preis,
-        booking.rabatt_preis,
-        booking.gesamtpreis,
-        &pdf_path,
-    )?;
-
-    println!("✅ PDF erstellt: {:?}", pdf_path);
-
-    // 5. Email mit PDF versenden
-    let email_result = email::send_invoice_email_with_pdf(booking_id, pdf_path.clone()).await?;
-
-    println!("✅ Email gesendet: {}", email_result);
-
-    Ok(format!("PDF erstellt und Email gesendet: {}", email_result))
-}
-
-/// Liste alle generierten PDF-Rechnungen für eine Buchung auf
-#[tauri::command]
-fn get_invoice_pdfs_for_booking_command(booking_id: i64) -> Result<Vec<InvoicePdfInfo>, String> {
-    use std::path::PathBuf;
-
-    // 1. Buchung laden um Reservierungsnummer zu bekommen
-    let booking = database::get_booking_with_details_by_id(booking_id)
-        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-
-    // 2. App-Data Ordner ermitteln
-    let app_data_dir = if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
-    } else if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
-        PathBuf::from(appdata).join("com.dpolg.booking")
-    } else {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join(".local/share/com.dpolg.booking")
-    };
-
-    let invoices_dir = app_data_dir.join("invoices");
-
-    // 3. Prüfen ob Invoices-Ordner existiert
-    if !invoices_dir.exists() {
-        return Ok(Vec::new()); // Keine PDFs vorhanden
-    }
-
-    // 4. Nach PDFs für diese Reservierungsnummer suchen
-    let pdf_filename = format!("Rechnung_{}.pdf", booking.reservierungsnummer);
-    let pdf_path = invoices_dir.join(&pdf_filename);
-
-    let mut result = Vec::new();
-
-    if pdf_path.exists() {
-        // Datei-Metadaten laden
-        if let Ok(metadata) = std::fs::metadata(&pdf_path) {
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                    let modified_timestamp = duration.as_secs();
-
-                    result.push(InvoicePdfInfo {
-                        filename: pdf_filename,
-                        path: pdf_path.to_string_lossy().to_string(),
-                        size_bytes: metadata.len(),
-                        created_at: modified_timestamp,
-                        reservierungsnummer: booking.reservierungsnummer.clone(),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(result)
-}
-
-/// Öffnet einen Ordner im System-Dateimanager (Finder/Explorer)
-#[tauri::command]
-fn open_invoices_folder_command() -> Result<String, String> {
-    use std::path::PathBuf;
-    use std::process::Command;
-
-    // App-Data Ordner ermitteln
-    let app_data_dir = if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join("Library/Application Support/com.dpolg.booking")
-    } else if cfg!(target_os = "windows") {
-        let appdata = std::env::var("APPDATA")
-            .map_err(|_| "Konnte APPDATA nicht ermitteln".to_string())?;
-        PathBuf::from(appdata).join("com.dpolg.booking")
-    } else {
-        let home = std::env::var("HOME")
-            .map_err(|_| "Konnte HOME nicht ermitteln".to_string())?;
-        PathBuf::from(home).join(".local/share/com.dpolg.booking")
-    };
-
-    let invoices_dir = app_data_dir.join("invoices");
-
-    // Ordner erstellen falls nicht existiert
-    std::fs::create_dir_all(&invoices_dir)
-        .map_err(|e| format!("Fehler beim Erstellen des Invoices-Ordners: {}", e))?;
-
-    // Plattform-spezifisch öffnen
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open")
-            .arg(&invoices_dir)
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer")
-            .arg(&invoices_dir)
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open")
-            .arg(&invoices_dir)
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
-    }
-
-    Ok(format!("Ordner geöffnet: {}", invoices_dir.to_string_lossy()))
-}
-
-/// Öffnet eine spezifische PDF-Datei im Standard-Programm
-#[tauri::command]
-fn open_pdf_file_command(file_path: String) -> Result<String, String> {
-    use std::path::PathBuf;
-    use std::process::Command;
-
-    let path = PathBuf::from(&file_path);
-
-    // Prüfen ob Datei existiert
-    if !path.exists() {
-        return Err(format!("PDF-Datei nicht gefunden: {}", file_path));
-    }
-
-    // Plattform-spezifisch öffnen
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen der PDF: {}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("cmd")
-            .args(&["/C", "start", "", &file_path])
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen der PDF: {}", e))?;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        Command::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| format!("Fehler beim Öffnen der PDF: {}", e))?;
-    }
-
-    Ok(format!("PDF geöffnet: {}", file_path))
-}
-
-#[derive(serde::Serialize)]
-struct InvoicePdfInfo {
-    filename: String,
-    path: String,
-    size_bytes: u64,
-    created_at: u64,
-    reservierungsnummer: String,
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -1054,7 +611,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_all_rooms,
             get_all_bookings,
@@ -1074,7 +630,6 @@ pub fn run() {
             create_booking_command,
             update_booking_command,
             update_booking_dates_and_room_command,
-            update_booking_statuses_command,
             delete_booking_command,
             cancel_booking_command,
             get_booking_by_id_command,
@@ -1112,22 +667,9 @@ pub fn run() {
             send_reminder_email_command,
             send_invoice_email_command,
             get_email_logs_for_booking_command,
-            get_all_email_logs_command,
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,
-            // Settings
-            upload_logo_command,
-            get_company_settings_command,
-            save_company_settings_command,
-            get_payment_settings_command,
-            save_payment_settings_command,
-            // PDF Invoice Generation
-            generate_invoice_pdf_command,
-            generate_and_send_invoice_command,
-            get_invoice_pdfs_for_booking_command,
-            open_invoices_folder_command,
-            open_pdf_file_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
