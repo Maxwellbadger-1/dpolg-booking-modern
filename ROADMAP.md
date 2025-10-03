@@ -715,20 +715,37 @@
 **Datei:** `src-tauri/src/pdf_generator.rs`
 
 - [x] **Rechnungs-PDF mit automatischem Email-Versand** ✅
-  - `printpdf = "0.7"` zu Cargo.toml hinzugefügt
+  - `printpdf = { version = "0.7", features = ["embedded_images"] }` in Cargo.toml
   - `generate_invoice_pdf()` - Generiert PDF-Rechnung im App-Data Ordner
   - `generate_invoice_pdf_command` - Tauri Command für PDF-Generierung
   - `generate_and_send_invoice_command` - Kombinierte PDF + Email Funktion
   - Automatischer Versand bei Buchungserstellung in BookingDialog.tsx
   - Email-Attachment Support in `email.rs` (`send_invoice_email_with_pdf`)
+  - **Modernes Sidebar-Design** ✅
+    * Grauer Sidebar links (70mm breit)
+    * Weißer Content-Bereich rechts
+    * Tabelle überlappt Sidebar (white background)
+    * Grauer Summen-Balken erstreckt sich bis/hinter Sidebar
+  - **Deutsche Lokalisierung & Euro-Format** ✅
+    * Alle Texte auf Deutsch ("RECHNUNG", "LEISTUNGSBESCHREIBUNG", etc.)
+    * Euro-Preisformat: "123,45 €" (Komma als Dezimaltrennzeichen)
+    * "Zahlungsbedingungen" zentriert am unteren Ende
+  - **Logo-Integration** ✅
+    * Logo wird mit `image` crate geladen
+    * `Image::from_dynamic_image()` für PDF-Konvertierung
+    * Zentriert in Sidebar (30mm Höhe)
   - PDF enthält:
-    * DPolG Stiftung Header
+    * Firmen-Logo (zentriert in Sidebar)
+    * Firmenname mit automatischem Umbruch
     * Reservierungsnummer
-    * Gast-Details
+    * Gast-Details (Name, Adresse)
     * Zimmer & Zeitraum
-    * Anzahl Nächte
-    * Gesamtpreis
-    * Zahlungshinweis (IBAN, Verwendungszweck)
+    * Detaillierte Leistungstabelle
+    * Anzahl Nächte & Einzelpreise
+    * Zwischensumme, MwSt., Gesamtbetrag
+    * Zahlungsinformationen (IBAN, Kontoinhaber, Bank) mit Umbruch
+    * Zahlungsbedingungen
+    * Unterschriftenfeld
 
 - [ ] **Buchungsbestätigung** (Future)
   ```rust
