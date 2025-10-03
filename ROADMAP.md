@@ -712,40 +712,69 @@
 **Ziel:** Professionelle PDF-Dokumente
 
 ### 7.1 PDF-Layouts ✅ ERLEDIGT
-**Datei:** `src-tauri/src/pdf_generator.rs`
+**Datei:** `src-tauri/src/pdf_generator_html.rs` (HTML→PDF mit Headless Chrome)
 
-- [x] **Rechnungs-PDF mit automatischem Email-Versand** ✅
-  - `printpdf = { version = "0.7", features = ["embedded_images"] }` in Cargo.toml
-  - `generate_invoice_pdf()` - Generiert PDF-Rechnung im App-Data Ordner
-  - `generate_invoice_pdf_command` - Tauri Command für PDF-Generierung
-  - `generate_and_send_invoice_command` - Kombinierte PDF + Email Funktion
-  - Automatischer Versand bei Buchungserstellung in BookingDialog.tsx
-  - Email-Attachment Support in `email.rs` (`send_invoice_email_with_pdf`)
-  - **Modernes Sidebar-Design** ✅
-    * Grauer Sidebar links (70mm breit)
-    * Weißer Content-Bereich rechts
-    * Tabelle überlappt Sidebar (white background)
-    * Grauer Summen-Balken erstreckt sich bis/hinter Sidebar
-  - **Deutsche Lokalisierung & Euro-Format** ✅
-    * Alle Texte auf Deutsch ("RECHNUNG", "LEISTUNGSBESCHREIBUNG", etc.)
-    * Euro-Preisformat: "123,45 €" (Komma als Dezimaltrennzeichen)
-    * "Zahlungsbedingungen" zentriert am unteren Ende
-  - **Logo-Integration** ✅
-    * Logo wird mit `image` crate geladen
-    * `Image::from_dynamic_image()` für PDF-Konvertierung
-    * Zentriert in Sidebar (30mm Höhe)
-  - PDF enthält:
-    * Firmen-Logo (zentriert in Sidebar)
-    * Firmenname mit automatischem Umbruch
-    * Reservierungsnummer
-    * Gast-Details (Name, Adresse)
-    * Zimmer & Zeitraum
-    * Detaillierte Leistungstabelle
-    * Anzahl Nächte & Einzelpreise
-    * Zwischensumme, MwSt., Gesamtbetrag
-    * Zahlungsinformationen (IBAN, Kontoinhaber, Bank) mit Umbruch
-    * Zahlungsbedingungen
-    * Unterschriftenfeld
+- [x] **Moderne PDF-Generierung mit HTML→PDF Ansatz** ✅
+  - **Technologie:** Headless Chrome via `headless_chrome` crate
+  - **Template-Engine:** Tera für dynamische HTML-Templates
+  - **Dependencies:**
+    * `tera = "1.20"` - Template Engine mit Platzhaltern
+    * `headless_chrome = "1.0"` - Chrome DevTools Protocol
+    * Template-Datei: `src-tauri/templates/invoice.html`
+  - **Vorteile vs. printpdf:**
+    * ✅ Perfektes Layout wie im HTML-Vorschau
+    * ✅ Modernes CSS (Grid, Flexbox, TailwindCSS-ähnlich)
+    * ✅ Einfache Anpassungen ohne Koordinaten-Berechnung
+    * ✅ Professionelles Typography & Spacing
+    * ✅ Inline Styles für konsistentes Rendering
+  - **Commands:**
+    * `generate_invoice_pdf_command` - Generiert PDF im App-Data Ordner
+    * `get_invoice_pdfs_for_booking_command` - Liste aller PDFs für Buchung
+    * `open_invoices_folder_command` - Öffnet Invoices-Ordner
+  - **PDF-Speicherort:** `~/Library/Application Support/com.maximilianfegg.dpolg-booking-modern/invoices/`
+  - **Template-Variablen:**
+    * `{{ booking.reservierungsnummer }}`
+    * `{{ guest.vorname }}`, `{{ guest.nachname }}`
+    * `{{ room.name }}`
+    * `{{ booking.checkin_date }}`, `{{ booking.checkout_date }}`
+    * `{{ booking.gesamtpreis }}`
+    * `{{ invoice_date }}`, `{{ due_date }}`
+  - **Features:**
+    * Modernes deutsches Rechnungs-Design
+    * DPolG Stiftung Branding (Logo in Sidebar)
+    * Responsive Layout mit Sidebar
+    * Professionelle Tabellen & Formatierung
+    * Deutsche Lokalisierung (Datum, Währung)
+    * Print-optimiert (A4, keine Margins)
+
+- [ ] **QR-Code für SEPA-Überweisungen (EPC-QR-Code)** 🔜 GEPLANT
+  - **Zweck:** Scan-to-Pay Funktion für Banking-Apps
+  - **Technologie:** `qrcode` crate + Base64-Encoding
+  - **Standard:** European Payments Council (EPC) QR-Code
+  - **Aufwand:** ~1 Stunde Implementation
+  - **Features:**
+    * QR-Code generieren mit IBAN, BIC, Betrag, Verwendungszweck
+    * Als Base64 PNG in HTML-Template einbinden
+    * Position: Unten rechts oder in Sidebar
+  - **Benötigte Daten:**
+    * IBAN der DPolG Stiftung (aus Company Settings)
+    * BIC der Bank (aus Company Settings)
+    * Kontoinhaber (aus Company Settings)
+    * Betrag: `booking.gesamtpreis`
+    * Verwendungszweck: `Rechnung {{ booking.reservierungsnummer }}`
+  - **Implementation:**
+    ```rust
+    // Neue Dependency
+    qrcode = "0.14"
+
+    // Funktion
+    fn generate_epc_qr_code(iban, bic, empfaenger, betrag, zweck) -> Vec<u8>
+
+    // Template
+    <img src="data:image/png;base64,{{ qr_code_base64 }}" />
+    ```
+  - **Use Case:** Kunde scannt QR → Banking-App öffnet mit vorbefüllten Überweisungsdaten
+  - **Kompatibilität:** Alle deutschen Banking-Apps (Sparkasse, Volksbank, N26, etc.)
 
 - [ ] **Buchungsbestätigung** (Future)
   ```rust

@@ -241,21 +241,38 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   };
 
   const handleGeneratePdf = async () => {
-    if (!booking) return;
+    console.log('🔵 handleGeneratePdf CALLED');
+    console.log('🔵 booking:', booking);
+    console.log('🔵 bookingId:', bookingId);
 
+    if (!booking) {
+      console.log('❌ NO BOOKING - ABORT');
+      return;
+    }
+
+    console.log('🟡 Setting generatingPdf to TRUE');
     setGeneratingPdf(true);
+
     try {
+      console.log('🟢 Calling generate_invoice_pdf_command with bookingId:', bookingId);
       const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
+      console.log('✅ PDF CREATED:', pdfPath);
       alert(`PDF-Rechnung erfolgreich erstellt: ${pdfPath}`);
 
       // Reload PDFs to show newly generated one
+      console.log('🔵 Reloading PDFs list...');
       const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
         bookingId,
       });
+      console.log('✅ PDFs loaded:', pdfsData);
       setInvoicePdfs(pdfsData);
     } catch (error) {
+      console.error('❌ ERROR generating PDF:', error);
+      console.error('Error type:', typeof error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
       alert(`Fehler beim Erstellen der PDF: ${error}`);
     } finally {
+      console.log('🟡 Setting generatingPdf to FALSE');
       setGeneratingPdf(false);
     }
   };
@@ -717,9 +734,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                           <div>
                             <p className="font-semibold text-slate-900">{pdf.filename}</p>
                             <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                              <span>{formatFileSize(pdf.size_bytes)}</span>
-                              <span>•</span>
-                              <span>Erstellt: {formatDate(pdf.created_at)}</span>
+                              <span>{formatFileSize(pdf.size)}</span>
                             </div>
                           </div>
                         </div>

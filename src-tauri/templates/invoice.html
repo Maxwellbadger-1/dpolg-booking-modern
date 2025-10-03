@@ -444,13 +444,13 @@
     <div class="invoice-container">
         <header>
             <div class="header-left">
-                <div class="brand-name">FIRMENNAME</div>
+                <div class="brand-name">DPolG Stiftung</div>
                 <div class="bill-to">
                     <div class="bill-to-label">RECHNUNG AN</div>
-                    <div class="company-name">FIRMENNAME</div>
+                    <div class="company-name">{{ guest.vorname }} {{ guest.nachname }}</div>
                     <div class="address">
-                        Musterstraße 24,<br>
-                        12345 Musterstadt
+                        {% if guest.strasse %}{{ guest.strasse }}<br>{% endif %}
+                        {% if guest.plz %}{{ guest.plz }} {% endif %}{% if guest.ort %}{{ guest.ort }}{% endif %}
                     </div>
                 </div>
             </div>
@@ -464,15 +464,15 @@
             <div class="invoice-meta">
                 <div class="invoice-meta-item">
                     <span class="invoice-meta-label">Rechnungsdatum:</span>
-                    <span class="invoice-meta-value">01.01.2020</span>
+                    <span class="invoice-meta-value">{{ invoice_date }}</span>
                 </div>
                 <div class="invoice-meta-item">
                     <span class="invoice-meta-label">Fälligkeitsdatum:</span>
-                    <span class="invoice-meta-value">10.01.2020</span>
+                    <span class="invoice-meta-value">{{ due_date }}</span>
                 </div>
                 <div class="invoice-meta-item">
                     <span class="invoice-meta-label">Rechnungsnr.:</span>
-                    <span class="invoice-meta-value">#549512</span>
+                    <span class="invoice-meta-value">{{ booking.reservierungsnummer }}</span>
                 </div>
             </div>
         </div>
@@ -492,38 +492,10 @@
                     <tbody>
                         <tr>
                             <td class="product-no">01</td>
-                            <td>Flyer Design</td>
-                            <td>10,00 €</td>
-                            <td>1</td>
-                            <td style="text-align: right;">10,00 €</td>
-                        </tr>
-                        <tr>
-                            <td class="product-no">02</td>
-                            <td>Broschüren Design</td>
-                            <td>5,00 €</td>
-                            <td>2</td>
-                            <td style="text-align: right;">10,00 €</td>
-                        </tr>
-                        <tr>
-                            <td class="product-no">03</td>
-                            <td>Visitenkarten</td>
-                            <td>15,00 €</td>
-                            <td>3</td>
-                            <td style="text-align: right;">45,00 €</td>
-                        </tr>
-                        <tr>
-                            <td class="product-no">04</td>
-                            <td>Logo Design</td>
-                            <td>25,00 €</td>
-                            <td>4</td>
-                            <td style="text-align: right;">100,00 €</td>
-                        </tr>
-                        <tr>
-                            <td class="product-no">05</td>
-                            <td>Webdesign Konzept</td>
-                            <td>10,00 €</td>
-                            <td>5</td>
-                            <td style="text-align: right;">50,00 €</td>
+                            <td>Unterkunft {{ room.name }} vom {{ booking.checkin_date }} bis {{ booking.checkout_date }}</td>
+                            <td>{{ price_per_night }} EUR</td>
+                            <td>{{ booking.anzahl_naechte }}</td>
+                            <td style="text-align: right;">{{ booking.grundpreis }} EUR</td>
                         </tr>
                     </tbody>
                 </table>
@@ -534,15 +506,17 @@
                     <div class="totals-content">
                         <div class="totals-row subtotal">
                             <span>Zwischensumme</span>
-                            <span>215,00 €</span>
+                            <span>{{ subtotal }} EUR</span>
                         </div>
+                        {% if booking.rabatt_preis > 0 %}
                         <div class="totals-row">
-                            <span>MwSt. 19%</span>
-                            <span>40,85 €</span>
+                            <span>Rabatt</span>
+                            <span>-{{ booking.rabatt_preis }} EUR</span>
                         </div>
+                        {% endif %}
                         <div class="totals-row grand-total">
                             <span>Gesamtsumme</span>
-                            <span>255,85 €</span>
+                            <span>{{ booking.gesamtpreis }} EUR</span>
                         </div>
                     </div>
                 </div>
@@ -552,47 +526,51 @@
         <footer>
             <div class="footer-left">
                 <div class="thank-you">Vielen Dank</div>
-                
+
                 <div class="payment-info">
                     <h4>Zahlungsinformationen</h4>
                     <div class="payment-detail">
-                        <span class="payment-label">Kontonummer:</span>
-                        <span>DE12 3456 7890</span>
+                        <span class="payment-label">IBAN:</span>
+                        <span>DE70 7009 0500 0001 9999 90</span>
                     </div>
                     <div class="payment-detail">
-                        <span class="payment-label">Kontoinhaber:</span>
-                        <span>Max Mustermann</span>
+                        <span class="payment-label">BIC:</span>
+                        <span>GENODEF1S04</span>
                     </div>
                     <div class="payment-detail">
                         <span class="payment-label">Bank:</span>
-                        <span>Musterbank AG</span>
+                        <span>Sparda Bank Muenchen</span>
                     </div>
                 </div>
-                
+
                 <div class="contact-info">
                     <div class="contact-item">
                         <span class="contact-icon">📞</span>
-                        <span>+49 123 456789<br>+49 123 456790</span>
+                        <span>+49 8042 9725-20</span>
                     </div>
                     <div class="contact-item">
                         <span class="contact-icon">✉</span>
-                        <span>info@ihrefirma.de<br>support@ihrefirma.de</span>
+                        <span>info@dpolg-stiftung.de</span>
                     </div>
                     <div class="contact-item">
-                        <span class="contact-icon">📍</span>
-                        <span>Ihre Adresse<br>Musterstadt</span>
+                        <span class="contact-icon">🌐</span>
+                        <span>www.dpolg-stiftung.de</span>
                     </div>
                 </div>
             </div>
-            
+
             <div class="footer-right">
                 <div class="terms-section">
                     <h4>GESCHÄFTSBEDINGUNGEN</h4>
                     <p class="terms-text">
-                        Mit der Zahlung dieser Rechnung erkennen Sie unsere allgemeinen Geschäftsbedingungen an. Zahlbar innerhalb von 10 Tagen ohne Abzug.
+                        Zahlbar innerhalb von 14 Tagen ohne Abzug.
                     </p>
                 </div>
+                {% if logo_base64 %}
+                <img src="{{ logo_base64 }}" alt="Logo" style="width: 120px; height: auto; display: block; margin-top: 15px;">
+                {% else %}
                 <div class="logo-placeholder">[LOGO]</div>
+                {% endif %}
             </div>
         </footer>
     </div>

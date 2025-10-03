@@ -5,6 +5,8 @@ mod database;
 mod validation;
 mod pricing;
 mod email;
+mod pdf_generator;
+mod pdf_generator_html;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -596,6 +598,62 @@ fn mark_booking_as_paid_command(
         .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))
 }
 
+#[tauri::command]
+fn update_booking_statuses_command() -> Result<usize, String> {
+    database::update_booking_statuses_by_date()
+        .map_err(|e| format!("Fehler beim Status-Update: {}", e))
+}
+
+// ============================================================================
+// COMPANY SETTINGS COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn get_company_settings_command() -> Result<database::CompanySettings, String> {
+    database::get_company_settings()
+        .map_err(|e| format!("Fehler beim Laden der Einstellungen: {}", e))
+}
+
+#[tauri::command]
+fn save_company_settings_command(settings: database::CompanySettings) -> Result<database::CompanySettings, String> {
+    database::save_company_settings(settings)
+        .map_err(|e| format!("Fehler beim Speichern der Einstellungen: {}", e))
+}
+
+#[tauri::command]
+fn upload_logo_command(app: tauri::AppHandle, source_path: String) -> Result<String, String> {
+    use tauri::Manager;
+
+    println!("📁 Logo Upload gestartet...");
+    println!("   Source: {}", source_path);
+
+    // Get app data directory
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| format!("Fehler beim App-Verzeichnis: {}", e))?;
+
+    // Create logos directory
+    let logos_dir = app_data_dir.join("logos");
+    std::fs::create_dir_all(&logos_dir)
+        .map_err(|e| format!("Fehler beim Erstellen des Logo-Verzeichnisses: {}", e))?;
+
+    println!("   Logos dir: {:?}", logos_dir);
+
+    // Get filename from source
+    let source = std::path::Path::new(&source_path);
+    let filename = source.file_name()
+        .ok_or("Ungültiger Dateiname")?;
+
+    // Copy file to logos directory
+    let dest_path = logos_dir.join(filename);
+    std::fs::copy(&source_path, &dest_path)
+        .map_err(|e| format!("Fehler beim Kopieren der Datei: {}", e))?;
+
+    let result = dest_path.to_string_lossy().to_string();
+    println!("✅ Logo erfolgreich hochgeladen: {}", result);
+
+    Ok(result)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -670,6 +728,16 @@ pub fn run() {
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,
+            update_booking_statuses_command,
+            // Company Settings
+            get_company_settings_command,
+            save_company_settings_command,
+            upload_logo_command,
+            // PDF Generation
+            pdf_generator::generate_invoice_pdf_command,
+            pdf_generator::get_invoice_pdfs_for_booking_command,
+            pdf_generator::open_invoices_folder_command,
+            pdf_generator::open_pdf_file_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
