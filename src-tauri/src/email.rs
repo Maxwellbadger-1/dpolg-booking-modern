@@ -678,6 +678,39 @@ pub fn get_email_logs_for_booking(booking_id: i64) -> Result<Vec<EmailLog>, Stri
     Ok(result)
 }
 
+/// Alle Email-Logs abrufen (für Email-Verlauf)
+pub fn get_all_email_logs() -> Result<Vec<EmailLog>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, booking_id, guest_id, template_name, recipient_email, subject, status, error_message, sent_at
+         FROM email_logs
+         ORDER BY sent_at DESC"
+    ).map_err(|e| format!("Fehler beim Vorbereiten der Abfrage: {}", e))?;
+
+    let logs = stmt.query_map([], |row| {
+        Ok(EmailLog {
+            id: row.get(0)?,
+            booking_id: row.get(1)?,
+            guest_id: row.get(2)?,
+            template_name: row.get(3)?,
+            recipient_email: row.get(4)?,
+            subject: row.get(5)?,
+            status: row.get(6)?,
+            error_message: row.get(7)?,
+            sent_at: row.get(8)?,
+        })
+    }).map_err(|e| format!("Fehler beim Abrufen der Logs: {}", e))?;
+
+    let mut result = Vec::new();
+    for log in logs {
+        result.push(log.map_err(|e| format!("Fehler beim Verarbeiten: {}", e))?);
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

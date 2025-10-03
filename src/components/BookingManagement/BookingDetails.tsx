@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   X, Calendar, Users, MapPin, Mail, Phone, DollarSign, Tag,
   UserCheck, ShoppingBag, Percent, Edit2, XCircle, FileText,
-  Clock, Home, Send, CheckCircle, AlertCircle, Euro
+  Clock, Home, Send, CheckCircle, AlertCircle, Euro, Download,
+  FolderOpen, Eye
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -84,14 +85,24 @@ interface Discount {
   discount_value: number;
 }
 
+interface InvoicePdfInfo {
+  filename: string;
+  path: string;
+  size_bytes: number;
+  created_at: number;
+  reservierungsnummer: string;
+}
+
 export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: BookingDetailsProps) {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [accompanyingGuests, setAccompanyingGuests] = useState<AccompanyingGuest[]>([]);
   const [services, setServices] = useState<AdditionalService[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
+  const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [zahlungsmethode, setZahlungsmethode] = useState('Überweisung');
 
@@ -137,6 +148,12 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         bookingId,
       });
       setDiscounts(discountsData);
+
+      // Load invoice PDFs
+      const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
+        bookingId,
+      });
+      setInvoicePdfs(pdfsData);
     } catch (error) {
       console.error('Fehler beim Laden der Buchungsdetails:', error);
     } finally {
@@ -193,7 +210,9 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
 
     setSendingEmail(true);
     try {
-      const result = await invoke<string>('send_invoice_email_command', { bookingId });
+      // Verwende generate_and_send_invoice_command statt send_invoice_email_command
+      // damit PDF automatisch generiert und angehängt wird
+      const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
       alert(result);
     } catch (error) {
       alert(`Fehler beim Senden: ${error}`);
@@ -219,6 +238,54 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     } finally {
       setMarkingPaid(false);
     }
+  };
+
+  const handleGeneratePdf = async () => {
+    if (!booking) return;
+
+    setGeneratingPdf(true);
+    try {
+      const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
+      alert(`PDF-Rechnung erfolgreich erstellt: ${pdfPath}`);
+
+      // Reload PDFs to show newly generated one
+      const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
+        bookingId,
+      });
+      setInvoicePdfs(pdfsData);
+    } catch (error) {
+      alert(`Fehler beim Erstellen der PDF: ${error}`);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
+
+  const handleOpenPdf = async (pdfPath: string) => {
+    try {
+      await invoke('open_pdf_file_command', { filePath: pdfPath });
+    } catch (error) {
+      alert(`Fehler beim Öffnen der PDF: ${error}`);
+    }
+  };
+
+  const handleOpenInvoicesFolder = async () => {
+    try {
+      const result = await invoke<string>('open_invoices_folder_command');
+      console.log(result);
+    } catch (error) {
+      alert(`Fehler beim Öffnen des Ordners: ${error}`);
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const formatDate = (timestamp: number): string => {
+    const date = new Date(timestamp * 1000);
+    return format(date, 'dd.MM.yyyy HH:mm', { locale: de });
   };
 
   const getStatusBadge = (status: string) => {
@@ -598,6 +665,73 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                       <CheckCircle className="w-4 h-4" />
                       Als bezahlt markieren
                     </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Invoice PDFs */}
+              <div className="border border-slate-200 rounded-lg p-5 bg-gradient-to-br from-emerald-50 to-white">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+                    <FileText className="w-5 h-5 text-emerald-600" />
+                    Rechnungen ({invoicePdfs.length})
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleGeneratePdf}
+                      disabled={generatingPdf}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors text-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      {generatingPdf ? 'Erstellt...' : 'PDF erstellen'}
+                    </button>
+                    <button
+                      onClick={handleOpenInvoicesFolder}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors text-sm"
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      Ordner öffnen
+                    </button>
+                  </div>
+                </div>
+
+                {invoicePdfs.length === 0 ? (
+                  <div className="text-center py-8 bg-slate-50 rounded-lg border-2 border-dashed border-slate-300">
+                    <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                    <p className="text-slate-600 font-medium">Noch keine Rechnung erstellt</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Klicken Sie auf "PDF erstellen" um eine Rechnung zu generieren
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {invoicePdfs.map((pdf, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-white border border-emerald-200 px-4 py-3 rounded-lg hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="bg-emerald-100 p-2 rounded-lg">
+                            <FileText className="w-5 h-5 text-emerald-600" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-slate-900">{pdf.filename}</p>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
+                              <span>{formatFileSize(pdf.size_bytes)}</span>
+                              <span>•</span>
+                              <span>Erstellt: {formatDate(pdf.created_at)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleOpenPdf(pdf.path)}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors text-sm"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Öffnen
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

@@ -105,6 +105,40 @@ pub struct EmailConfig {
     pub updated_at: String,
 }
 
+// Phase 7: Company & Payment Settings Structs
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompanySettings {
+    pub id: i64,
+    pub company_name: String,
+    pub street_address: String,
+    pub plz: String,
+    pub city: String,
+    pub country: String,
+    pub phone: String,
+    pub fax: Option<String>,
+    pub email: String,
+    pub website: String,
+    pub tax_id: String,
+    pub ceo_name: String,
+    pub registry_court: String,
+    pub logo_path: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PaymentSettings {
+    pub id: i64,
+    pub bank_name: String,
+    pub iban: String,
+    pub bic: String,
+    pub account_holder: String,
+    pub mwst_rate: f64,
+    pub payment_due_days: i32,
+    pub reminder_after_days: i32,
+    pub payment_text: Option<String>,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EmailTemplate {
     pub id: i64,
@@ -155,8 +189,8 @@ pub struct BookingWithDetails {
 }
 
 pub fn get_db_path() -> PathBuf {
-    // Store DB outside src-tauri to avoid triggering file watcher rebuilds
-    PathBuf::from("../booking_system.db")
+    // Use DB in src-tauri directory
+    PathBuf::from("booking_system.db")
 }
 
 pub fn init_database() -> Result<()> {
@@ -421,6 +455,49 @@ fn create_indexes(conn: &Connection) -> Result<()> {
     // Standard-Email-Templates einfügen (falls noch nicht vorhanden)
     insert_default_email_templates(&conn)?;
 
+    // Phase 7: Company & Payment Settings Tabellen
+    // Tabelle für Firmeneinstellungen (Single-Row Tabelle mit id=1)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS company_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            company_name TEXT NOT NULL,
+            street_address TEXT NOT NULL,
+            plz TEXT NOT NULL,
+            city TEXT NOT NULL,
+            country TEXT NOT NULL DEFAULT 'Deutschland',
+            phone TEXT NOT NULL,
+            fax TEXT,
+            email TEXT NOT NULL,
+            website TEXT NOT NULL,
+            tax_id TEXT NOT NULL,
+            ceo_name TEXT NOT NULL,
+            registry_court TEXT NOT NULL,
+            logo_path TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Tabelle für Zahlungseinstellungen (Single-Row Tabelle mit id=1)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS payment_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            bank_name TEXT NOT NULL,
+            iban TEXT NOT NULL,
+            bic TEXT NOT NULL,
+            account_holder TEXT NOT NULL,
+            mwst_rate REAL NOT NULL CHECK(mwst_rate >= 0 AND mwst_rate <= 100),
+            payment_due_days INTEGER NOT NULL DEFAULT 14,
+            reminder_after_days INTEGER NOT NULL DEFAULT 14,
+            payment_text TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Standard-Settings einfügen (falls noch nicht vorhanden)
+    insert_default_settings(&conn)?;
+
     Ok(())
 }
 
@@ -531,6 +608,72 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
                 "Bestätigung bei Stornierung"
             ],
         )?;
+    }
+
+    Ok(())
+}
+
+// Hilfsfunktion zum Einfügen der Standard-Settings (Company + Payment)
+fn insert_default_settings(conn: &Connection) -> Result<()> {
+    // Prüfe ob bereits Company Settings existieren
+    let company_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM company_settings",
+        [],
+        |row| row.get(0)
+    )?;
+
+    if company_count == 0 {
+        // Standard Company Settings einfügen (aus pdf_generator.rs)
+        conn.execute(
+            "INSERT INTO company_settings (
+                id, company_name, street_address, plz, city, country,
+                phone, fax, email, website, tax_id, ceo_name, registry_court
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            [
+                "1", // id fixiert auf 1
+                "Stiftung der Deutschen Polizeigewerkschaft",
+                "Wackersberger Str. 12",
+                "83661",
+                "Lenggries",
+                "Deutschland",
+                "+49 8042 9725-20",
+                "+49 8042 9725-22",
+                "info@dpolg-stiftung.de",
+                "www.dpolg-stiftung.de",
+                "141/239/71040",
+                "Herr Reinhold Merl",
+                "München"
+            ],
+        )?;
+        println!("✅ Default Company Settings eingefügt");
+    }
+
+    // Prüfe ob bereits Payment Settings existieren
+    let payment_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM payment_settings",
+        [],
+        |row| row.get(0)
+    )?;
+
+    if payment_count == 0 {
+        // Standard Payment Settings einfügen
+        conn.execute(
+            "INSERT INTO payment_settings (
+                id, bank_name, iban, bic, account_holder,
+                mwst_rate, payment_due_days, reminder_after_days
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                1, // id fixiert auf 1
+                "Sparda Bank München",
+                "DE70 7009 0500 0001 9999 90",
+                "GENODEF1S04",
+                "Stiftung der Deutschen Polizeigewerkschaft",
+                7.0,  // 7% MwSt
+                14,   // Zahlungsziel 14 Tage
+                14    // Mahnung nach 14 Tagen
+            ],
+        )?;
+        println!("✅ Default Payment Settings eingefügt");
     }
 
     Ok(())
@@ -1739,4 +1882,128 @@ pub fn update_booking_statuses_by_date() -> Result<usize> {
     println!("📊 Gesamt {} Status-Änderungen", total_changed);
 
     Ok(total_changed)
+}
+
+// ============================================================================
+// COMPANY & PAYMENT SETTINGS - Phase 7
+// ============================================================================
+
+/// Gibt die Firmeneinstellungen zurück (id ist immer 1)
+pub fn get_company_settings() -> Result<CompanySettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.query_row(
+        "SELECT id, company_name, street_address, plz, city, country,
+         phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at
+         FROM company_settings WHERE id = 1",
+        [],
+        |row| {
+            Ok(CompanySettings {
+                id: row.get(0)?,
+                company_name: row.get(1)?,
+                street_address: row.get(2)?,
+                plz: row.get(3)?,
+                city: row.get(4)?,
+                country: row.get(5)?,
+                phone: row.get(6)?,
+                fax: row.get(7)?,
+                email: row.get(8)?,
+                website: row.get(9)?,
+                tax_id: row.get(10)?,
+                ceo_name: row.get(11)?,
+                registry_court: row.get(12)?,
+                logo_path: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        },
+    )
+}
+
+/// Speichert/Aktualisiert die Firmeneinstellungen (id ist immer 1)
+pub fn save_company_settings(settings: CompanySettings) -> Result<CompanySettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // UPSERT Pattern: INSERT OR REPLACE
+    conn.execute(
+        "INSERT OR REPLACE INTO company_settings (
+            id, company_name, street_address, plz, city, country,
+            phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path,
+            updated_at
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, CURRENT_TIMESTAMP)",
+        rusqlite::params![
+            settings.company_name,
+            settings.street_address,
+            settings.plz,
+            settings.city,
+            settings.country,
+            settings.phone,
+            settings.fax,
+            settings.email,
+            settings.website,
+            settings.tax_id,
+            settings.ceo_name,
+            settings.registry_court,
+            settings.logo_path,
+        ],
+    )?;
+
+    // Aktualisierte Daten zurückgeben
+    get_company_settings()
+}
+
+/// Gibt die Zahlungseinstellungen zurück (id ist immer 1)
+pub fn get_payment_settings() -> Result<PaymentSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.query_row(
+        "SELECT id, bank_name, iban, bic, account_holder,
+         mwst_rate, payment_due_days, reminder_after_days, payment_text, updated_at
+         FROM payment_settings WHERE id = 1",
+        [],
+        |row| {
+            Ok(PaymentSettings {
+                id: row.get(0)?,
+                bank_name: row.get(1)?,
+                iban: row.get(2)?,
+                bic: row.get(3)?,
+                account_holder: row.get(4)?,
+                mwst_rate: row.get(5)?,
+                payment_due_days: row.get(6)?,
+                reminder_after_days: row.get(7)?,
+                payment_text: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        },
+    )
+}
+
+/// Speichert/Aktualisiert die Zahlungseinstellungen (id ist immer 1)
+pub fn save_payment_settings(settings: PaymentSettings) -> Result<PaymentSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // UPSERT Pattern: INSERT OR REPLACE
+    conn.execute(
+        "INSERT OR REPLACE INTO payment_settings (
+            id, bank_name, iban, bic, account_holder,
+            mwst_rate, payment_due_days, reminder_after_days, payment_text,
+            updated_at
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+        rusqlite::params![
+            settings.bank_name,
+            settings.iban,
+            settings.bic,
+            settings.account_holder,
+            settings.mwst_rate,
+            settings.payment_due_days,
+            settings.reminder_after_days,
+            settings.payment_text,
+        ],
+    )?;
+
+    // Aktualisierte Daten zurückgeben
+    get_payment_settings()
 }

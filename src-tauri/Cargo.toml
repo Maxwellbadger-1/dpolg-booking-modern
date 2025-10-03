@@ -32,5 +32,5 @@ lettre = { version = "0.11", default-features = false, features = ["smtp-transpo
 base64 = "0.22"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 printpdf = { version = "0.7", features = ["embedded_images"] }
-image = "0.25"
+image = "0.24"
 

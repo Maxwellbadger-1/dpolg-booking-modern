@@ -2,6 +2,7 @@ use printpdf::{
     PdfDocument, PdfDocumentReference, PdfLayerReference, BuiltinFont,
     Mm, Point, Line, Polygon, Color, Rgb,
     path::{PaintMode, WindingOrder},
+    ImageRotation,
 };
 use std::fs::File;
 use std::io::BufWriter;
@@ -109,86 +110,111 @@ pub fn generate_invoice_pdf(
     draw_filled_rect(&current_layer, Mm(0.0), Mm(0.0), Mm(sidebar_width), Mm(297.0), color_dark_bg.clone());
 
     // ========================================================================
-    // LOGO LINKS OBEN (zentriert in der Sidebar-Breite)
+    // LOGO LINKS OBEN (in der Sidebar)
     // ========================================================================
-    let logo_y = 270.0; // Ganz oben
-    let logo_x = sidebar_width / 2.0; // Zentriert in Sidebar (35mm von links)
+    let logo_max_width = 50.0; // Max. 50mm breit
+    // Y-Achse geht von UNTEN nach OBEN!
+    // A4 = 297mm hoch, Logo soll bei ~250mm (von unten) sein = ~47mm vom oberen Rand
+    let logo_y = 250.0; // Position der UNTEREN Kante des Logos (von unten gemessen)
+
+    println!("🔧 [PDF DEBUG] Sidebar-Breite: {}mm", sidebar_width);
+    println!("🔧 [PDF DEBUG] Logo-Y-Position: {}mm (untere Kante, von unten gemessen!)", logo_y);
 
     if let Some(logo_path) = &company.logo_path {
         if std::path::Path::new(logo_path).exists() {
-            match load_and_insert_logo(&doc, &current_layer, logo_path, Mm(logo_x), Mm(logo_y), 30.0) {
-                Ok(_) => println!("✅ Logo erfolgreich im PDF eingefügt"),
-                Err(e) => println!("⚠️ Logo konnte nicht geladen werden: {}", e),
+            println!("📂 [PDF DEBUG] Logo-Pfad existiert: {}", logo_path);
+            match load_and_insert_logo(&doc, &current_layer, logo_path, Mm(10.0), Mm(logo_y), logo_max_width) {
+                Ok(_) => println!("✅ [PDF DEBUG] Logo erfolgreich im PDF eingefügt"),
+                Err(e) => println!("❌ [PDF DEBUG] Logo konnte nicht geladen werden: {}", e),
             }
+        } else {
+            println!("⚠️ [PDF DEBUG] Logo-Pfad existiert NICHT: {}", logo_path);
         }
+    } else {
+        println!("⚠️ [PDF DEBUG] Kein Logo-Pfad in Einstellungen gefunden");
     }
 
     // ========================================================================
     // SIDEBAR CONTENT (Links, weiße Schrift)
     // ========================================================================
-    let mut sidebar_y = 240.0;
+    let mut sidebar_y = 235.0; // Unterhalb des Logos
+
+    println!("📝 [PDF DEBUG] Sidebar Content Start bei Y={}mm", sidebar_y);
 
     current_layer.set_fill_color(color_white.clone());
 
-    // Firmenname mit Umbruch (Deutsch) - zentriert in Sidebar
+    // Firmenname mit Umbruch (Deutsch) - linksbündig in Sidebar
     let words: Vec<&str> = company.company_name.split_whitespace().collect();
+    println!("📝 [PDF DEBUG] Firmenname hat {} Wörter", words.len());
     for (i, word) in words.iter().enumerate() {
+        let y_pos = sidebar_y - (i as f32 * 5.0);
+        println!("📝 [PDF DEBUG] Wort '{}' bei Y={}mm", word, y_pos);
         current_layer.use_text(
-            word,
+            *word,  // Dereference &&str to &str
             11.0,
-            Mm(sidebar_width / 2.0 - (word.len() as f32 * 1.5)), // Annähernd zentriert
-            Mm(sidebar_y - (i as f32 * 4.5)),
+            Mm(10.0), // Linksbündig bei 10mm
+            Mm(y_pos),
             &font_bold,
         );
     }
-    sidebar_y -= (words.len() as f32 * 4.5) + 10.0;
+    sidebar_y -= (words.len() as f32 * 5.0) + 12.0;
 
     // Rechnungsempfänger (Deutsch)
+    println!("📝 [PDF DEBUG] 'RECHNUNG AN' bei Y={}mm", sidebar_y);
     current_layer.use_text("RECHNUNG AN", 10.0, Mm(10.0), Mm(sidebar_y), &font_bold);
-    sidebar_y -= 5.0;
+    sidebar_y -= 6.0;
 
     current_layer.set_fill_color(color_text_light.clone());
+    println!("📝 [PDF DEBUG] Gast-Name '{}' bei Y={}mm", guest_name, sidebar_y);
     current_layer.use_text(guest_name, 8.0, Mm(10.0), Mm(sidebar_y), &font_regular);
     sidebar_y -= 4.0;
     if let Some(addr) = guest_address {
+        println!("📝 [PDF DEBUG] Adresse bei Y={}mm", sidebar_y);
         current_layer.use_text(addr, 8.0, Mm(10.0), Mm(sidebar_y), &font_regular);
         sidebar_y -= 4.0;
     }
     if let Some(city) = guest_city {
+        println!("📝 [PDF DEBUG] Stadt bei Y={}mm", sidebar_y);
         current_layer.use_text(city, 8.0, Mm(10.0), Mm(sidebar_y), &font_regular);
         sidebar_y -= 4.0;
     }
 
-    // Vielen Dank (Mitte)
+    // Vielen Dank (Mitte der Sidebar, vertikal zentriert)
     sidebar_y = 150.0;
+    println!("📝 [PDF DEBUG] 'Vielen Dank' bei Y={}mm", sidebar_y);
     current_layer.set_fill_color(color_white.clone());
-    current_layer.use_text("Vielen Dank", 18.0, Mm(10.0), Mm(sidebar_y), &font_bold);
+    current_layer.use_text("Vielen Dank", 16.0, Mm(12.0), Mm(sidebar_y), &font_bold);
 
-    // Zahlungsinformationen (unten in Sidebar mit Umbruch)
-    sidebar_y = 90.0;
+    // Zahlungsinformationen (unten in Sidebar)
+    sidebar_y = 95.0;
+    println!("📝 [PDF DEBUG] 'Zahlungsinformationen' Header bei Y={}mm", sidebar_y);
     current_layer.set_fill_color(color_white.clone());
-    current_layer.use_text("Zahlungs-", 10.0, Mm(10.0), Mm(sidebar_y), &font_bold);
-    sidebar_y -= 4.5;
-    current_layer.use_text("informationen", 10.0, Mm(10.0), Mm(sidebar_y), &font_bold);
-    sidebar_y -= 7.0;
+    current_layer.use_text("Zahlungs-", 9.0, Mm(10.0), Mm(sidebar_y), &font_bold);
+    sidebar_y -= 4.0;
+    current_layer.use_text("informationen", 9.0, Mm(10.0), Mm(sidebar_y), &font_bold);
+    sidebar_y -= 8.0;
 
     current_layer.set_fill_color(color_text_light.clone());
+    println!("📝 [PDF DEBUG] IBAN bei Y={}mm", sidebar_y);
     current_layer.use_text("IBAN:", 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
     sidebar_y -= 3.5;
-    current_layer.use_text(&payment.iban, 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
-    sidebar_y -= 5.0;
+    current_layer.use_text(&payment.iban, 6.5, Mm(10.0), Mm(sidebar_y), &font_regular);
+    sidebar_y -= 5.5;
 
+    println!("📝 [PDF DEBUG] Kontoinhaber bei Y={}mm", sidebar_y);
     current_layer.use_text("Kontoinhaber:", 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
     sidebar_y -= 3.5;
-    current_layer.use_text(&payment.account_holder, 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
-    sidebar_y -= 5.0;
+    current_layer.use_text(&payment.account_holder, 6.5, Mm(10.0), Mm(sidebar_y), &font_regular);
+    sidebar_y -= 5.5;
 
+    println!("📝 [PDF DEBUG] Bank bei Y={}mm", sidebar_y);
     current_layer.use_text("Bank:", 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
     sidebar_y -= 3.5;
-    current_layer.use_text(&payment.bank_name, 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
+    current_layer.use_text(&payment.bank_name, 6.5, Mm(10.0), Mm(sidebar_y), &font_regular);
 
-    // Kontaktdaten (ganz unten)
-    sidebar_y = 40.0;
+    // Kontaktdaten (ganz unten in Sidebar)
+    sidebar_y = 30.0;
+    println!("📝 [PDF DEBUG] Kontaktdaten bei Y={}mm", sidebar_y);
     current_layer.use_text(&company.phone, 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
     sidebar_y -= 3.5;
     current_layer.use_text(&company.email, 7.0, Mm(10.0), Mm(sidebar_y), &font_regular);
@@ -198,44 +224,56 @@ pub fn generate_invoice_pdf(
     // ========================================================================
     // RECHTER BEREICH (White Background) - RECHNUNG HEADER
     // ========================================================================
-    let content_x = sidebar_width + 10.0; // 10mm Abstand von Sidebar
-    let mut content_y = 250.0;
+    let content_x = sidebar_width + 15.0; // 15mm Abstand von Sidebar
+    let mut content_y = 265.0; // Weiter oben
+
+    println!("📄 [PDF DEBUG] ===== RECHTER BEREICH START =====");
+    println!("📄 [PDF DEBUG] Content Start: X={}mm, Y={}mm", content_x, content_y);
 
     current_layer.set_fill_color(color_text_dark.clone());
 
-    // RECHNUNG (großer Titel)
-    current_layer.use_text("RECHNUNG", 28.0, Mm(content_x + 55.0), Mm(content_y), &font_bold);
-    content_y -= 15.0;
+    // RECHNUNG (großer Titel, rechtsbündig angeordnet)
+    let title_x = content_x + 45.0; // Position für "RECHNUNG"
+    println!("📄 [PDF DEBUG] 'RECHNUNG' Titel bei ({}, {})", title_x, content_y);
+    current_layer.use_text("RECHNUNG", 26.0, Mm(title_x), Mm(content_y), &font_bold);
+    content_y -= 18.0;
 
-    // Rechnungsdetails
-    current_layer.use_text("Rechnungsdetails", 11.0, Mm(content_x + 70.0), Mm(content_y), &font_bold);
+    // Rechnungsdetails (rechtsbündig)
+    let details_x = content_x + 55.0;
+    println!("📄 [PDF DEBUG] 'Rechnungsdetails' bei ({}, {})", details_x, content_y);
+    current_layer.use_text("Rechnungsdetails", 10.0, Mm(details_x), Mm(content_y), &font_bold);
     content_y -= 6.0;
 
+    println!("📄 [PDF DEBUG] Rechnungsdatum bei Y={}", content_y);
     current_layer.use_text(
         &format!("Rechnungsdatum: {}", datum_heute),
-        9.0,
-        Mm(content_x + 70.0),
+        8.5,
+        Mm(details_x),
         Mm(content_y),
         &font_regular
     );
     content_y -= 4.5;
+
+    println!("📄 [PDF DEBUG] Fälligkeitsdatum bei Y={}", content_y);
     current_layer.use_text(
         &format!("Fälligkeitsdatum: {}", due_date_de),
-        9.0,
-        Mm(content_x + 70.0),
+        8.5,
+        Mm(details_x),
         Mm(content_y),
         &font_regular
     );
     content_y -= 4.5;
+
+    println!("📄 [PDF DEBUG] Rechnungsnummer bei Y={}", content_y);
     current_layer.use_text(
-        &format!("Rechnungsnummer: #{}", reservierungsnummer),
-        9.0,
-        Mm(content_x + 70.0),
+        &format!("Rechnungsnr.: #{}", reservierungsnummer),
+        8.5,
+        Mm(details_x),
         Mm(content_y),
         &font_regular
     );
 
-    content_y -= 15.0;
+    content_y -= 18.0;
 
     // ========================================================================
     // TABELLE (überlappt Sidebar, weißer Hintergrund)
@@ -376,37 +414,45 @@ pub fn generate_invoice_pdf(
     content_y -= 15.0;
 
     // ========================================================================
-    // ZAHLUNGSBEDINGUNGEN (mittig unten im weißen Bereich, linksbündig)
+    // ZAHLUNGSBEDINGUNGEN (unten mittig im weißen Bereich)
     // ========================================================================
-    content_y = 60.0; // Unterer Bereich
-    let terms_x = 105.0 - 35.0; // Mittig, aber linksbündig (105 ist Mitte von 210mm)
+    content_y = 65.0; // Unterer Bereich
+    let terms_x = content_x + 10.0; // Linksbündig im Content-Bereich
 
-    current_layer.use_text("ZAHLUNGSBEDINGUNGEN", 10.0, Mm(terms_x), Mm(content_y), &font_bold);
-    content_y -= 5.0;
+    println!("📄 [PDF DEBUG] ===== ZAHLUNGSBEDINGUNGEN =====");
+    println!("📄 [PDF DEBUG] Position: ({}, {})", terms_x, content_y);
+
+    current_layer.use_text("ZAHLUNGSBEDINGUNGEN", 9.0, Mm(terms_x), Mm(content_y), &font_bold);
+    content_y -= 5.5;
 
     let terms_text = format!(
         "Der Betrag ist {} Tage nach Erhalt dieser Rechnung zur Zahlung fällig.",
         payment.payment_due_days
     );
-    current_layer.use_text(&terms_text, 8.0, Mm(terms_x), Mm(content_y), &font_regular);
-    content_y -= 3.5;
+    println!("📄 [PDF DEBUG] Terms Text bei Y={}", content_y);
+    current_layer.use_text(&terms_text, 7.5, Mm(terms_x), Mm(content_y), &font_regular);
+    content_y -= 4.0;
+
+    println!("📄 [PDF DEBUG] Überweisungstext bei Y={}", content_y);
     current_layer.use_text(
         &format!("Bitte unter Angabe der Rechnungsnummer '{}' überweisen.", reservierungsnummer),
-        8.0,
+        7.5,
         Mm(terms_x),
         Mm(content_y),
         &font_regular
     );
 
-    content_y -= 10.0;
+    // Unterschrift (rechts unten, nicht überlappend)
+    let signature_x = terms_x + 65.0;
+    let signature_y = 50.0;
 
-    // Unterschrift (rechts davon)
-    current_layer.use_text("Unterschrift", 10.0, Mm(terms_x + 70.0), Mm(content_y + 10.0), &font_bold);
+    println!("📄 [PDF DEBUG] Unterschrift bei ({}, {})", signature_x, signature_y);
+    current_layer.use_text("Unterschrift", 9.0, Mm(signature_x), Mm(signature_y + 2.0), &font_bold);
     draw_horizontal_line(
         &current_layer,
-        Mm(terms_x + 70.0),
-        Mm(terms_x + 110.0),
-        Mm(content_y + 7.0),
+        Mm(signature_x),
+        Mm(signature_x + 35.0),
+        Mm(signature_y),
         color_border.clone()
     );
 
@@ -430,62 +476,120 @@ pub fn generate_invoice_pdf(
 // ============================================================================
 
 /// Lädt ein PNG/JPG Logo und fügt es ins PDF ein
+///
+/// WICHTIG:
+/// - Y-Achse geht von UNTEN nach OBEN (PDF-Koordinatensystem!)
+/// - translate_x/translate_y = Position der UNTEREN LINKEN Ecke des Bildes
+/// - scale_x/scale_y = Skalierungsfaktor (nicht absolute Größe!)
 fn load_and_insert_logo(
     doc: &PdfDocumentReference,
     layer: &PdfLayerReference,
     logo_path: &str,
     x: Mm,
     y: Mm,
-    max_height_mm: f32,
+    max_width_mm: f32,
 ) -> Result<(), String> {
-    println!("🖼️  [LOGO PDF] Versuche Logo zu laden: {}", logo_path);
+    println!("🖼️  [LOGO DEBUG] ===== LOGO LADEN START =====");
+    println!("🖼️  [LOGO DEBUG] Pfad: {}", logo_path);
+    println!("🖼️  [LOGO DEBUG] Position X: {}mm, Y: {}mm", x.0, y.0);
+    println!("🖼️  [LOGO DEBUG] Max Breite: {}mm", max_width_mm);
 
     // Prüfe ob Logo existiert
     if !std::path::Path::new(logo_path).exists() {
-        println!("❌ [LOGO PDF] Datei nicht gefunden: {}", logo_path);
+        println!("❌ [LOGO DEBUG] Datei nicht gefunden!");
         return Err(format!("Logo-Datei nicht gefunden: {}", logo_path));
     }
 
-    println!("✅ [LOGO PDF] Datei existiert");
+    println!("✅ [LOGO DEBUG] Datei existiert");
 
     // Lade Image mit image crate
     use image::io::Reader as ImageReader;
     let img = ImageReader::open(logo_path)
-        .map_err(|e| format!("Fehler beim Öffnen der Bilddatei: {}", e))?
+        .map_err(|e| {
+            println!("❌ [LOGO DEBUG] Fehler beim Öffnen: {}", e);
+            format!("Fehler beim Öffnen der Bilddatei: {}", e)
+        })?
         .decode()
-        .map_err(|e| format!("Fehler beim Dekodieren: {}", e))?;
+        .map_err(|e| {
+            println!("❌ [LOGO DEBUG] Fehler beim Dekodieren: {}", e);
+            format!("Fehler beim Dekodieren: {}", e)
+        })?;
 
-    println!("✅ [LOGO PDF] Bild dekodiert: {}x{}", img.width(), img.height());
+    let img_width_px = img.width();
+    let img_height_px = img.height();
+    println!("✅ [LOGO DEBUG] Bild dekodiert: {}x{} Pixel", img_width_px, img_height_px);
 
     // Konvertiere zu printpdf Image
     use printpdf::Image;
     let pdf_image = Image::from_dynamic_image(&img);
+    println!("✅ [LOGO DEBUG] PDF Image-Objekt erstellt");
 
-    println!("✅ [LOGO PDF] PDF Image erstellt");
+    // ========================================================================
+    // KRITISCH: Dimensionsberechnung
+    // ========================================================================
+    // Aspect Ratio beibehalten
+    let img_aspect = img_width_px as f32 / img_height_px as f32;
+    println!("📏 [LOGO DEBUG] Aspect Ratio: {:.2}", img_aspect);
 
-    // Berechne Dimensionen (max_height_mm beibehalten, Breite proportional)
-    let img_aspect = img.width() as f32 / img.height() as f32;
-    let height_mm = max_height_mm;
-    let width_mm = height_mm * img_aspect;
+    // Zielgröße berechnen (max_width_mm ist die maximale Breite)
+    let target_width_mm = max_width_mm;
+    let target_height_mm = target_width_mm / img_aspect;
+    println!("📏 [LOGO DEBUG] Zielgröße: {}mm x {}mm", target_width_mm, target_height_mm);
 
-    println!("✅ [LOGO PDF] Platziere Logo: {}mm x {}mm bei ({}, {})", width_mm, height_mm, x.0, y.0);
+    // ========================================================================
+    // KRITISCH: ImageTransform Berechnung
+    // ========================================================================
+    // DPI für Skalierung (printpdf verwendet 72 DPI standardmäßig)
+    let dpi = 72.0;
 
-    // Füge Image zur Layer hinzu mit Transform
+    // Berechne Pixel → mm Konvertierung
+    // 1 Zoll = 25.4mm
+    // Bei 72 DPI: 1 Pixel = 25.4/72 mm ≈ 0.3528 mm
+    let px_to_mm = 25.4 / dpi;
+
+    // Originalgröße in mm (bei 72 DPI)
+    let original_width_mm = img_width_px as f32 * px_to_mm;
+    let original_height_mm = img_height_px as f32 * px_to_mm;
+    println!("📏 [LOGO DEBUG] Original-Größe bei 72 DPI: {:.2}mm x {:.2}mm", original_width_mm, original_height_mm);
+
+    // Skalierungsfaktor berechnen
+    let scale_x = target_width_mm / original_width_mm;
+    let scale_y = target_height_mm / original_height_mm;
+    println!("📏 [LOGO DEBUG] Skalierungsfaktoren: scale_x={:.4}, scale_y={:.4}", scale_x, scale_y);
+
+    // Position berechnen (untere linke Ecke des Bildes)
+    // Y-Position ist die UNTERE Kante des Logos
+    let translate_x = x;
+    let translate_y = y; // Hier ist bereits die untere Kante
+    println!("📍 [LOGO DEBUG] Translate-Position: X={}mm, Y={}mm", translate_x.0, translate_y.0);
+
+    // ========================================================================
+    // KRITISCH: Image ins PDF einfügen
+    // ========================================================================
     use printpdf::ImageTransform;
 
-    pdf_image.add_to_layer(
-        layer.clone(),
-        ImageTransform {
-            translate_x: Some(x),
-            translate_y: Some(Mm(y.0 - height_mm)), // Von oben nach unten
-            scale_x: Some(width_mm / (img.width() as f32 / 300.0 * 25.4)),
-            scale_y: Some(height_mm / (img.height() as f32 / 300.0 * 25.4)),
-            dpi: Some(300.0),
-            ..Default::default()
-        }
-    );
+    println!("🔧 [LOGO DEBUG] Nutze ImageTransform mit Position & Größe...");
 
-    println!("✅ [LOGO PDF] Logo erfolgreich im PDF platziert");
+    // WICHTIG: Nutze translate + scale für korrekte Positionierung
+    let transform = ImageTransform {
+        translate_x: Some(translate_x),
+        translate_y: Some(translate_y),
+        rotate: None, // Keine Rotation
+        scale_x: Some(scale_x),
+        scale_y: Some(scale_y),
+        dpi: Some(dpi),
+    };
+
+    println!("🔧 [LOGO DEBUG] Transform: translate=({}, {}), scale=({:.4}, {:.4}), dpi={}",
+        translate_x.0, translate_y.0, scale_x, scale_y, dpi);
+    println!("🔧 [LOGO DEBUG] Füge Image zur Layer hinzu...");
+    pdf_image.add_to_layer(layer.clone(), transform);
+
+    println!("✅ [LOGO DEBUG] ===== LOGO ERFOLGREICH PLATZIERT =====");
+    println!("📦 [LOGO DEBUG] Finale Position: ({:.2}mm, {:.2}mm)", translate_x.0, translate_y.0);
+    println!("📦 [LOGO DEBUG] Finale Größe: {:.2}mm x {:.2}mm", target_width_mm, target_height_mm);
+    println!("📦 [LOGO DEBUG] Oberkante des Logos bei: {:.2}mm (von unten)", translate_y.0 + target_height_mm);
+
     Ok(())
 }
 

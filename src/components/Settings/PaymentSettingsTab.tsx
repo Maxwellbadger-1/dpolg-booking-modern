@@ -1,29 +1,102 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Building2, Save } from 'lucide-react';
 
+interface PaymentSettings {
+  id: number;
+  bank_name: string;
+  iban: string;
+  bic: string;
+  account_holder: string;
+  mwst_rate: number;
+  payment_due_days: number;
+  reminder_after_days: number;
+  payment_text?: string;
+  updated_at: string;
+}
+
 export default function PaymentSettingsTab() {
+  const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [bankName, setBankName] = useState('');
   const [iban, setIban] = useState('');
   const [bic, setBic] = useState('');
   const [accountHolder, setAccountHolder] = useState('');
-  const [mwst, setMwst] = useState(19);
+  const [mwstRate, setMwstRate] = useState(7);
   const [paymentDueDays, setPaymentDueDays] = useState(14);
   const [reminderAfterDays, setReminderAfterDays] = useState(14);
+  const [paymentText, setPaymentText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
+    setLoadingData(true);
+    try {
+      const data = await invoke<PaymentSettings>('get_payment_settings_command');
+      setSettings(data);
+
+      // Formular befüllen
+      setBankName(data.bank_name);
+      setIban(data.iban);
+      setBic(data.bic);
+      setAccountHolder(data.account_holder);
+      setMwstRate(data.mwst_rate);
+      setPaymentDueDays(data.payment_due_days);
+      setReminderAfterDays(data.reminder_after_days);
+      setPaymentText(data.payment_text || '');
+    } catch (error) {
+      console.error('Fehler beim Laden der Zahlungseinstellungen:', error);
+      alert(`Fehler beim Laden: ${error}`);
+    } finally {
+      setLoadingData(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setSuccessMessage(null);
 
-    // TODO: Implementiere Backend-Speicherung
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const updatedSettings: PaymentSettings = {
+        id: settings?.id || 1,
+        bank_name: bankName,
+        iban,
+        bic,
+        account_holder: accountHolder,
+        mwst_rate: mwstRate,
+        payment_due_days: paymentDueDays,
+        reminder_after_days: reminderAfterDays,
+        payment_text: paymentText || undefined,
+        updated_at: new Date().toISOString(),
+      };
+
+      const result = await invoke<PaymentSettings>('save_payment_settings_command', {
+        settings: updatedSettings,
+      });
+
+      setSettings(result);
       setSuccessMessage('Zahlungseinstellungen erfolgreich gespeichert!');
       setTimeout(() => setSuccessMessage(null), 3000);
-    }, 500);
+    } catch (error) {
+      console.error('Fehler beim Speichern:', error);
+      alert(`Fehler beim Speichern: ${error}`);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loadingData) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSave} className="space-y-6">
@@ -43,7 +116,7 @@ export default function PaymentSettingsTab() {
               required
               value={bankName}
               onChange={(e) => setBankName(e.target.value)}
-              placeholder="Sparkasse Musterhausen"
+              placeholder="Sparda Bank München"
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -58,7 +131,7 @@ export default function PaymentSettingsTab() {
               required
               value={iban}
               onChange={(e) => setIban(e.target.value)}
-              placeholder="DE89 3704 0044 0532 0130 00"
+              placeholder="DE70 7009 0500 0001 9999 90"
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -72,7 +145,7 @@ export default function PaymentSettingsTab() {
               type="text"
               value={bic}
               onChange={(e) => setBic(e.target.value)}
-              placeholder="COBADEFFXXX"
+              placeholder="GENODEF1S04"
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -87,7 +160,7 @@ export default function PaymentSettingsTab() {
               required
               value={accountHolder}
               onChange={(e) => setAccountHolder(e.target.value)}
-              placeholder="DPolG Stiftung Kreisverband"
+              placeholder="Stiftung der Deutschen Polizeigewerkschaft"
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -105,11 +178,11 @@ export default function PaymentSettingsTab() {
             <input
               type="number"
               step="0.01"
-              value={mwst}
-              onChange={(e) => setMwst(parseFloat(e.target.value))}
+              value={mwstRate}
+              onChange={(e) => setMwstRate(parseFloat(e.target.value))}
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <p className="text-xs text-slate-400 mt-1">Standard MwSt-Satz für Rechnungen</p>
+            <p className="text-xs text-slate-400 mt-1">Standard MwSt-Satz für Rechnungen (7% für Übernachtungen)</p>
           </div>
 
           {/* Payment Due Days */}
