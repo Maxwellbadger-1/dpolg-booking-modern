@@ -9,7 +9,12 @@ import DevTools from './components/DevTools';
 import GuestDialog from './components/GuestManagement/GuestDialog';
 import SettingsDialog from './components/Settings/SettingsDialog';
 import EmailHistoryView from './components/Email/EmailHistoryView';
-import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail } from 'lucide-react';
+import TemplatesManagement from './components/TemplatesManagement/TemplatesManagement';
+import BookingDialog from './components/BookingManagement/BookingDialog';
+import QuickBookingFAB from './components/QuickBookingFAB';
+import DashboardQuickStats from './components/DashboardQuickStats';
+import StatisticsView from './components/Statistics/StatisticsView';
+import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -46,7 +51,7 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails';
+type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics';
 
 function App() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -55,6 +60,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   useEffect(() => {
@@ -142,7 +148,9 @@ function App() {
     { id: 'bookings' as Tab, label: 'Buchungen', icon: CalendarCheck },
     { id: 'guests' as Tab, label: 'Gäste', icon: Users },
     { id: 'rooms' as Tab, label: 'Zimmer', icon: Hotel },
+    { id: 'templates' as Tab, label: 'Services & Rabatte', icon: Briefcase },
     { id: 'emails' as Tab, label: 'Email-Verlauf', icon: Mail },
+    { id: 'statistics' as Tab, label: 'Statistiken', icon: TrendingUp },
   ];
 
   return (
@@ -164,10 +172,14 @@ function App() {
               </div>
             </div>
 
-            {/* Stats Inline */}
+            {/* Stats Inline - Clickable */}
             <div className="flex items-center gap-6 border-l border-slate-600 pl-6">
-              <div className="flex items-center gap-2">
-                <div className="bg-blue-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-blue-500/20 p-1.5 rounded-lg group-hover:bg-blue-500/30 transition-colors">
                   <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
@@ -176,10 +188,14 @@ function App() {
                   <span className="text-lg font-bold text-white">{rooms.length}</span>
                   <span className="text-xs text-slate-400">Zimmer</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="flex items-center gap-2">
-                <div className="bg-emerald-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-emerald-500/20 p-1.5 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
                   <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
@@ -188,10 +204,14 @@ function App() {
                   <span className="text-lg font-bold text-white">{bookings.filter(b => b.status !== 'storniert').length}</span>
                   <span className="text-xs text-slate-400">Aktiv</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="flex items-center gap-2">
-                <div className="bg-purple-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-purple-500/20 p-1.5 rounded-lg group-hover:bg-purple-500/30 transition-colors">
                   <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
@@ -200,7 +220,7 @@ function App() {
                   <span className="text-lg font-bold text-white">{Math.round((bookings.filter(b => b.status !== 'storniert').length / rooms.length) * 100)}%</span>
                   <span className="text-xs text-slate-400">Auslastung</span>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -264,11 +284,16 @@ function App() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         {activeTab === 'dashboard' && <TapeChart />}
+        {activeTab === 'statistics' && <StatisticsView />}
         {activeTab === 'bookings' && <BookingList />}
         {activeTab === 'guests' && <GuestList />}
         {activeTab === 'rooms' && <RoomList />}
+        {activeTab === 'templates' && <TemplatesManagement />}
         {activeTab === 'emails' && <EmailHistoryView />}
       </main>
+
+      {/* Floating Action Button - Always Visible */}
+      <QuickBookingFAB onClick={() => setShowBookingDialog(true)} />
 
       {/* DevTools - nur während Development */}
       <DevTools />
@@ -285,6 +310,17 @@ function App() {
         onSuccess={() => {
           console.log('Gast erfolgreich gespeichert');
           setShowGuestDialog(false);
+        }}
+      />
+
+      {/* Booking Dialog */}
+      <BookingDialog
+        isOpen={showBookingDialog}
+        onClose={() => setShowBookingDialog(false)}
+        onSuccess={() => {
+          console.log('Buchung erfolgreich gespeichert');
+          setShowBookingDialog(false);
+          loadData(); // Reload data after successful booking
         }}
       />
       </div>

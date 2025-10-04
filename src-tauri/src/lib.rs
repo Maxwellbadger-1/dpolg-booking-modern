@@ -7,6 +7,8 @@ mod pricing;
 mod email;
 mod pdf_generator;
 mod pdf_generator_html;
+mod time_utils;
+mod email_scheduler;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -541,7 +543,7 @@ async fn test_email_connection_command(
 
 #[tauri::command]
 fn get_all_templates_command() -> Result<Vec<database::EmailTemplate>, String> {
-    email::get_all_templates()
+    database::get_all_templates()
 }
 
 #[tauri::command]
@@ -556,7 +558,7 @@ fn update_template_command(
     body: String,
     description: Option<String>,
 ) -> Result<database::EmailTemplate, String> {
-    email::update_template(id, subject, body, description)
+    database::update_template(id, subject, body, description)
 }
 
 #[tauri::command]
@@ -577,6 +579,11 @@ async fn send_invoice_email_command(booking_id: i64) -> Result<String, String> {
 #[tauri::command]
 fn get_email_logs_for_booking_command(booking_id: i64) -> Result<Vec<database::EmailLog>, String> {
     email::get_email_logs_for_booking(booking_id)
+}
+
+#[tauri::command]
+fn get_all_email_logs_command() -> Result<Vec<database::EmailLog>, String> {
+    email::get_all_email_logs()
 }
 
 #[tauri::command]
@@ -604,6 +611,24 @@ fn update_booking_statuses_command() -> Result<usize, String> {
         .map_err(|e| format!("Fehler beim Status-Update: {}", e))
 }
 
+#[tauri::command]
+fn update_booking_status_command(
+    booking_id: i64,
+    new_status: String,
+) -> Result<database::Booking, String> {
+    database::update_booking_status(booking_id, new_status)
+        .map_err(|e| format!("Fehler beim Ändern des Status: {}", e))
+}
+
+#[tauri::command]
+fn update_booking_payment_command(
+    booking_id: i64,
+    bezahlt: bool,
+) -> Result<database::Booking, String> {
+    database::update_booking_payment(booking_id, bezahlt)
+        .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))
+}
+
 // ============================================================================
 // COMPANY SETTINGS COMMANDS
 // ============================================================================
@@ -618,6 +643,22 @@ fn get_company_settings_command() -> Result<database::CompanySettings, String> {
 fn save_company_settings_command(settings: database::CompanySettings) -> Result<database::CompanySettings, String> {
     database::save_company_settings(settings)
         .map_err(|e| format!("Fehler beim Speichern der Einstellungen: {}", e))
+}
+
+// ============================================================================
+// PAYMENT SETTINGS COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn get_payment_settings_command() -> Result<database::PaymentSettings, String> {
+    database::get_payment_settings()
+        .map_err(|e| format!("Fehler beim Laden der Zahlungseinstellungen: {}", e))
+}
+
+#[tauri::command]
+fn save_payment_settings_command(settings: database::PaymentSettings) -> Result<database::PaymentSettings, String> {
+    database::save_payment_settings(settings)
+        .map_err(|e| format!("Fehler beim Speichern der Zahlungseinstellungen: {}", e))
 }
 
 #[tauri::command]
@@ -669,6 +710,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_all_rooms,
             get_all_bookings,
@@ -725,20 +767,129 @@ pub fn run() {
             send_reminder_email_command,
             send_invoice_email_command,
             get_email_logs_for_booking_command,
+            get_all_email_logs_command,
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,
             update_booking_statuses_command,
+            update_booking_status_command,
+            update_booking_payment_command,
+            // Email Scheduler
+            email_scheduler::trigger_email_check,
+            email_scheduler::get_scheduled_emails,
             // Company Settings
             get_company_settings_command,
             save_company_settings_command,
             upload_logo_command,
+            // Payment Settings
+            get_payment_settings_command,
+            save_payment_settings_command,
             // PDF Generation
             pdf_generator::generate_invoice_pdf_command,
             pdf_generator::get_invoice_pdfs_for_booking_command,
             pdf_generator::open_invoices_folder_command,
             pdf_generator::open_pdf_file_command,
+            pdf_generator::generate_and_send_invoice_command,
+            // Service Templates
+            create_service_template_command,
+            get_all_service_templates_command,
+            get_active_service_templates_command,
+            update_service_template_command,
+            delete_service_template_command,
+            // Discount Templates
+            create_discount_template_command,
+            get_all_discount_templates_command,
+            get_active_discount_templates_command,
+            update_discount_template_command,
+            delete_discount_template_command,
         ])
+        .setup(|_app| {
+            // Starte Email-Scheduler im Hintergrund
+            println!("🚀 Starte Email-Scheduler...");
+            email_scheduler::start_email_scheduler();
+            println!("✅ Email-Scheduler aktiv");
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ============================================================================
+// SERVICE TEMPLATES COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn create_service_template_command(
+    name: String,
+    description: Option<String>,
+    price: f64,
+) -> Result<database::ServiceTemplate, String> {
+    database::create_service_template(name, description, price)
+}
+
+#[tauri::command]
+fn get_all_service_templates_command() -> Result<Vec<database::ServiceTemplate>, String> {
+    database::get_all_service_templates()
+}
+
+#[tauri::command]
+fn get_active_service_templates_command() -> Result<Vec<database::ServiceTemplate>, String> {
+    database::get_active_service_templates()
+}
+
+#[tauri::command]
+fn update_service_template_command(
+    id: i64,
+    name: String,
+    description: Option<String>,
+    price: f64,
+    is_active: bool,
+) -> Result<database::ServiceTemplate, String> {
+    database::update_service_template(id, name, description, price, is_active)
+}
+
+#[tauri::command]
+fn delete_service_template_command(id: i64) -> Result<(), String> {
+    database::delete_service_template(id)
+}
+
+// ============================================================================
+// DISCOUNT TEMPLATES COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn create_discount_template_command(
+    name: String,
+    description: Option<String>,
+    discount_type: String,
+    discount_value: f64,
+) -> Result<database::DiscountTemplate, String> {
+    database::create_discount_template(name, description, discount_type, discount_value)
+}
+
+#[tauri::command]
+fn get_all_discount_templates_command() -> Result<Vec<database::DiscountTemplate>, String> {
+    database::get_all_discount_templates()
+}
+
+#[tauri::command]
+fn get_active_discount_templates_command() -> Result<Vec<database::DiscountTemplate>, String> {
+    database::get_active_discount_templates()
+}
+
+#[tauri::command]
+fn update_discount_template_command(
+    id: i64,
+    name: String,
+    description: Option<String>,
+    discount_type: String,
+    discount_value: f64,
+    is_active: bool,
+) -> Result<database::DiscountTemplate, String> {
+    database::update_discount_template(id, name, description, discount_type, discount_value, is_active)
+}
+
+#[tauri::command]
+fn delete_discount_template_command(id: i64) -> Result<(), String> {
+    database::delete_discount_template(id)
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Server, User, Lock, Shield, Mail, CheckCircle, AlertCircle, HelpCircle } from 'lucide-react';
+import { Server, User, Lock, Shield, Mail, CheckCircle, AlertCircle, HelpCircle, Eye, EyeOff } from 'lucide-react';
 import { emailProviders, EmailProvider } from '../../lib/emailProviders';
 import ProviderHelpDialog from './ProviderHelpDialog';
 
@@ -25,6 +25,8 @@ export default function EmailConfigTab() {
   const [fromEmail, setFromEmail] = useState('');
   const [fromName, setFromName] = useState('');
   const [useTls, setUseTls] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [hasExistingPassword, setHasExistingPassword] = useState(false);
   const [testRecipient, setTestRecipient] = useState('');
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -44,12 +46,17 @@ export default function EmailConfigTab() {
       setSmtpServer(config.smtp_server);
       setSmtpPort(config.smtp_port);
       setSmtpUsername(config.smtp_username);
-      setSmtpPassword(config.smtp_password);
+      // Tracke ob ein Passwort existiert, zeige es aber nicht im Feld an
+      if (config.smtp_password && config.smtp_password.length > 0) {
+        setHasExistingPassword(true);
+        setSmtpPassword(''); // Feld bleibt leer
+      }
       setFromEmail(config.from_email);
       setFromName(config.from_name);
       setUseTls(config.use_tls);
     } catch (error) {
       console.log('Keine Email-Konfiguration gefunden');
+      setHasExistingPassword(false);
     }
   };
 
@@ -60,11 +67,14 @@ export default function EmailConfigTab() {
     setSuccessMessage(null);
 
     try {
+      // Backend behandelt leeres Passwort korrekt:
+      // - Bei Update: behält altes Passwort
+      // - Bei Insert: gibt Fehler zurück
       await invoke('save_email_config_command', {
         smtpServer,
         smtpPort,
         smtpUsername,
-        smtpPassword,
+        smtpPassword: smtpPassword, // Sende was im Feld steht (leer oder neu)
         fromEmail,
         fromName,
         useTls,
@@ -72,6 +82,9 @@ export default function EmailConfigTab() {
 
       setSuccessMessage('Email-Konfiguration erfolgreich gespeichert!');
       setTimeout(() => setSuccessMessage(null), 3000);
+
+      // Neu laden um aktuellen Status zu zeigen
+      await loadConfig();
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -98,6 +111,12 @@ export default function EmailConfigTab() {
       return;
     }
 
+    // Wenn kein Passwort eingegeben wurde und keine Config existiert
+    if (!hasExistingPassword && smtpPassword.length === 0) {
+      alert('Bitte geben Sie erst ein Passwort ein');
+      return;
+    }
+
     setTesting(true);
     setTestResult(null);
     setError(null);
@@ -107,7 +126,7 @@ export default function EmailConfigTab() {
         smtpServer,
         smtpPort,
         smtpUsername,
-        smtpPassword,
+        smtpPassword: smtpPassword, // Backend lädt gespeichertes PW wenn leer
         fromEmail,
         fromName,
         testRecipient,
@@ -234,16 +253,36 @@ export default function EmailConfigTab() {
           <div className="flex items-center gap-2">
             <Lock className="w-4 h-4" />
             Passwort *
+            {hasExistingPassword && smtpPassword.length === 0 && (
+              <span className="text-xs text-emerald-400 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                Gespeichert
+              </span>
+            )}
           </div>
         </label>
-        <input
-          type="password"
-          required
-          value={smtpPassword}
-          onChange={(e) => setSmtpPassword(e.target.value)}
-          placeholder="••••••••"
-          className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <div className="relative">
+          <input
+            type={showPassword ? "text" : "password"}
+            required={!hasExistingPassword}
+            value={smtpPassword}
+            onChange={(e) => setSmtpPassword(e.target.value)}
+            placeholder={hasExistingPassword ? "Leer lassen um bestehendes Passwort zu behalten" : "••••••••"}
+            className="w-full px-4 py-3 pr-12 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+          >
+            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        </div>
+        {hasExistingPassword && (
+          <p className="text-xs text-slate-400 mt-1">
+            Nur ausfüllen wenn Sie das Passwort ändern möchten
+          </p>
+        )}
       </div>
 
       {/* From Email */}

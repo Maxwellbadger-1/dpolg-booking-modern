@@ -1,5 +1,4 @@
 use crate::database::BookingWithDetails;
-use chrono::Local;
 use tauri::AppHandle;
 use tera::{Tera, Context};
 use headless_chrome::{Browser, LaunchOptions};
@@ -64,6 +63,74 @@ pub fn generate_invoice_pdf_html(
     context.insert("guest", &booking.guest);
     context.insert("room", &booking.room);
 
+    // Zusatzleistungen laden
+    println!("📦 Loading additional services...");
+    let services = crate::database::get_booking_services(booking.id)
+        .unwrap_or_else(|e| {
+            eprintln!("⚠️ Failed to load services: {}", e);
+            Vec::new()
+        });
+    println!("   Found {} services", services.len());
+    context.insert("services", &services);
+
+    // Rabatte laden und Beträge berechnen
+    println!("🎟️ Loading discounts...");
+    let discounts_raw = crate::database::get_booking_discounts(booking.id)
+        .unwrap_or_else(|e| {
+            eprintln!("⚠️ Failed to load discounts: {}", e);
+            Vec::new()
+        });
+    println!("   Found {} discounts", discounts_raw.len());
+
+    // Subtotal für Prozent-Rabatte berechnen
+    let subtotal_for_discounts = booking.grundpreis + booking.services_preis;
+
+    // Rabatte mit berechneten Beträgen
+    #[derive(serde::Serialize)]
+    struct DiscountWithAmount {
+        discount_name: String,
+        discount_type: String,
+        discount_value: f64,
+        calculated_amount: String, // Formatiert als String für Template
+    }
+
+    let discounts_with_amounts: Vec<DiscountWithAmount> = discounts_raw.iter().map(|d| {
+        let amount = if d.discount_type == "percent" {
+            subtotal_for_discounts * (d.discount_value / 100.0)
+        } else {
+            d.discount_value
+        };
+        DiscountWithAmount {
+            discount_name: d.discount_name.clone(),
+            discount_type: d.discount_type.clone(),
+            discount_value: d.discount_value,
+            calculated_amount: format!("{:.2}", amount),
+        }
+    }).collect();
+
+    context.insert("discounts", &discounts_with_amounts);
+
+    // Zahlungseinstellungen laden (für Mehrwertsteuer)
+    println!("💳 Loading payment settings...");
+    let payment_settings = crate::database::get_payment_settings()
+        .unwrap_or_else(|e| {
+            eprintln!("⚠️ Failed to load payment settings: {}", e);
+            crate::database::PaymentSettings {
+                id: 1,
+                bank_name: String::new(),
+                iban: String::new(),
+                bic: String::new(),
+                account_holder: String::new(),
+                mwst_rate: 19.0, // Default 19% Mehrwertsteuer
+                payment_due_days: 14,
+                reminder_after_days: 30,
+                payment_text: None,
+                updated_at: String::new(),
+            }
+        });
+    println!("   MwSt-Satz: {}%", payment_settings.mwst_rate);
+    context.insert("payment_settings", &payment_settings);
+
     // Berechnete Werte
     let price_per_night = if booking.anzahl_naechte > 0 {
         booking.grundpreis / booking.anzahl_naechte as f64
@@ -75,9 +142,14 @@ pub fn generate_invoice_pdf_html(
     let subtotal = booking.grundpreis + booking.services_preis;
     context.insert("subtotal", &format!("{:.2}", subtotal));
 
+    // Mehrwertsteuer berechnen
+    let mwst_amount = booking.gesamtpreis * (payment_settings.mwst_rate / 100.0);
+    context.insert("mwst_amount", &format!("{:.2}", mwst_amount));
+
     // Datum formatieren
-    let invoice_date = Local::now().format("%d.%m.%Y").to_string();
-    let due_date = (Local::now() + chrono::Duration::days(14)).format("%d.%m.%Y").to_string();
+    let invoice_date = crate::time_utils::format_today_de();
+    let due_date = crate::time_utils::add_days(payment_settings.payment_due_days as i64)
+        .format("%d.%m.%Y").to_string();
     context.insert("invoice_date", &invoice_date);
     context.insert("due_date", &due_date);
 
@@ -135,15 +207,22 @@ pub fn generate_invoice_pdf_html(
     context.insert("logo_base64", &logo_base64);
 
     // 3. Template rendern
+    println!("📝 Rendering template...");
     let html = tera.render("invoice.html", &context)
-        .map_err(|e| format!("Template render Fehler: {}", e))?;
+        .map_err(|e| {
+            eprintln!("❌ Template render error details:");
+            eprintln!("   Error: {:?}", e);
+            eprintln!("   Source: {}", e);
+            format!("Template render Fehler: {:?}", e)
+        })?;
+    println!("✅ Template rendered successfully");
 
     // 4. HTML in temp file schreiben
     let temp_html_path = invoices_dir.join(format!("temp_invoice_{}.html", booking.reservierungsnummer));
     std::fs::write(&temp_html_path, &html)
         .map_err(|e| format!("Fehler HTML schreiben: {}", e))?;
 
-    // 5. Headless Chrome starten
+    // 5. Headless Chrome starten (mit Performance-Optimierungen)
     println!("🌐 Starting headless Chrome...");
     let launch_options = LaunchOptions::default_builder()
         .headless(true)
@@ -171,8 +250,8 @@ pub fn generate_invoice_pdf_html(
     tab.wait_until_navigated()
         .map_err(|e| format!("Chrome wait Fehler: {}", e))?;
 
-    // Kurze Wartezeit für Font-Rendering
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Reduzierte Wartezeit für Font-Rendering (von 500ms auf 200ms)
+    std::thread::sleep(std::time::Duration::from_millis(200));
 
     // 7. PDF generieren
     let pdf_data = tab.print_to_pdf(Some(PrintToPdfOptions {

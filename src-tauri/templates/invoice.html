@@ -490,6 +490,7 @@
                         </tr>
                     </thead>
                     <tbody>
+                        <!-- Grundpreis: Unterkunft -->
                         <tr>
                             <td class="product-no">01</td>
                             <td>Unterkunft {{ room.name }} vom {{ booking.checkin_date }} bis {{ booking.checkout_date }}</td>
@@ -497,6 +498,29 @@
                             <td>{{ booking.anzahl_naechte }}</td>
                             <td style="text-align: right;">{{ booking.grundpreis }} EUR</td>
                         </tr>
+
+                        <!-- Zusatzleistungen -->
+                        {% for service in services %}
+                        <tr>
+                            <td class="product-no">{% if loop.index0 + 2 < 10 %}0{% endif %}{{ loop.index0 + 2 }}</td>
+                            <td>{{ service.service_name }}</td>
+                            <td>{{ service.service_price }} EUR</td>
+                            <td>1</td>
+                            <td style="text-align: right;">{{ service.service_price }} EUR</td>
+                        </tr>
+                        {% endfor %}
+
+                        <!-- Rabatte (negative Werte) -->
+                        {% set services_count = services | length %}
+                        {% for discount in discounts %}
+                        <tr>
+                            <td class="product-no">{% set item_num = loop.index0 + 2 + services_count %}{% if item_num < 10 %}0{% endif %}{{ item_num }}</td>
+                            <td>{{ discount.discount_name }} {% if discount.discount_type == "percent" %}({{ discount.discount_value }}%){% endif %}</td>
+                            <td>-{{ discount.calculated_amount }} EUR</td>
+                            <td>1</td>
+                            <td style="text-align: right;">-{{ discount.calculated_amount }} EUR</td>
+                        </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
@@ -514,6 +538,10 @@
                             <span>-{{ booking.rabatt_preis }} EUR</span>
                         </div>
                         {% endif %}
+                        <div class="totals-row">
+                            <span>Mehrwertsteuer ({{ payment_settings.mwst_rate }}%)</span>
+                            <span>{{ mwst_amount }} EUR</span>
+                        </div>
                         <div class="totals-row grand-total">
                             <span>Gesamtsumme</span>
                             <span>{{ booking.gesamtpreis }} EUR</span>
@@ -531,16 +559,22 @@
                     <h4>Zahlungsinformationen</h4>
                     <div class="payment-detail">
                         <span class="payment-label">IBAN:</span>
-                        <span>DE70 7009 0500 0001 9999 90</span>
+                        <span>{{ payment_settings.iban }}</span>
                     </div>
                     <div class="payment-detail">
                         <span class="payment-label">BIC:</span>
-                        <span>GENODEF1S04</span>
+                        <span>{{ payment_settings.bic }}</span>
                     </div>
                     <div class="payment-detail">
                         <span class="payment-label">Bank:</span>
-                        <span>Sparda Bank Muenchen</span>
+                        <span>{{ payment_settings.bank_name }}</span>
                     </div>
+                    {% if payment_settings.account_holder %}
+                    <div class="payment-detail">
+                        <span class="payment-label">Kontoinhaber:</span>
+                        <span>{{ payment_settings.account_holder }}</span>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <div class="contact-info">
@@ -563,7 +597,11 @@
                 <div class="terms-section">
                     <h4>GESCHÄFTSBEDINGUNGEN</h4>
                     <p class="terms-text">
-                        Zahlbar innerhalb von 14 Tagen ohne Abzug.
+                        {% if payment_settings.payment_text %}
+                        {{ payment_settings.payment_text }}
+                        {% else %}
+                        Zahlbar innerhalb von {{ payment_settings.payment_due_days }} Tagen ohne Abzug.
+                        {% endif %}
                     </p>
                 </div>
                 {% if logo_base64 %}

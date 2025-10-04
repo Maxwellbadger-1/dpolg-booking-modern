@@ -170,3 +170,30 @@ pub fn open_pdf_file_command(file_path: String) -> Result<(), String> {
     println!("✅ PDF file opened successfully");
     Ok(())
 }
+
+// NEUE FUNKTION: PDF generieren UND per Email versenden
+#[tauri::command]
+pub async fn generate_and_send_invoice_command(
+    app: AppHandle,
+    booking_id: i64,
+) -> Result<String, String> {
+    println!("════════════════════════════════════════════════════════");
+    println!("📧 PDF GENERATION & EMAIL STARTED");
+    println!("📋 Booking ID: {}", booking_id);
+    println!("════════════════════════════════════════════════════════");
+
+    // 1. PDF generieren
+    println!("📄 Step 1: Generating PDF...");
+    let pdf_path = generate_invoice_pdf_command(app, booking_id)?;
+    println!("✅ PDF generated: {}", pdf_path);
+
+    // 2. Email mit PDF-Anhang versenden
+    println!("📧 Step 2: Sending email with PDF attachment...");
+    use std::path::PathBuf;
+    let pdf_pathbuf = PathBuf::from(pdf_path);
+    crate::email::send_invoice_email_with_pdf(booking_id, pdf_pathbuf).await?;
+    println!("✅ Email sent successfully!");
+
+    println!("════════════════════════════════════════════════════════");
+    Ok("Rechnung erfolgreich erstellt und per Email versendet".to_string())
+}

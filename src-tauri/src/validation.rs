@@ -68,7 +68,7 @@ pub fn validate_date_range(checkin: &str, checkout: &str) -> Result<(), String> 
 /// * `Err(String)` - Ungültiges Datumsformat
 pub fn is_date_in_future(date_str: &str) -> Result<bool, String> {
     let date = validate_date_format(date_str)?;
-    let today = chrono::Local::now().date_naive();
+    let today = crate::time_utils::today_utc_plus_2();
 
     Ok(date > today)
 }
@@ -232,7 +232,6 @@ pub fn validate_plz(plz: &str) -> Result<(), String> {
 // RESERVATION NUMBER GENERATION
 // ============================================================================
 
-use chrono::Local;
 use std::sync::Mutex;
 
 // Globaler Counter für Reservierungsnummern (Thread-safe)
@@ -254,7 +253,7 @@ static RESERVATION_COUNTER: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(1));
 /// // Beispiel: "DPOLG-20251001-0001"
 /// ```
 pub fn generate_reservation_number() -> String {
-    let now = Local::now();
+    let now = crate::time_utils::now_utc_plus_2();
     let date_part = now.format("%Y%m%d").to_string();
 
     // Thread-safe Counter erhöhen
@@ -483,7 +482,7 @@ mod tests {
         assert_eq!(is_date_in_future("2020-01-01").unwrap(), false);
 
         // Heute ist NICHT in der Zukunft
-        let today = chrono::Local::now().date_naive().format("%Y-%m-%d").to_string();
+        let today = crate::time_utils::format_today_db();
         assert_eq!(is_date_in_future(&today).unwrap(), false);
 
         // Ungültiges Format

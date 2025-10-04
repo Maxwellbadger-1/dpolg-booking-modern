@@ -45,9 +45,6 @@ pub fn save_email_config(
     conn.execute("PRAGMA foreign_keys = ON", [])
         .map_err(|e| format!("Fehler beim Aktivieren von Foreign Keys: {}", e))?;
 
-    // Verschlüssele Passwort
-    let encrypted_password = encrypt_password(&smtp_password);
-
     // Prüfe ob bereits eine Konfiguration existiert
     let existing_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM email_config",
@@ -59,29 +56,60 @@ pub fn save_email_config(
 
     if existing_count > 0 {
         // Update existierende Konfiguration
-        conn.execute(
-            "UPDATE email_config SET
-                smtp_server = ?1,
-                smtp_port = ?2,
-                smtp_username = ?3,
-                smtp_password = ?4,
-                from_email = ?5,
-                from_name = ?6,
-                use_tls = ?7,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = 1",
-            [
-                &smtp_server,
-                &smtp_port.to_string(),
-                &smtp_username,
-                &encrypted_password,
-                &from_email,
-                &from_name,
-                &use_tls_int.to_string(),
-            ],
-        ).map_err(|e| format!("Fehler beim Aktualisieren der Konfiguration: {}", e))?;
+        // Wenn Passwort leer ist, behalte das alte Passwort
+        if smtp_password.is_empty() {
+            // Update ohne Passwort zu ändern
+            conn.execute(
+                "UPDATE email_config SET
+                    smtp_server = ?1,
+                    smtp_port = ?2,
+                    smtp_username = ?3,
+                    from_email = ?4,
+                    from_name = ?5,
+                    use_tls = ?6,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = 1",
+                [
+                    &smtp_server,
+                    &smtp_port.to_string(),
+                    &smtp_username,
+                    &from_email,
+                    &from_name,
+                    &use_tls_int.to_string(),
+                ],
+            ).map_err(|e| format!("Fehler beim Aktualisieren der Konfiguration: {}", e))?;
+        } else {
+            // Verschlüssele nur neues Passwort wenn eins eingegeben wurde
+            let encrypted_password = encrypt_password(&smtp_password);
+            conn.execute(
+                "UPDATE email_config SET
+                    smtp_server = ?1,
+                    smtp_port = ?2,
+                    smtp_username = ?3,
+                    smtp_password = ?4,
+                    from_email = ?5,
+                    from_name = ?6,
+                    use_tls = ?7,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = 1",
+                [
+                    &smtp_server,
+                    &smtp_port.to_string(),
+                    &smtp_username,
+                    &encrypted_password,
+                    &from_email,
+                    &from_name,
+                    &use_tls_int.to_string(),
+                ],
+            ).map_err(|e| format!("Fehler beim Aktualisieren der Konfiguration: {}", e))?;
+        }
     } else {
-        // Neue Konfiguration erstellen
+        // Neue Konfiguration erstellen - Passwort ist Pflicht
+        if smtp_password.is_empty() {
+            return Err("Passwort darf beim Erstellen einer neuen Konfiguration nicht leer sein".to_string());
+        }
+
+        let encrypted_password = encrypt_password(&smtp_password);
         conn.execute(
             "INSERT INTO email_config (smtp_server, smtp_port, smtp_username, smtp_password, from_email, from_name, use_tls)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -141,28 +169,94 @@ pub async fn test_email_connection(
     from_name: String,
     test_recipient: String,
 ) -> Result<String, String> {
+    eprintln!("🧪 [TEST EMAIL] Starte Test-Email...");
+    eprintln!("📧 SMTP Server: {}:{}", smtp_server, smtp_port);
+    eprintln!("👤 Username: {}", smtp_username);
+    eprintln!("📨 From: {} <{}>", from_name, from_email);
+    eprintln!("📬 To: {}", test_recipient);
+
+    // Wenn kein Passwort übergeben wurde, lade gespeichertes Passwort
+    let password_to_use = if smtp_password.is_empty() {
+        eprintln!("⚠️  Kein Passwort übergeben, lade gespeichertes Passwort...");
+        let config = get_email_config()
+            .map_err(|e| format!("Keine Email-Konfiguration gefunden: {}", e))?;
+        // Entschlüssele das gespeicherte Passwort
+        decrypt_password(&config.smtp_password)
+            .map_err(|e| format!("Fehler beim Entschlüsseln des Passworts: {}", e))?
+    } else {
+        smtp_password
+    };
+
     // Erstelle Test-Email
     let email = Message::builder()
-        .from(format!("{} <{}>", from_name, from_email).parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
-        .to(test_recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+        .from(format!("{} <{}>", from_name, from_email).parse().map_err(|e| {
+            eprintln!("❌ Fehler: Ungültige Absender-Adresse: {}", e);
+            format!("Ungültige Absender-Adresse: {}", e)
+        })?)
+        .to(test_recipient.parse().map_err(|e| {
+            eprintln!("❌ Fehler: Ungültige Empfänger-Adresse: {}", e);
+            format!("Ungültige Empfänger-Adresse: {}", e)
+        })?)
         .subject("Test Email - DPolG Stiftung Buchungssystem")
         .header(ContentType::TEXT_PLAIN)
         .body("Dies ist eine Test-Email. Ihre SMTP-Konfiguration funktioniert!".to_string())
-        .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?;
+        .map_err(|e| {
+            eprintln!("❌ Fehler beim Erstellen der Email: {}", e);
+            format!("Fehler beim Erstellen der Email: {}", e)
+        })?;
 
-    // Erstelle SMTP Transport
-    let creds = Credentials::new(smtp_username.clone(), smtp_password.clone());
+    eprintln!("✅ Test-Email erstellt");
 
-    let mailer = SmtpTransport::relay(&smtp_server)
-        .map_err(|e| format!("SMTP-Server nicht erreichbar: {}", e))?
-        .port(smtp_port as u16)
-        .credentials(creds)
-        .build();
+    // Erstelle SMTP Transport mit dem (möglicherweise geladenen) Passwort
+    let creds = Credentials::new(smtp_username.clone(), password_to_use);
+
+    eprintln!("🔌 Verbinde zu SMTP-Server mit Port {}...", smtp_port);
+
+    // Entscheide zwischen direktem SSL/TLS (Port 465) und STARTTLS (Port 587)
+    let mailer = if smtp_port == 465 {
+        eprintln!("🔒 Verwende Port 465 (direktes SSL/TLS)");
+        // Port 465 = direktes SSL/TLS (Implicit TLS)
+        let tls = TlsParameters::builder(smtp_server.clone())
+            .build()
+            .map_err(|e| {
+                eprintln!("❌ TLS-Konfiguration fehlgeschlagen: {}", e);
+                format!("TLS-Konfiguration fehlgeschlagen: {}", e)
+            })?;
+
+        SmtpTransport::relay(&smtp_server)
+            .map_err(|e| {
+                eprintln!("❌ SMTP-Server nicht erreichbar: {}", e);
+                format!("SMTP-Server nicht erreichbar: {}", e)
+            })?
+            .port(smtp_port as u16)
+            .tls(Tls::Wrapper(tls))
+            .credentials(creds)
+            .timeout(Some(std::time::Duration::from_secs(30)))
+            .build()
+    } else {
+        eprintln!("🔒 Verwende Port {} (STARTTLS)", smtp_port);
+        // Port 587 = STARTTLS (Explicit TLS)
+        SmtpTransport::starttls_relay(&smtp_server)
+            .map_err(|e| {
+                eprintln!("❌ SMTP-Server nicht erreichbar: {}", e);
+                format!("SMTP-Server nicht erreichbar: {}", e)
+            })?
+            .port(smtp_port as u16)
+            .credentials(creds)
+            .timeout(Some(std::time::Duration::from_secs(30)))
+            .build()
+    };
+
+    eprintln!("📤 Sende Test-Email...");
 
     // Sende Email
     mailer.send(&email)
-        .map_err(|e| format!("Fehler beim Senden der Test-Email: {}", e))?;
+        .map_err(|e| {
+            eprintln!("❌ Fehler beim Senden der Test-Email: {}", e);
+            format!("Fehler beim Senden der Test-Email: {}", e)
+        })?;
 
+    eprintln!("✅ Test-Email erfolgreich gesendet!");
     Ok("Test-Email erfolgreich gesendet!".to_string())
 }
 
@@ -279,195 +373,229 @@ fn replace_placeholders(text: &str, placeholders: &std::collections::HashMap<Str
     result
 }
 
-/// Buchungsbestätigungs-Email senden
-pub async fn send_confirmation_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+/// Erstellt eine HashMap mit allen verfügbaren Platzhaltern für eine Buchung
+fn create_all_placeholders(
+    booking: &crate::database::BookingWithDetails,
+    guest: &crate::database::Guest,
+    room: &crate::database::Room,
+) -> std::collections::HashMap<String, String> {
+    use crate::database::get_company_settings;
 
-    // Lade Daten
-    let booking = get_booking_by_id(booking_id)
-        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
-    let config = get_email_config()?;
-    let template = get_template_by_name("confirmation")?;
-
-    // Erstelle Platzhalter
     let mut placeholders = std::collections::HashMap::new();
+
+    // Gast-Daten
     placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
     placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
+    placeholders.insert("gast_email".to_string(), guest.email.clone());
+    placeholders.insert("gast_telefon".to_string(), guest.telefon.clone());
+
+    // Buchungs-Daten
     placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
     placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
     placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
     placeholders.insert("anzahl_gaeste".to_string(), booking.anzahl_gaeste.to_string());
     placeholders.insert("anzahl_naechte".to_string(), booking.anzahl_naechte.to_string());
+
+    // Zimmer-Daten
+    placeholders.insert("zimmer_name".to_string(), room.name.clone());
+    placeholders.insert("zimmer_ort".to_string(), room.ort.clone());
+    placeholders.insert("zimmer_typ".to_string(), room.gebaeude_typ.clone());
+    if let Some(code) = &room.schluesselcode {
+        placeholders.insert("schluesselcode".to_string(), code.clone());
+    } else {
+        placeholders.insert("schluesselcode".to_string(), "Wird beim Check-in bekannt gegeben".to_string());
+    }
+
+    // Preis-Daten
+    placeholders.insert("grundpreis".to_string(), format!("{:.2}", booking.grundpreis));
+    placeholders.insert("services_preis".to_string(), format!("{:.2}", booking.services_preis));
+    placeholders.insert("rabatt_preis".to_string(), format!("{:.2}", booking.rabatt_preis));
     placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
+
+    // Datums-Platzhalter
+    placeholders.insert("heute".to_string(), crate::time_utils::format_today_de());
+    placeholders.insert("jetzt".to_string(), crate::time_utils::format_now_de());
+
+    // Company-Daten (wenn verfügbar)
+    if let Ok(company) = get_company_settings() {
+        placeholders.insert("firma_name".to_string(), company.company_name);
+        placeholders.insert("firma_adresse".to_string(), company.street_address);
+        placeholders.insert("firma_plz".to_string(), company.plz);
+        placeholders.insert("firma_ort".to_string(), company.city);
+        placeholders.insert("firma_telefon".to_string(), company.phone);
+        placeholders.insert("firma_email".to_string(), company.email);
+        placeholders.insert("firma_website".to_string(), company.website);
+        placeholders.insert("firma_steuernummer".to_string(), company.tax_id);
+        // Bank-Daten vorerst leer lassen (müssen noch zu CompanySettings hinzugefügt werden)
+        placeholders.insert("firma_iban".to_string(), "".to_string());
+        placeholders.insert("firma_bic".to_string(), "".to_string());
+        placeholders.insert("firma_bank".to_string(), "".to_string());
+    }
+
+    placeholders
+}
+
+/// Buchungsbestätigungs-Email senden
+pub async fn send_confirmation_email(booking_id: i64) -> Result<String, String> {
+    use crate::database::get_booking_with_details_by_id;
+
+    // Lade Buchung mit allen Details
+    let booking_details = get_booking_with_details_by_id(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
+
+    let config = get_email_config()?;
+    let template = get_template_by_name("confirmation")?;
+
+    // Erstelle alle Platzhalter
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
 
     // Ersetze Platzhalter
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
     // Sende Email
-    send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "confirmation").await
+    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "confirmation").await
 }
 
 /// Reminder-Email senden
 pub async fn send_reminder_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+    use crate::database::get_booking_with_details_by_id;
 
-    let booking = get_booking_by_id(booking_id)
+    let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+
     let config = get_email_config()?;
     let template = get_template_by_name("reminder")?;
 
-    let mut placeholders = std::collections::HashMap::new();
-    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
-    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
-    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
-    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
-
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "reminder").await
+    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "reminder").await
 }
 
 /// Rechnungs-Email senden (ohne PDF-Anhang - Legacy)
 pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+    use crate::database::get_booking_with_details_by_id;
 
-    let booking = get_booking_by_id(booking_id)
+    let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+
     let config = get_email_config()?;
     let template = get_template_by_name("invoice")?;
 
-    let mut placeholders = std::collections::HashMap::new();
-    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
-    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
-    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
-    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
-    placeholders.insert("anzahl_naechte".to_string(), booking.anzahl_naechte.to_string());
-    placeholders.insert("grundpreis".to_string(), format!("{:.2}", booking.grundpreis));
-    placeholders.insert("services_preis".to_string(), format!("{:.2}", booking.services_preis));
-    placeholders.insert("rabatt_preis".to_string(), format!("{:.2}", booking.rabatt_preis));
-    placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
-
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "invoice").await
+    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "invoice").await
 }
 
 /// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
 pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+    use crate::database::get_booking_with_details_by_id;
 
-    let booking = get_booking_by_id(booking_id)
+    let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+
     let config = get_email_config()?;
     let template = get_template_by_name("invoice")?;
 
-    let mut placeholders = std::collections::HashMap::new();
-    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
-    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
-    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
-    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
-    placeholders.insert("anzahl_naechte".to_string(), booking.anzahl_naechte.to_string());
-    placeholders.insert("grundpreis".to_string(), format!("{:.2}", booking.grundpreis));
-    placeholders.insert("services_preis".to_string(), format!("{:.2}", booking.services_preis));
-    placeholders.insert("rabatt_preis".to_string(), format!("{:.2}", booking.rabatt_preis));
-    placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
-
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
     send_email_with_attachment_internal(
         &config,
-        &guest.email,
+        &booking_details.guest.email,
         &subject,
         &body,
         &pdf_path,
         booking_id,
-        guest.id,
+        booking_details.guest.id,
         "invoice"
     ).await
 }
 
 /// Zahlungserinnerungs-Email senden
 pub async fn send_payment_reminder_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
+    use crate::database::get_booking_with_details_by_id;
 
-    let booking = get_booking_by_id(booking_id)
+    let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+
     let config = get_email_config()?;
     let template = get_template_by_name("payment_reminder")?;
 
-    let mut placeholders = std::collections::HashMap::new();
-    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
-    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
-    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
-    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
-    placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
-
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "payment_reminder").await
+    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "payment_reminder").await
 }
 
 /// Stornierungsbestätigungs-Email senden
 pub async fn send_cancellation_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::{get_booking_by_id, get_guest_by_id, get_room_by_id};
-    use chrono::Local;
+    use crate::database::get_booking_with_details_by_id;
 
-    let booking = get_booking_by_id(booking_id)
+    let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-    let guest = get_guest_by_id(booking.guest_id)
-        .map_err(|e| format!("Fehler beim Laden des Gastes: {}", e))?;
-    let room = get_room_by_id(booking.room_id)
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
+
     let config = get_email_config()?;
     let template = get_template_by_name("cancellation")?;
 
-    let mut placeholders = std::collections::HashMap::new();
-    placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
-    placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
-    placeholders.insert("zimmer_name".to_string(), room.name.clone());
-    placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
-    placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
-    placeholders.insert("heute".to_string(), Local::now().format("%d.%m.%Y").to_string());
-
+    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &guest.email, &subject, &body, booking_id, guest.id, "cancellation").await
+    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "cancellation").await
+}
+
+/// Erstellt HTML-Email-Body mit Logo-Header
+fn create_html_email_body(body_text: &str, logo_path: Option<&str>) -> String {
+    let logo_html = if let Some(path) = logo_path {
+        format!(r#"
+            <div style="text-align: center; margin-bottom: 30px;">
+                <img src="cid:company_logo" alt="Logo" style="max-width: 200px; height: auto;" />
+            </div>
+        "#)
+    } else {
+        String::new()
+    };
+
+    format!(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .container {{
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 30px;
+        }}
+        .content {{
+            white-space: pre-wrap;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        {}
+        <div class="content">{}</div>
+    </div>
+</body>
+</html>
+    "#, logo_html, body_text)
 }
 
 /// Interne Funktion zum tatsächlichen Senden der Email
@@ -480,18 +608,83 @@ async fn send_email_internal(
     guest_id: i64,
     template_name: &str,
 ) -> Result<String, String> {
+    use crate::database::get_company_settings;
+
     // Entschlüssele Passwort
     let password = decrypt_password(&config.smtp_password)?;
 
+    // Lade Company Settings für Logo
+    let company = get_company_settings().ok();
+    let logo_path = company.as_ref().and_then(|c| c.logo_path.as_deref());
+
     // Erstelle Email
     let from_address = format!("{} <{}>", config.from_name, config.from_email);
-    let email = Message::builder()
-        .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
-        .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
-        .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body.to_string())
-        .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?;
+
+    // Versuche Email mit Logo zu erstellen, falle zurück auf HTML ohne Logo oder Plain Text
+    let email = if let Some(logo_file) = logo_path {
+        // Versuche Logo-Datei zu lesen
+        match std::fs::read(logo_file) {
+            Ok(logo_data) => {
+                // Email mit Logo (HTML + Inline-Image)
+                let html_body = create_html_email_body(body, Some(logo_file));
+
+                let content_type = if logo_file.ends_with(".png") {
+                    "image/png"
+                } else if logo_file.ends_with(".jpg") || logo_file.ends_with(".jpeg") {
+                    "image/jpeg"
+                } else if logo_file.ends_with(".gif") {
+                    "image/gif"
+                } else {
+                    "image/png"
+                };
+
+                // Erstelle Inline-Logo-Attachment
+                let logo_part = Attachment::new_inline(String::from("company_logo"))
+                    .body(logo_data, content_type.parse().unwrap());
+
+                // Erstelle HTML-Teil
+                let html_part = SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(html_body);
+
+                // Kombiniere HTML + Inline-Image
+                let multipart = MultiPart::related()
+                    .singlepart(html_part)
+                    .singlepart(logo_part);
+
+                Message::builder()
+                    .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+                    .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+                    .subject(subject)
+                    .multipart(multipart)
+                    .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+            }
+            Err(e) => {
+                // Logo konnte nicht gelesen werden - verwende HTML ohne Logo
+                eprintln!("⚠️ Logo konnte nicht gelesen werden ({}), verwende HTML ohne Logo", e);
+                let html_body = create_html_email_body(body, None);
+
+                Message::builder()
+                    .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+                    .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+                    .subject(subject)
+                    .header(ContentType::TEXT_HTML)
+                    .body(html_body)
+                    .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+            }
+        }
+    } else {
+        // Kein Logo konfiguriert - verwende HTML ohne Logo
+        let html_body = create_html_email_body(body, None);
+
+        Message::builder()
+            .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+            .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+            .subject(subject)
+            .header(ContentType::TEXT_HTML)
+            .body(html_body)
+            .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+    };
 
     // Erstelle SMTP Transport
     let creds = Credentials::new(config.smtp_username.clone(), password);
@@ -544,6 +737,8 @@ async fn send_email_with_attachment_internal(
     guest_id: i64,
     template_name: &str,
 ) -> Result<String, String> {
+    use crate::database::get_company_settings;
+
     // Entschlüssele Passwort
     let password = decrypt_password(&config.smtp_password)?;
 
@@ -563,16 +758,94 @@ async fn send_email_with_attachment_internal(
     let attachment = Attachment::new(filename.to_string())
         .body(pdf_content, ContentType::parse("application/pdf").unwrap());
 
-    let email = Message::builder()
-        .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
-        .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
-        .subject(subject)
-        .multipart(
-            MultiPart::mixed()
-                .singlepart(SinglePart::plain(body.to_string()))
-                .singlepart(attachment)
-        )
-        .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?;
+    // Lade Company Settings für Logo
+    let company = get_company_settings().ok();
+    let logo_path = company.as_ref().and_then(|c| c.logo_path.as_deref());
+
+    // Versuche Email mit Logo zu erstellen, falle zurück auf HTML ohne Logo
+    let email = if let Some(logo_file) = logo_path {
+        // Versuche Logo-Datei zu lesen
+        match std::fs::read(logo_file) {
+            Ok(logo_data) => {
+                // Email mit Logo (HTML + Inline-Image + PDF-Anhang)
+                let html_body = create_html_email_body(body, Some(logo_file));
+
+                let content_type = if logo_file.ends_with(".png") {
+                    "image/png"
+                } else if logo_file.ends_with(".jpg") || logo_file.ends_with(".jpeg") {
+                    "image/jpeg"
+                } else if logo_file.ends_with(".gif") {
+                    "image/gif"
+                } else {
+                    "image/png"
+                };
+
+                // Erstelle Inline-Logo-Attachment
+                let logo_part = Attachment::new_inline(String::from("company_logo"))
+                    .body(logo_data, content_type.parse().unwrap());
+
+                // Erstelle HTML-Teil
+                let html_part = SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(html_body);
+
+                // Kombiniere HTML + Inline-Image in related part
+                let related = MultiPart::related()
+                    .singlepart(html_part)
+                    .singlepart(logo_part);
+
+                // Kombiniere related part + PDF attachment in mixed part
+                let multipart = MultiPart::mixed()
+                    .multipart(related)
+                    .singlepart(attachment);
+
+                Message::builder()
+                    .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+                    .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+                    .subject(subject)
+                    .multipart(multipart)
+                    .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+            }
+            Err(e) => {
+                // Logo konnte nicht gelesen werden - verwende HTML ohne Logo
+                eprintln!("⚠️ Logo konnte nicht gelesen werden ({}), verwende HTML ohne Logo", e);
+                let html_body = create_html_email_body(body, None);
+
+                let html_part = SinglePart::builder()
+                    .header(ContentType::TEXT_HTML)
+                    .body(html_body);
+
+                let multipart = MultiPart::mixed()
+                    .singlepart(html_part)
+                    .singlepart(attachment);
+
+                Message::builder()
+                    .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+                    .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+                    .subject(subject)
+                    .multipart(multipart)
+                    .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+            }
+        }
+    } else {
+        // Kein Logo konfiguriert - verwende HTML ohne Logo
+        let html_body = create_html_email_body(body, None);
+
+        let html_part = SinglePart::builder()
+            .header(ContentType::TEXT_HTML)
+            .body(html_body);
+
+        let multipart = MultiPart::mixed()
+            .singlepart(html_part)
+            .singlepart(attachment);
+
+        Message::builder()
+            .from(from_address.parse().map_err(|e| format!("Ungültige Absender-Adresse: {}", e))?)
+            .to(recipient.parse().map_err(|e| format!("Ungültige Empfänger-Adresse: {}", e))?)
+            .subject(subject)
+            .multipart(multipart)
+            .map_err(|e| format!("Fehler beim Erstellen der Email: {}", e))?
+    };
 
     // Erstelle SMTP Transport
     let creds = Credentials::new(config.smtp_username.clone(), password);

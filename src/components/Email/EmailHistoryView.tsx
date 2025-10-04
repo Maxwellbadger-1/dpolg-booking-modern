@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText } from 'lucide-react';
+import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock } from 'lucide-react';
 
 interface EmailLog {
   id: number;
@@ -14,17 +14,41 @@ interface EmailLog {
   sent_at: string;
 }
 
+interface ScheduledEmail {
+  booking_id: number;
+  reservierungsnummer: string;
+  guest_name: string;
+  guest_email: string;
+  email_type: string;
+  scheduled_date: string;
+  reason: string;
+}
+
+type TabType = 'history' | 'scheduled';
+
 export default function EmailHistoryView() {
+  const [activeTab, setActiveTab] = useState<TabType>('history');
+
+  // History Tab State
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [filteredLogs, setFilteredLogs] = useState<EmailLog[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'gesendet' | 'fehler'>('all');
+
+  // Scheduled Tab State
+  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
+
+  // Common State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadAllEmailLogs();
-  }, []);
+    if (activeTab === 'history') {
+      loadAllEmailLogs();
+    } else {
+      loadScheduledEmails();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     filterLogs();
@@ -36,6 +60,19 @@ export default function EmailHistoryView() {
     try {
       const logs = await invoke<EmailLog[]>('get_all_email_logs_command');
       setEmailLogs(logs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadScheduledEmails = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const scheduled = await invoke<ScheduledEmail[]>('get_scheduled_emails');
+      setScheduledEmails(scheduled);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -78,13 +115,13 @@ export default function EmailHistoryView() {
 
   const getTemplateColor = (name: string) => {
     const colors: { [key: string]: string } = {
-      confirmation: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-      reminder: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
-      invoice: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-      payment_reminder: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
-      cancellation: 'bg-red-500/20 text-red-300 border-red-500/30',
+      confirmation: 'bg-blue-100 text-blue-700 border-blue-200',
+      reminder: 'bg-amber-100 text-amber-700 border-amber-200',
+      invoice: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      payment_reminder: 'bg-orange-100 text-orange-700 border-orange-200',
+      cancellation: 'bg-red-100 text-red-700 border-red-200',
     };
-    return colors[name] || 'bg-slate-500/20 text-slate-300 border-slate-500/30';
+    return colors[name] || 'bg-slate-100 text-slate-700 border-slate-200';
   };
 
   const formatDateTime = (dateStr: string) => {
@@ -126,9 +163,17 @@ export default function EmailHistoryView() {
 
       await invoke(commandName, { bookingId: log.booking_id });
       alert('Email erfolgreich versendet!');
-      loadAllEmailLogs(); // Reload to show new entry
+      loadAllEmailLogs();
     } catch (err) {
       alert(`Fehler beim Senden: ${err}`);
+    }
+  };
+
+  const handleRefresh = () => {
+    if (activeTab === 'history') {
+      loadAllEmailLogs();
+    } else {
+      loadScheduledEmails();
     }
   };
 
@@ -155,212 +200,311 @@ export default function EmailHistoryView() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header mit verbesserter Optik */}
-      <div className="flex items-center justify-between bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700">
-        <div>
-          <h2 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Mail className="w-8 h-8 text-blue-400" />
-            Email-Verlauf
-          </h2>
-          <p className="text-sm text-slate-400 mt-2">
-            Übersicht aller versendeten Emails
-          </p>
+    <div className="h-full flex flex-col p-6 space-y-4 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-500/20 p-2 rounded-lg">
+            <Mail className="w-6 h-6 text-blue-400" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Email-Übersicht</h2>
+            <p className="text-xs text-slate-600">Versendete und geplante Emails</p>
+          </div>
         </div>
         <button
-          onClick={loadAllEmailLogs}
-          className="flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-all hover:scale-105 active:scale-95"
+          onClick={handleRefresh}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
         >
-          <RefreshCw className="w-5 h-5" />
+          <RefreshCw className="w-4 h-4" />
           Aktualisieren
         </button>
       </div>
 
-      {/* Statistics - verbesserte Lesbarkeit */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-400 uppercase tracking-wide">Gesamt versendet</p>
-              <p className="text-4xl font-bold text-white mt-2">{emailLogs.length}</p>
-            </div>
-            <div className="bg-blue-500/20 p-4 rounded-xl">
-              <Mail className="w-8 h-8 text-blue-400" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-400 uppercase tracking-wide">Erfolgreich</p>
-              <p className="text-4xl font-bold text-emerald-400 mt-2">
-                {emailLogs.filter((l) => l.status === 'gesendet').length}
-              </p>
-            </div>
-            <div className="bg-emerald-500/20 p-4 rounded-xl">
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-xl p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-400 uppercase tracking-wide">Fehlgeschlagen</p>
-              <p className="text-4xl font-bold text-red-400 mt-2">
-                {emailLogs.filter((l) => l.status === 'fehler').length}
-              </p>
-            </div>
-            <div className="bg-red-500/20 p-4 rounded-xl">
-              <AlertCircle className="w-8 h-8 text-red-400" />
-            </div>
-          </div>
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-slate-200 flex-shrink-0">
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex items-center gap-2 px-4 py-3 font-semibold transition-all border-b-2 ${
+            activeTab === 'history'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <History className="w-4 h-4" />
+          Verlauf
+          <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeTab === 'history' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {emailLogs.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('scheduled')}
+          className={`flex items-center gap-2 px-4 py-3 font-semibold transition-all border-b-2 ${
+            activeTab === 'scheduled'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-600 hover:text-slate-800'
+          }`}
+        >
+          <CalendarClock className="w-4 h-4" />
+          Geplant
+          <span className={`ml-1 px-2 py-0.5 rounded-full text-xs font-bold ${
+            activeTab === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+          }`}>
+            {scheduledEmails.length}
+          </span>
+        </button>
       </div>
 
-      {/* Filters - verbesserte Lesbarkeit */}
-      <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Search */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-3">
-              Suchen
-            </label>
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Email, Betreff oder Template suchen..."
-                className="w-full pl-12 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              />
+      {/* Content */}
+      {activeTab === 'history' ? (
+        <>
+          {/* Statistics - Kompakt */}
+          <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+            <div className="bg-white border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-500/20 p-2 rounded-lg">
+                  <Mail className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-600">Gesamt</p>
+                  <p className="text-2xl font-bold text-slate-800">{emailLogs.length}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-emerald-500/20 p-2 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-600">Erfolgreich</p>
+                  <p className="text-2xl font-bold text-emerald-600">
+                    {emailLogs.filter((l) => l.status === 'gesendet').length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-500/20 p-2 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-600">Fehler</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {emailLogs.filter((l) => l.status === 'fehler').length}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Status Filter */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-3">
-              Status filtern
-            </label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'gesendet' | 'fehler')}
-              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-            >
-              <option value="all">Alle anzeigen ({emailLogs.length})</option>
-              <option value="gesendet">
-                Nur Erfolgreiche ({emailLogs.filter((l) => l.status === 'gesendet').length})
-              </option>
-              <option value="fehler">
-                Nur Fehler ({emailLogs.filter((l) => l.status === 'fehler').length})
-              </option>
-            </select>
-          </div>
-        </div>
-      </div>
+          {/* Filters - Kompakt */}
+          <div className="bg-white border border-slate-200 rounded-lg p-3 flex-shrink-0">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Email, Betreff oder Template suchen..."
+                  className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
 
-      {/* Email List - verbesserte Tabelle */}
-      <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-        {filteredLogs.length === 0 ? (
-          <div className="p-16 text-center">
-            <div className="bg-slate-700/50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Mail className="w-10 h-10 text-slate-500" />
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'gesendet' | 'fehler')}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">Alle anzeigen ({emailLogs.length})</option>
+                <option value="gesendet">
+                  Nur Erfolgreiche ({emailLogs.filter((l) => l.status === 'gesendet').length})
+                </option>
+                <option value="fehler">
+                  Nur Fehler ({emailLogs.filter((l) => l.status === 'fehler').length})
+                </option>
+              </select>
             </div>
-            <h3 className="text-xl font-semibold text-slate-300 mb-2">
-              {searchQuery || filterStatus !== 'all' ? 'Keine Emails gefunden' : 'Noch keine Emails versendet'}
-            </h3>
-            <p className="text-slate-400">
-              {searchQuery || filterStatus !== 'all'
-                ? 'Versuche eine andere Suche oder Filter'
-                : 'Emails werden hier angezeigt, sobald sie versendet wurden'}
-            </p>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-900 border-b border-slate-700">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Datum & Zeit
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Empfänger
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Template
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Betreff
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Aktionen
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700">
-                {filteredLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
-                        <Clock className="w-4 h-4 text-slate-500" />
-                        {formatDateTime(log.sent_at)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-white font-semibold">{log.recipient_email}</div>
-                      <div className="text-xs text-slate-400 mt-1">Buchung #{log.booking_id}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${getTemplateColor(log.template_name)}`}>
-                        <FileText className="w-3.5 h-3.5" />
-                        {getTemplateDisplayName(log.template_name)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-slate-200 max-w-md truncate font-medium">
-                        {log.subject}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {log.status === 'gesendet' ? (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          <CheckCircle className="w-4 h-4" />
-                          Gesendet
-                        </span>
-                      ) : (
-                        <div className="space-y-1">
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-300 border border-red-500/30">
-                            <AlertCircle className="w-4 h-4" />
-                            Fehler
+
+          {/* Email List - Maximaler Platz */}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
+            {filteredLogs.length === 0 ? (
+              <div className="p-12 text-center flex-1 flex flex-col items-center justify-center">
+                <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Mail className="w-8 h-8 text-slate-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-slate-700 mb-1">
+                  {searchQuery || filterStatus !== 'all' ? 'Keine Emails gefunden' : 'Noch keine Emails versendet'}
+                </h3>
+                <p className="text-sm text-slate-500">
+                  {searchQuery || filterStatus !== 'all'
+                    ? 'Versuche eine andere Suche oder Filter'
+                    : 'Emails werden hier angezeigt, sobald sie versendet wurden'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-auto flex-1">
+                <table className="w-full">
+                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Datum & Zeit
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Empfänger
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Template
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Betreff
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Aktionen
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <Clock className="w-4 h-4 text-slate-400" />
+                            {formatDateTime(log.sent_at)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-slate-800 font-semibold">{log.recipient_email}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Buchung #{log.booking_id}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(log.template_name)}`}>
+                            <FileText className="w-3.5 h-3.5" />
+                            {getTemplateDisplayName(log.template_name)}
                           </span>
-                          {log.error_message && (
-                            <p className="text-xs text-red-400 font-medium">{log.error_message}</p>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-slate-700 max-w-md truncate">
+                            {log.subject}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {log.status === 'gesendet' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              Gesendet
+                            </span>
+                          ) : (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                Fehler
+                              </span>
+                              {log.error_message && (
+                                <p className="text-xs text-red-600">{log.error_message}</p>
+                              )}
+                            </div>
                           )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={() => handleResend(log)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition-all hover:scale-105 active:scale-95"
-                        title="Email erneut senden"
-                      >
-                        <Send className="w-4 h-4" />
-                        Erneut senden
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => handleResend(log)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                            title="Email erneut senden"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            Erneut senden
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        /* Scheduled Emails Tab */
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
+          {scheduledEmails.length === 0 ? (
+            <div className="p-12 text-center flex-1 flex flex-col items-center justify-center">
+              <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CalendarClock className="w-8 h-8 text-slate-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-700 mb-1">
+                Keine geplanten Emails
+              </h3>
+              <p className="text-sm text-slate-500">
+                Automatische Erinnerungen und Zahlungserinnerungen werden hier angezeigt
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-auto flex-1">
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Reservierung
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Gast
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Email-Typ
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Geplant für
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
+                      Grund
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {scheduledEmails.map((email, index) => (
+                    <tr key={index} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-sm font-semibold text-slate-800">{email.reservierungsnummer}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">ID: {email.booking_id}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-slate-800 font-semibold">{email.guest_name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{email.guest_email}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(email.email_type)}`}>
+                          <FileText className="w-3.5 h-3.5" />
+                          {getTemplateDisplayName(email.email_type)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 text-sm text-slate-600">
+                          <CalendarClock className="w-4 h-4 text-slate-400" />
+                          {email.scheduled_date}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-slate-700">{email.reason}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

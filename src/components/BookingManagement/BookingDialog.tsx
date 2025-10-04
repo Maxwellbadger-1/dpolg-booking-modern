@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent } from 'lucide-react';
+import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent, Bookmark } from 'lucide-react';
 import { useData } from '../../context/DataContext';
+import SearchableGuestPicker from './SearchableGuestPicker';
+import SearchableRoomPicker from './SearchableRoomPicker';
+import EmailSelectionDialog from './EmailSelectionDialog';
 
 interface Guest {
   id: number;
   vorname: string;
   nachname: string;
   email: string;
+  telefon: string;
   dpolg_mitglied: boolean;
 }
 
@@ -109,9 +113,19 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
     discount_value: 0,
   });
 
+  // Template States
+  const [serviceTemplates, setServiceTemplates] = useState<any[]>([]);
+  const [discountTemplates, setDiscountTemplates] = useState<any[]>([]);
+
+  // Email Dialog State
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [createdBookingId, setCreatedBookingId] = useState<number | null>(null);
+  const [createdGuestEmail, setCreatedGuestEmail] = useState<string>('');
+
   useEffect(() => {
     if (isOpen) {
       loadGuestsAndRooms();
+      loadTemplates();
     }
   }, [isOpen]);
 
@@ -175,6 +189,69 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
       setRooms(roomsData);
     } catch (err) {
       console.error('Fehler beim Laden:', err);
+    }
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const [servicesData, discountsData] = await Promise.all([
+        invoke<any[]>('get_active_service_templates_command'),
+        invoke<any[]>('get_active_discount_templates_command'),
+      ]);
+      setServiceTemplates(servicesData);
+      setDiscountTemplates(discountsData);
+    } catch (err) {
+      console.error('Fehler beim Laden der Templates:', err);
+    }
+  };
+
+  const addServiceFromTemplate = (template: any) => {
+    const newService: AdditionalService = {
+      service_name: template.name,
+      service_price: template.price,
+    };
+    setAdditionalServices([...additionalServices, newService]);
+  };
+
+  const addDiscountFromTemplate = (template: any) => {
+    const newDiscount: Discount = {
+      discount_name: template.name,
+      discount_type: template.discount_type,
+      discount_value: template.discount_value,
+    };
+    setDiscounts([...discounts, newDiscount]);
+  };
+
+  const saveServiceAsTemplate = async (service: AdditionalService) => {
+    try {
+      await invoke('create_service_template_command', {
+        name: service.service_name,
+        description: null,
+        price: service.service_price,
+      });
+      // Reload templates
+      loadTemplates();
+      alert('Service als Vorlage gespeichert!');
+    } catch (err) {
+      console.error('Fehler beim Speichern:', err);
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const saveDiscountAsTemplate = async (discount: Discount) => {
+    try {
+      await invoke('create_discount_template_command', {
+        name: discount.discount_name,
+        description: null,
+        discountType: discount.discount_type,
+        discountValue: discount.discount_value,
+      });
+      // Reload templates
+      loadTemplates();
+      alert('Rabatt als Vorlage gespeichert!');
+    } catch (err) {
+      console.error('Fehler beim Speichern:', err);
+      alert(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -544,6 +621,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         };
 
         await updateBooking(booking.id, updatePayload);
+        // Bei Update direkt schließen
+        onSuccess();
+        onClose();
       } else {
         // Create booking - need to generate reservation number first
         const reservierungsnummer = `RES-${Date.now()}`;
@@ -607,20 +687,15 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
           }
         }
 
-        // 🆕 AUTOMATISCH: PDF-Rechnung generieren und per Email senden
+        // 🆕 Email-Auswahl-Dialog öffnen
         if (result.id) {
-          console.log('📧 Sende automatisch PDF-Rechnung per Email...');
-          try {
-            await invoke('generate_and_send_invoice_command', { bookingId: result.id });
-            console.log('✅ PDF-Rechnung erfolgreich generiert und versendet!');
-          } catch (emailError) {
-            console.error('⚠️ Fehler beim Versand der Rechnung (Buchung wurde trotzdem erstellt):', emailError);
-            // Buchung wurde erstellt, nur Email hat nicht funktioniert - kein kritischer Fehler
-          }
+          const guestEmail = guests.find(g => g.id === formData.guest_id)?.email || '';
+          setCreatedBookingId(result.id);
+          setCreatedGuestEmail(guestEmail);
+          setShowEmailDialog(true);
+          // Dialog bleibt offen, wird vom EmailSelectionDialog geschlossen
         }
       }
-      onSuccess();
-      onClose();
     } catch (err) {
       console.error('Fehler beim Speichern:', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -632,6 +707,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
   if (!isOpen) return null;
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
         {/* Header */}
@@ -663,45 +739,21 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
           <div className="space-y-6">
             {/* Guest & Room Selection */}
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  <UserPlus className="w-4 h-4" />
-                  Gast *
-                </label>
-                <select
-                  required
-                  value={formData.guest_id}
-                  onChange={(e) => setFormData({ ...formData, guest_id: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={0}>Gast auswählen...</option>
-                  {guests.map((guest) => (
-                    <option key={guest.id} value={guest.id}>
-                      {guest.vorname} {guest.nachname} {guest.dpolg_mitglied ? '(Mitglied)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SearchableGuestPicker
+                guests={guests}
+                selectedGuestId={formData.guest_id}
+                onSelectGuest={(guestId) => setFormData({ ...formData, guest_id: guestId })}
+                onCreateNew={() => {
+                  // TODO: Öffne GuestDialog zum Erstellen eines neuen Gastes
+                  alert('Neuen Gast anlegen - Feature kommt bald!');
+                }}
+              />
 
-              <div>
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  <Calendar className="w-4 h-4" />
-                  Zimmer *
-                </label>
-                <select
-                  required
-                  value={formData.room_id}
-                  onChange={(e) => setFormData({ ...formData, room_id: parseInt(e.target.value) })}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={0}>Zimmer auswählen...</option>
-                  {rooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.name} - {room.ort} (Kapazität: {room.capacity})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SearchableRoomPicker
+                rooms={rooms}
+                selectedRoomId={formData.room_id}
+                onSelectRoom={(roomId) => setFormData({ ...formData, room_id: roomId })}
+              />
             </div>
 
             {/* Check-in & Check-out */}
@@ -951,20 +1003,59 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
                           {service.service_price.toFixed(2)} €
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveService(index, service.id)}
-                        className="text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => saveServiceAsTemplate(service)}
+                          className="text-emerald-600 hover:bg-emerald-50 p-1 rounded transition-colors"
+                          title="Als Vorlage speichern"
+                        >
+                          <Bookmark className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveService(index, service.id)}
+                          className="text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
+              {/* Template Selection */}
+              {serviceTemplates.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-slate-600 mb-2">
+                    Aus Vorlagen wählen:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {serviceTemplates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => addServiceFromTemplate(template)}
+                        className="flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors text-left"
+                      >
+                        <span className="text-sm font-medium text-emerald-900 truncate">
+                          {template.name}
+                        </span>
+                        <span className="text-xs font-semibold text-emerald-600 ml-2">
+                          {template.price.toFixed(2)} €
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Add New Service */}
               <div className="space-y-3">
+                <label className="block text-xs font-medium text-slate-600">
+                  Oder manuell hinzufügen:
+                </label>
                 <div className="grid grid-cols-2 gap-3">
                   <input
                     type="text"
@@ -1019,20 +1110,61 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
                             : `${discount.discount_value.toFixed(2)} €`}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDiscount(index, discount.id)}
-                        className="text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => saveDiscountAsTemplate(discount)}
+                          className="text-amber-600 hover:bg-amber-50 p-1 rounded transition-colors"
+                          title="Als Vorlage speichern"
+                        >
+                          <Bookmark className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDiscount(index, discount.id)}
+                          className="text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
+              {/* Template Selection */}
+              {discountTemplates.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-slate-600 mb-2">
+                    Aus Vorlagen wählen:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {discountTemplates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => addDiscountFromTemplate(template)}
+                        className="flex items-center justify-between px-3 py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors text-left"
+                      >
+                        <span className="text-sm font-medium text-amber-900 truncate">
+                          {template.name}
+                        </span>
+                        <span className="text-xs font-semibold text-amber-600 ml-2">
+                          {template.discount_type === 'percent'
+                            ? `${template.discount_value}%`
+                            : `${template.discount_value.toFixed(2)} €`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Add New Discount */}
               <div className="space-y-3">
+                <label className="block text-xs font-medium text-slate-600">
+                  Oder manuell hinzufügen:
+                </label>
                 <div className="grid grid-cols-3 gap-3">
                   <input
                     type="text"
@@ -1091,5 +1223,21 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         </div>
       </div>
     </div>
+
+    {/* Email Selection Dialog */}
+    {createdBookingId && (
+      <EmailSelectionDialog
+        isOpen={showEmailDialog}
+        onClose={() => {
+          setShowEmailDialog(false);
+          setCreatedBookingId(null);
+          onSuccess();
+          onClose();
+        }}
+        bookingId={createdBookingId}
+        guestEmail={createdGuestEmail}
+      />
+    )}
+    </>
   );
 }

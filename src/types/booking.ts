@@ -49,3 +49,24 @@ export interface TapeChartEvent {
   booking: BookingWithDetails;
   status: Booking['status'];
 }
+
+export interface ServiceTemplate {
+  id: number;
+  name: string;
+  description?: string;
+  price: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DiscountTemplate {
+  id: number;
+  name: string;
+  description?: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}

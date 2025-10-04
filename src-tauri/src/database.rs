@@ -90,6 +90,31 @@ pub struct Discount {
     pub created_at: String,
 }
 
+// Service-Template (vordefinierte Zusatzleistung)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ServiceTemplate {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub price: f64,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// Rabatt-Template (vordefinierter Rabatt)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DiscountTemplate {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub discount_type: String, // 'percent' oder 'fixed'
+    pub discount_value: f64,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // Phase 6: Email-System Structs
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EmailConfig {
@@ -498,6 +523,46 @@ fn create_indexes(conn: &Connection) -> Result<()> {
     // Standard-Settings einfügen (falls noch nicht vorhanden)
     insert_default_settings(&conn)?;
 
+    // Tabelle für Service-Templates (vordefinierte Zusatzleistungen)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS service_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            price REAL NOT NULL CHECK(price >= 0),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Tabelle für Rabatt-Templates (vordefinierte Rabatte)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS discount_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            discount_type TEXT NOT NULL CHECK(discount_type IN ('percent', 'fixed')),
+            discount_value REAL NOT NULL CHECK(discount_value >= 0),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Indexes für Templates
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_service_templates_active ON service_templates(is_active)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_discount_templates_active ON discount_templates(is_active)",
+        [],
+    )?;
+
     Ok(())
 }
 
@@ -517,17 +582,22 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
             [
                 "confirmation",
                 "Buchungsbestätigung - Reservierung {reservierungsnummer}",
-                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nvielen Dank für Ihre Buchung!\n\n\
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\n\
+                vielen Dank für Ihre Buchung bei {firma_name}!\n\n\
                 Reservierungsnummer: {reservierungsnummer}\n\
-                Zimmer: {zimmer_name}\n\
+                Zimmer: {zimmer_name} ({zimmer_typ})\n\
+                Ort: {zimmer_ort}\n\
                 Check-in: {checkin_date}\n\
                 Check-out: {checkout_date}\n\
                 Anzahl Gäste: {anzahl_gaeste}\n\
                 Anzahl Nächte: {anzahl_naechte}\n\
                 Gesamtpreis: {gesamtpreis} €\n\n\
+                Bei Fragen erreichen Sie uns unter:\n\
+                Telefon: {firma_telefon}\n\
+                Email: {firma_email}\n\n\
                 Wir freuen uns auf Ihren Besuch!\n\n\
                 Mit freundlichen Grüßen\n\
-                DPolG Stiftung Buchungssystem",
+                {firma_name}",
                 "Standard-Template für Buchungsbestätigungen"
             ],
         )?;
@@ -538,14 +608,20 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
             [
                 "reminder",
                 "Erinnerung - Check-in morgen für Reservierung {reservierungsnummer}",
-                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir möchten Sie daran erinnern, dass Ihr Check-in morgen ansteht.\n\n\
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\n\
+                wir möchten Sie daran erinnern, dass Ihr Check-in morgen ansteht.\n\n\
                 Reservierungsnummer: {reservierungsnummer}\n\
                 Zimmer: {zimmer_name}\n\
+                Ort: {zimmer_ort}\n\
                 Check-in: {checkin_date}\n\
-                Check-out: {checkout_date}\n\n\
+                Check-out: {checkout_date}\n\
+                Schlüsselcode: {schluesselcode}\n\n\
+                Bei Fragen erreichen Sie uns unter:\n\
+                Telefon: {firma_telefon}\n\
+                Email: {firma_email}\n\n\
                 Wir freuen uns auf Ihren Besuch!\n\n\
                 Mit freundlichen Grüßen\n\
-                DPolG Stiftung Buchungssystem",
+                {firma_name}",
                 "Reminder-Email einen Tag vor Check-in"
             ],
         )?;
@@ -556,18 +632,26 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
             [
                 "invoice",
                 "Rechnung - Reservierung {reservierungsnummer}",
-                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nanbei erhalten Sie die Rechnung für Ihren Aufenthalt.\n\n\
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\n\
+                anbei erhalten Sie die Rechnung für Ihren Aufenthalt.\n\n\
                 Reservierungsnummer: {reservierungsnummer}\n\
                 Zimmer: {zimmer_name}\n\
                 Zeitraum: {checkin_date} - {checkout_date}\n\
                 Anzahl Nächte: {anzahl_naechte}\n\n\
                 Grundpreis: {grundpreis} €\n\
-                Services: {services_preis} €\n\
+                Zusatzleistungen: {services_preis} €\n\
                 Rabatt: -{rabatt_preis} €\n\
                 Gesamtpreis: {gesamtpreis} €\n\n\
+                Bitte überweisen Sie den Betrag an:\n\
+                {firma_bank}\n\
+                IBAN: {firma_iban}\n\
+                BIC: {firma_bic}\n\n\
                 Vielen Dank für Ihren Aufenthalt!\n\n\
                 Mit freundlichen Grüßen\n\
-                DPolG Stiftung Buchungssystem",
+                {firma_name}\n\
+                {firma_adresse}\n\
+                {firma_plz} {firma_ort}\n\
+                Steuernummer: {firma_steuernummer}",
                 "Rechnungs-Email nach Check-out"
             ],
         )?;
@@ -578,15 +662,21 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
             [
                 "payment_reminder",
                 "Zahlungserinnerung - Reservierung {reservierungsnummer}",
-                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir möchten Sie freundlich daran erinnern, dass die Zahlung für Ihre Buchung noch aussteht.\n\n\
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\n\
+                wir möchten Sie freundlich daran erinnern, dass die Zahlung für Ihre Buchung noch aussteht.\n\n\
                 Reservierungsnummer: {reservierungsnummer}\n\
                 Zimmer: {zimmer_name}\n\
                 Zeitraum: {checkin_date} - {checkout_date}\n\
                 Gesamtbetrag: {gesamtpreis} €\n\n\
-                Bitte überweisen Sie den Betrag innerhalb der nächsten 7 Tage.\n\n\
-                Bei Fragen stehen wir Ihnen gerne zur Verfügung.\n\n\
+                Bitte überweisen Sie den Betrag innerhalb der nächsten 7 Tage an:\n\
+                {firma_bank}\n\
+                IBAN: {firma_iban}\n\
+                BIC: {firma_bic}\n\n\
+                Bei Fragen stehen wir Ihnen gerne zur Verfügung:\n\
+                Telefon: {firma_telefon}\n\
+                Email: {firma_email}\n\n\
                 Mit freundlichen Grüßen\n\
-                DPolG Stiftung Buchungssystem",
+                {firma_name}",
                 "Zahlungserinnerung nach 14 Tagen"
             ],
         )?;
@@ -597,14 +687,17 @@ fn insert_default_email_templates(conn: &Connection) -> Result<()> {
             [
                 "cancellation",
                 "Stornierungsbestätigung - Reservierung {reservierungsnummer}",
-                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\nwir bestätigen die Stornierung Ihrer Buchung.\n\n\
+                "Sehr geehrte/r {gast_vorname} {gast_nachname},\n\n\
+                wir bestätigen die Stornierung Ihrer Buchung.\n\n\
                 Reservierungsnummer: {reservierungsnummer}\n\
                 Zimmer: {zimmer_name}\n\
                 Ursprünglicher Zeitraum: {checkin_date} - {checkout_date}\n\
                 Storniert am: {heute}\n\n\
-                Falls Sie erneut buchen möchten, kontaktieren Sie uns gerne.\n\n\
+                Falls Sie erneut buchen möchten, kontaktieren Sie uns gerne:\n\
+                Telefon: {firma_telefon}\n\
+                Email: {firma_email}\n\n\
                 Mit freundlichen Grüßen\n\
-                DPolG Stiftung Buchungssystem",
+                {firma_name}",
                 "Bestätigung bei Stornierung"
             ],
         )?;
@@ -779,7 +872,8 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
          FROM bookings b
          JOIN rooms r ON b.room_id = r.id
-         JOIN guests g ON b.guest_id = g.id"
+         JOIN guests g ON b.guest_id = g.id
+         ORDER BY b.id DESC"
     )?;
 
     let bookings = stmt.query_map([], |row| {
@@ -1320,11 +1414,10 @@ pub fn cancel_booking(id: i64) -> Result<Booking> {
 
 /// Markiert eine Buchung als bezahlt
 pub fn mark_booking_as_paid(id: i64, zahlungsmethode: String) -> Result<Booking> {
-    use chrono::Local;
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    let bezahlt_am = Local::now().format("%Y-%m-%d").to_string();
+    let bezahlt_am = crate::time_utils::format_today_db();
 
     let rows_affected = conn.execute(
         "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, zahlungsmethode = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
@@ -1333,6 +1426,60 @@ pub fn mark_booking_as_paid(id: i64, zahlungsmethode: String) -> Result<Booking>
 
     if rows_affected == 0 {
         return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    get_booking_by_id(id)
+}
+
+/// Ändert den Status einer Buchung
+pub fn update_booking_status(id: i64, new_status: String) -> Result<Booking> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Validiere Status
+    let valid_statuses = ["reserviert", "bestaetigt", "eingecheckt", "ausgecheckt", "storniert"];
+    if !valid_statuses.contains(&new_status.as_str()) {
+        return Err(rusqlite::Error::InvalidParameterName(format!("Ungültiger Status: {}", new_status)));
+    }
+
+    let rows_affected = conn.execute(
+        "UPDATE bookings SET status = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+        rusqlite::params![new_status, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    get_booking_by_id(id)
+}
+
+/// Ändert den Bezahlt-Status einer Buchung
+pub fn update_booking_payment(id: i64, bezahlt: bool) -> Result<Booking> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    if bezahlt {
+        // Bezahlt markieren
+        let bezahlt_am = crate::time_utils::format_today_db();
+        let rows_affected = conn.execute(
+            "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
+            rusqlite::params![bezahlt_am, id],
+        )?;
+
+        if rows_affected == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+    } else {
+        // Zurück auf offen setzen
+        let rows_affected = conn.execute(
+            "UPDATE bookings SET bezahlt = 0, bezahlt_am = NULL, zahlungsmethode = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+
+        if rows_affected == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
     }
 
     get_booking_by_id(id)
@@ -1851,7 +1998,7 @@ pub fn update_booking_statuses_by_date() -> Result<usize> {
     let conn = Connection::open(get_db_path())?;
 
     // Aktuelles Datum in YYYY-MM-DD Format
-    let heute = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let heute = crate::time_utils::format_today_db();
 
     println!("📅 [database::update_booking_statuses_by_date] Heute: {}", heute);
 
@@ -2006,4 +2153,468 @@ pub fn save_payment_settings(settings: PaymentSettings) -> Result<PaymentSetting
 
     // Aktualisierte Daten zurückgeben
     get_payment_settings()
+}
+
+// ============================================================================
+// SERVICE TEMPLATES CRUD OPERATIONS
+// ============================================================================
+
+pub fn create_service_template(
+    name: String,
+    description: Option<String>,
+    price: f64,
+) -> Result<ServiceTemplate, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    // Prüfe ob Name bereits existiert
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM service_templates WHERE name = ?1",
+            [&name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Fehler beim Prüfen: {}", e))?;
+
+    if exists {
+        return Err(format!("Service '{}' existiert bereits", name));
+    }
+
+    conn.execute(
+        "INSERT INTO service_templates (name, description, price) VALUES (?1, ?2, ?3)",
+        rusqlite::params![name, description, price],
+    )
+    .map_err(|e| format!("Fehler beim Erstellen: {}", e))?;
+
+    let id = conn.last_insert_rowid();
+
+    conn.query_row(
+        "SELECT id, name, description, price, is_active, created_at, updated_at
+         FROM service_templates WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(ServiceTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                price: row.get(3)?,
+                is_active: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Fehler beim Laden: {}", e))
+}
+
+pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, price, is_active, created_at, updated_at
+             FROM service_templates ORDER BY name",
+        )
+        .map_err(|e| format!("SQL Fehler: {}", e))?;
+
+    let templates = stmt
+        .query_map([], |row| {
+            Ok(ServiceTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                price: row.get(3)?,
+                is_active: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Query Fehler: {}", e))?
+        .collect::<Result<Vec<_>>>()
+        .map_err(|e| format!("Mapping Fehler: {}", e))?;
+
+    Ok(templates)
+}
+
+pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, price, is_active, created_at, updated_at
+             FROM service_templates WHERE is_active = 1 ORDER BY name",
+        )
+        .map_err(|e| format!("SQL Fehler: {}", e))?;
+
+    let templates = stmt
+        .query_map([], |row| {
+            Ok(ServiceTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                price: row.get(3)?,
+                is_active: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Query Fehler: {}", e))?
+        .collect::<Result<Vec<_>>>()
+        .map_err(|e| format!("Mapping Fehler: {}", e))?;
+
+    Ok(templates)
+}
+
+pub fn update_service_template(
+    id: i64,
+    name: String,
+    description: Option<String>,
+    price: f64,
+    is_active: bool,
+) -> Result<ServiceTemplate, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    // Prüfe ob anderes Template mit diesem Namen existiert
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM service_templates WHERE name = ?1 AND id != ?2",
+            rusqlite::params![&name, id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Fehler beim Prüfen: {}", e))?;
+
+    if exists {
+        return Err(format!("Service '{}' existiert bereits", name));
+    }
+
+    conn.execute(
+        "UPDATE service_templates
+         SET name = ?1, description = ?2, price = ?3, is_active = ?4, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?5",
+        rusqlite::params![name, description, price, if is_active { 1 } else { 0 }, id],
+    )
+    .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
+
+    conn.query_row(
+        "SELECT id, name, description, price, is_active, created_at, updated_at
+         FROM service_templates WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(ServiceTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                price: row.get(3)?,
+                is_active: row.get::<_, i64>(4)? == 1,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Fehler beim Laden: {}", e))
+}
+
+pub fn delete_service_template(id: i64) -> Result<(), String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    conn.execute("DELETE FROM service_templates WHERE id = ?1", [id])
+        .map_err(|e| format!("Fehler beim Löschen: {}", e))?;
+
+    Ok(())
+}
+
+// ============================================================================
+// DISCOUNT TEMPLATES CRUD OPERATIONS
+// ============================================================================
+
+pub fn create_discount_template(
+    name: String,
+    description: Option<String>,
+    discount_type: String,
+    discount_value: f64,
+) -> Result<DiscountTemplate, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    // Validiere discount_type
+    if discount_type != "percent" && discount_type != "fixed" {
+        return Err("Rabatt-Typ muss 'percent' oder 'fixed' sein".to_string());
+    }
+
+    // Prüfe ob Name bereits existiert
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM discount_templates WHERE name = ?1",
+            [&name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Fehler beim Prüfen: {}", e))?;
+
+    if exists {
+        return Err(format!("Rabatt '{}' existiert bereits", name));
+    }
+
+    conn.execute(
+        "INSERT INTO discount_templates (name, description, discount_type, discount_value)
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![name, description, discount_type, discount_value],
+    )
+    .map_err(|e| format!("Fehler beim Erstellen: {}", e))?;
+
+    let id = conn.last_insert_rowid();
+
+    conn.query_row(
+        "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+         FROM discount_templates WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(DiscountTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                discount_type: row.get(3)?,
+                discount_value: row.get(4)?,
+                is_active: row.get::<_, i64>(5)? == 1,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Fehler beim Laden: {}", e))
+}
+
+pub fn get_all_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+             FROM discount_templates ORDER BY name",
+        )
+        .map_err(|e| format!("SQL Fehler: {}", e))?;
+
+    let templates = stmt
+        .query_map([], |row| {
+            Ok(DiscountTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                discount_type: row.get(3)?,
+                discount_value: row.get(4)?,
+                is_active: row.get::<_, i64>(5)? == 1,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("Query Fehler: {}", e))?
+        .collect::<Result<Vec<_>>>()
+        .map_err(|e| format!("Mapping Fehler: {}", e))?;
+
+    Ok(templates)
+}
+
+pub fn get_active_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+             FROM discount_templates WHERE is_active = 1 ORDER BY name",
+        )
+        .map_err(|e| format!("SQL Fehler: {}", e))?;
+
+    let templates = stmt
+        .query_map([], |row| {
+            Ok(DiscountTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                discount_type: row.get(3)?,
+                discount_value: row.get(4)?,
+                is_active: row.get::<_, i64>(5)? == 1,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| format!("Query Fehler: {}", e))?
+        .collect::<Result<Vec<_>>>()
+        .map_err(|e| format!("Mapping Fehler: {}", e))?;
+
+    Ok(templates)
+}
+
+pub fn update_discount_template(
+    id: i64,
+    name: String,
+    description: Option<String>,
+    discount_type: String,
+    discount_value: f64,
+    is_active: bool,
+) -> Result<DiscountTemplate, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    // Validiere discount_type
+    if discount_type != "percent" && discount_type != "fixed" {
+        return Err("Rabatt-Typ muss 'percent' oder 'fixed' sein".to_string());
+    }
+
+    // Prüfe ob anderes Template mit diesem Namen existiert
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM discount_templates WHERE name = ?1 AND id != ?2",
+            rusqlite::params![&name, id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Fehler beim Prüfen: {}", e))?;
+
+    if exists {
+        return Err(format!("Rabatt '{}' existiert bereits", name));
+    }
+
+    conn.execute(
+        "UPDATE discount_templates
+         SET name = ?1, description = ?2, discount_type = ?3, discount_value = ?4,
+             is_active = ?5, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?6",
+        rusqlite::params![
+            name,
+            description,
+            discount_type,
+            discount_value,
+            if is_active { 1 } else { 0 },
+            id
+        ],
+    )
+    .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
+
+    conn.query_row(
+        "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+         FROM discount_templates WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(DiscountTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                discount_type: row.get(3)?,
+                discount_value: row.get(4)?,
+                is_active: row.get::<_, i64>(5)? == 1,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Fehler beim Laden: {}", e))
+}
+
+pub fn delete_discount_template(id: i64) -> Result<(), String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .map_err(|e| format!("PRAGMA Fehler: {}", e))?;
+
+    conn.execute("DELETE FROM discount_templates WHERE id = ?1", [id])
+        .map_err(|e| format!("Fehler beim Löschen: {}", e))?;
+
+    Ok(())
+}
+
+// ===============================================
+// EMAIL TEMPLATE MANAGEMENT FUNCTIONS
+// ===============================================
+
+/// Lädt alle Email-Templates aus der Datenbank
+pub fn get_all_templates() -> Result<Vec<EmailTemplate>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, template_name, subject, body, description, created_at, updated_at
+         FROM email_templates
+         ORDER BY template_name"
+    ).map_err(|e| format!("SQL Fehler: {}", e))?;
+
+    let templates: Vec<EmailTemplate> = stmt.query_map([], |row| {
+        Ok(EmailTemplate {
+            id: row.get(0)?,
+            template_name: row.get(1)?,
+            subject: row.get(2)?,
+            body: row.get(3)?,
+            description: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })
+    .map_err(|e| format!("Query Fehler: {}", e))?
+    .filter_map(|r| r.ok())
+    .collect();
+
+    println!("🔍 DEBUG get_all_templates: Found {} templates", templates.len());
+    for t in &templates {
+        println!("   - {} ({})", t.template_name, t.id);
+    }
+
+    Ok(templates)
+}
+
+/// Aktualisiert ein Email-Template
+pub fn update_template(
+    id: i64,
+    subject: String,
+    body: String,
+    description: Option<String>,
+) -> Result<EmailTemplate, String> {
+    use rusqlite::params;
+
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    // Aktualisiere Template mit neuem updated_at Timestamp
+    let updated_at = crate::time_utils::now_utc_plus_2()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+
+    conn.execute(
+        "UPDATE email_templates
+         SET subject = ?1, body = ?2, description = ?3, updated_at = ?4
+         WHERE id = ?5",
+        params![subject, body, description, updated_at, id],
+    )
+    .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
+
+    // Lade und gebe das aktualisierte Template zurück
+    conn.query_row(
+        "SELECT id, template_name, subject, body, description, created_at, updated_at
+         FROM email_templates WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(EmailTemplate {
+                id: row.get(0)?,
+                template_name: row.get(1)?,
+                subject: row.get(2)?,
+                body: row.get(3)?,
+                description: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .map_err(|e| format!("Fehler beim Laden: {}", e))
 }

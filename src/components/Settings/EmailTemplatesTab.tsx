@@ -29,11 +29,16 @@ export default function EmailTemplatesTab() {
   const loadTemplates = async () => {
     try {
       const result = await invoke<EmailTemplate[]>('get_all_templates_command');
+      console.log('═══════════════════════════════════════');
+      console.log('📧 Loaded Email Templates:', JSON.stringify(result, null, 2));
+      console.log('📊 Count:', result.length);
+      console.log('═══════════════════════════════════════');
       setTemplates(result);
       if (result.length > 0 && !selectedTemplate) {
         selectTemplate(result[0]);
       }
     } catch (error) {
+      console.error('❌ Error loading templates:', error);
       setError(error instanceof Error ? error.message : String(error));
     }
   };
@@ -176,18 +181,80 @@ export default function EmailTemplatesTab() {
               />
             </div>
 
-            {/* Placeholders Info */}
+            {/* Placeholders Info - Erweitert und gruppiert */}
             <div className="bg-slate-700/50 border border-slate-600 rounded-lg p-4">
-              <p className="text-xs font-semibold text-slate-300 mb-2">Verfügbare Platzhalter:</p>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                <div><code className="text-blue-400">{'{gast_vorname}'}</code> - Vorname des Gastes</div>
-                <div><code className="text-blue-400">{'{gast_nachname}'}</code> - Nachname des Gastes</div>
-                <div><code className="text-blue-400">{'{zimmer_name}'}</code> - Name des Zimmers</div>
-                <div><code className="text-blue-400">{'{reservierungsnummer}'}</code> - Reservierungsnummer</div>
-                <div><code className="text-blue-400">{'{checkin}'}</code> - Check-in Datum</div>
-                <div><code className="text-blue-400">{'{checkout}'}</code> - Check-out Datum</div>
-                <div><code className="text-blue-400">{'{anzahl_naechte}'}</code> - Anzahl Nächte</div>
-                <div><code className="text-blue-400">{'{gesamtpreis}'}</code> - Gesamtpreis</div>
+              <p className="text-xs font-bold text-slate-300 mb-3">📌 Verfügbare Platzhalter:</p>
+
+              {/* Gast-Daten */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-emerald-400 mb-1.5">👤 Gast-Daten:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{gast_vorname}'}</code> - Vorname</div>
+                  <div><code className="text-blue-400">{'{gast_nachname}'}</code> - Nachname</div>
+                  <div><code className="text-blue-400">{'{gast_email}'}</code> - Email-Adresse</div>
+                  <div><code className="text-blue-400">{'{gast_telefon}'}</code> - Telefonnummer</div>
+                </div>
+              </div>
+
+              {/* Buchungs-Daten */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-amber-400 mb-1.5">📅 Buchungs-Daten:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{reservierungsnummer}'}</code> - Reservierungsnr.</div>
+                  <div><code className="text-blue-400">{'{checkin_date}'}</code> - Check-in Datum</div>
+                  <div><code className="text-blue-400">{'{checkout_date}'}</code> - Check-out Datum</div>
+                  <div><code className="text-blue-400">{'{anzahl_gaeste}'}</code> - Anzahl Gäste</div>
+                  <div><code className="text-blue-400">{'{anzahl_naechte}'}</code> - Anzahl Nächte</div>
+                </div>
+              </div>
+
+              {/* Zimmer-Daten */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-purple-400 mb-1.5">🏠 Zimmer-Daten:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{zimmer_name}'}</code> - Zimmer-Name</div>
+                  <div><code className="text-blue-400">{'{zimmer_ort}'}</code> - Ort</div>
+                  <div><code className="text-blue-400">{'{zimmer_typ}'}</code> - Gebäude-Typ</div>
+                  <div><code className="text-blue-400">{'{schluesselcode}'}</code> - Schlüsselcode</div>
+                </div>
+              </div>
+
+              {/* Preis-Daten */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-green-400 mb-1.5">💰 Preis-Daten:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{grundpreis}'}</code> - Grundpreis</div>
+                  <div><code className="text-blue-400">{'{services_preis}'}</code> - Zusatzleistungen</div>
+                  <div><code className="text-blue-400">{'{rabatt_preis}'}</code> - Rabatt</div>
+                  <div><code className="text-blue-400">{'{gesamtpreis}'}</code> - Gesamtpreis</div>
+                </div>
+              </div>
+
+              {/* Firma-Daten */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-blue-400 mb-1.5">🏢 Firmen-Daten:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{firma_name}'}</code> - Firmenname</div>
+                  <div><code className="text-blue-400">{'{firma_adresse}'}</code> - Adresse</div>
+                  <div><code className="text-blue-400">{'{firma_plz}'}</code> - PLZ</div>
+                  <div><code className="text-blue-400">{'{firma_ort}'}</code> - Ort</div>
+                  <div><code className="text-blue-400">{'{firma_telefon}'}</code> - Telefon</div>
+                  <div><code className="text-blue-400">{'{firma_email}'}</code> - Email</div>
+                  <div><code className="text-blue-400">{'{firma_website}'}</code> - Website</div>
+                  <div><code className="text-blue-400">{'{firma_steuernummer}'}</code> - Steuernr.</div>
+                  <div><code className="text-blue-400">{'{firma_iban}'}</code> - IBAN</div>
+                  <div><code className="text-blue-400">{'{firma_bic}'}</code> - BIC</div>
+                  <div><code className="text-blue-400">{'{firma_bank}'}</code> - Bankname</div>
+                </div>
+              </div>
+
+              {/* Datum-Platzhalter */}
+              <div>
+                <p className="text-xs font-semibold text-pink-400 mb-1.5">📆 Datum-Platzhalter:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{heute}'}</code> - Heutiges Datum</div>
+                  <div><code className="text-blue-400">{'{jetzt}'}</code> - Datum + Uhrzeit</div>
+                </div>
               </div>
             </div>
 

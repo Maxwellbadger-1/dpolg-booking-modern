@@ -1,0 +1,11 @@
+# Ignore database files to prevent app reload on data changes
+*.db
+*.db-shm
+*.db-wal
+booking_system.db
+booking_system.db-shm
+booking_system.db-wal
+
+# Ignore other runtime files
+*.log
+*.tmp

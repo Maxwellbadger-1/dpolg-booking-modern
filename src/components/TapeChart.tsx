@@ -691,14 +691,14 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
       collisionDetection={pointerWithin}
     >
       <div className="w-full h-full flex flex-col bg-gradient-to-br from-slate-50 to-slate-100">
-        {/* Navigation Bar */}
-        <div className="bg-gradient-to-r from-slate-700 to-slate-800 border-b border-slate-600 px-8 py-4 shadow-xl flex items-center justify-center relative">
-          <div className="flex items-center gap-3">
+        {/* Navigation Bar - Kompakt */}
+        <div className="bg-gradient-to-r from-slate-700 to-slate-800 border-b border-slate-600 px-4 py-2 shadow-xl flex items-center justify-center relative">
+          <div className="flex items-center gap-2">
             <button
               onClick={goToPreviousMonth}
-              className="bg-slate-600/50 hover:bg-slate-600 backdrop-blur-sm text-white px-4 py-2.5 rounded-xl font-semibold transition-all shadow-lg hover:shadow-xl hover:scale-105 flex items-center gap-2 border border-slate-500/30"
+              className="bg-slate-600/50 hover:bg-slate-600 backdrop-blur-sm text-white px-3 py-2 rounded-lg font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-1.5 border border-slate-500/30"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
@@ -707,14 +707,14 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
             <div className="relative">
               <button
                 onClick={() => setShowMonthPicker(!showMonthPicker)}
-                className="group bg-slate-700/80 hover:bg-slate-600/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl font-bold text-xl shadow-xl border-2 border-slate-500/40 hover:border-slate-400/60 min-w-[320px] text-center transition-all hover:scale-[1.03] flex items-center justify-between gap-4"
+                className="group bg-slate-700/80 hover:bg-slate-600/90 backdrop-blur-md text-white px-4 py-2 rounded-lg font-bold text-base shadow-lg border border-slate-500/40 hover:border-slate-400/60 min-w-[240px] text-center transition-all flex items-center justify-between gap-2"
               >
-                <svg className="w-5 h-5 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <span className="flex-1 px-3">{format(currentMonth, 'MMMM yyyy', { locale: de })}</span>
+                <span className="flex-1 px-2">{format(currentMonth, 'MMMM yyyy', { locale: de })}</span>
                 <svg className={cn(
-                  "w-5 h-5 text-slate-400 group-hover:text-white transition-all",
+                  "w-4 h-4 text-slate-400 group-hover:text-white transition-all",
                   showMonthPicker && "rotate-180"
                 )} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
@@ -775,16 +775,16 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
 
             <button
               onClick={goToNextMonth}
-              className="bg-slate-600/50 hover:bg-slate-600 backdrop-blur-sm text-white px-4 py-2.5 rounded-xl font-semibold transition-all shadow-lg hover:shadow-xl hover:scale-105 flex items-center gap-2 border border-slate-500/30"
+              className="bg-slate-600/50 hover:bg-slate-600 backdrop-blur-sm text-white px-3 py-2 rounded-lg font-semibold transition-all shadow-lg hover:shadow-xl flex items-center gap-1.5 border border-slate-500/30"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           </div>
 
           {/* Right Side: Density Mode + Heute Button */}
-          <div className="absolute right-8 flex items-center gap-3">
+          <div className="absolute right-4 flex items-center gap-2">
             {/* Density Mode Toggle */}
             <div className="flex items-center gap-2 bg-slate-700/80 backdrop-blur-md px-3 py-2 rounded-xl border-2 border-slate-500/40">
               <button
@@ -832,36 +832,13 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
             </div>
 
             <button
-              onClick={async () => {
-                try {
-                  const changedCount = await invoke<number>('update_booking_statuses_command');
-                  if (changedCount > 0) {
-                    console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
-                    window.location.reload(); // Einfacher Reload
-                  } else {
-                    console.log('ℹ️ Keine Status-Änderungen nötig');
-                  }
-                } catch (error) {
-                  console.error('❌ Fehler beim Status-Update:', error);
-                }
-              }}
-              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-blue-400/40 hover:border-blue-300/60"
-              title="Buchungs-Status aktualisieren (basierend auf Datum)"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="px-1">Status Update</span>
-            </button>
-
-            <button
               onClick={goToToday}
-              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white heute-button py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-emerald-400/40 hover:border-emerald-300/60"
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white py-2 rounded-lg font-bold text-sm transition-all shadow-lg flex items-center gap-2 border border-emerald-400/40 hover:border-emerald-300/60 px-3"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span className="px-1">Heute</span>
+              <span>Heute</span>
             </button>
           </div>
         </div>

@@ -1,0 +1,10 @@
+[build]
+# Ignore database files and other runtime files for file watching
+watch-exclude = [
+    "booking_system.db",
+    "booking_system.db-shm",
+    "booking_system.db-wal",
+    "*.db",
+    "*.db-shm",
+    "*.db-wal",
+]
