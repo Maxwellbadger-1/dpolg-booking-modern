@@ -122,6 +122,7 @@ pub fn generate_invoice_pdf_html(
                 bic: String::new(),
                 account_holder: String::new(),
                 mwst_rate: 19.0, // Default 19% Mehrwertsteuer
+                dpolg_rabatt: 15.0, // Default 15% DPolG-Rabatt
                 payment_due_days: 14,
                 reminder_after_days: 30,
                 payment_text: None,

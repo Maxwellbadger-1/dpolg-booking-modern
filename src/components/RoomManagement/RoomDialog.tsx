@@ -9,6 +9,9 @@ interface Room {
   capacity: number;
   price_member: number;
   price_non_member: number;
+  nebensaison_preis: number;
+  hauptsaison_preis: number;
+  endreinigung: number;
   ort: string;
   schluesselcode?: string;
 }
@@ -25,8 +28,11 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
     name: '',
     gebaeude_typ: '',
     capacity: 1,
-    price_member: 0,
-    price_non_member: 0,
+    price_member: 0,        // Deprecated - kept for backward compatibility
+    price_non_member: 0,     // Deprecated - kept for backward compatibility
+    nebensaison_preis: 0,
+    hauptsaison_preis: 0,
+    endreinigung: 0,
     ort: '',
     schluesselcode: '',
   });
@@ -43,6 +49,9 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
         capacity: 1,
         price_member: 0,
         price_non_member: 0,
+        nebensaison_preis: 0,
+        hauptsaison_preis: 0,
+        endreinigung: 0,
         ort: '',
         schluesselcode: '',
       });
@@ -65,6 +74,9 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
           capacity: formData.capacity,
           priceMember: formData.price_member,
           priceNonMember: formData.price_non_member,
+          nebensaisonPreis: formData.nebensaison_preis,
+          hauptsaisonPreis: formData.hauptsaison_preis,
+          endreinigung: formData.endreinigung,
           ort: formData.ort,
           schluesselcode: formData.schluesselcode || null,
         });
@@ -76,6 +88,9 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
           capacity: formData.capacity,
           priceMember: formData.price_member,
           priceNonMember: formData.price_non_member,
+          nebensaisonPreis: formData.nebensaison_preis,
+          hauptsaisonPreis: formData.hauptsaison_preis,
+          endreinigung: formData.endreinigung,
           ort: formData.ort,
           schluesselcode: formData.schluesselcode || null,
         });
@@ -186,34 +201,58 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
               />
             </div>
 
-            {/* Preise */}
+            {/* Preise - Preisliste 2025 */}
             <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-4">
                 <Euro className="w-4 h-4" />
-                Preise pro Nacht
+                Preise pro Nacht (Preisliste 2025)
               </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-slate-600 mb-2">
-                    Mitglieder *
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="0.01"
-                      value={formData.price_member}
-                      onChange={(e) => setFormData({ ...formData, price_member: parseFloat(e.target.value) || 0 })}
-                      className="w-full px-4 py-2 pr-8 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="0.00"
-                    />
-                    <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm">€</span>
+
+              {/* Saisonpreise */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-2">
+                      Nebensaison *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="0.01"
+                        value={formData.nebensaison_preis}
+                        onChange={(e) => setFormData({ ...formData, nebensaison_preis: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-4 py-2 pr-8 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="0.00"
+                      />
+                      <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm">€</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-slate-600 mb-2">
+                      Hauptsaison *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="0.01"
+                        value={formData.hauptsaison_preis}
+                        onChange={(e) => setFormData({ ...formData, hauptsaison_preis: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-4 py-2 pr-8 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="0.00"
+                      />
+                      <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm">€</span>
+                    </div>
                   </div>
                 </div>
+
+                {/* Endreinigung */}
                 <div>
                   <label className="block text-sm text-slate-600 mb-2">
-                    Nicht-Mitglieder *
+                    Endreinigung (einmalig) *
                   </label>
                   <div className="relative">
                     <input
@@ -221,13 +260,22 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
                       required
                       min="0"
                       step="0.01"
-                      value={formData.price_non_member}
-                      onChange={(e) => setFormData({ ...formData, price_non_member: parseFloat(e.target.value) || 0 })}
+                      value={formData.endreinigung}
+                      onChange={(e) => setFormData({ ...formData, endreinigung: parseFloat(e.target.value) || 0 })}
                       className="w-full px-4 py-2 pr-8 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0.00"
                     />
                     <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 text-sm">€</span>
                   </div>
+                  <p className="text-xs text-slate-500 mt-1">Wird automatisch zu jeder Buchung hinzugefügt</p>
+                </div>
+
+                {/* Info Box */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-700">
+                    <strong>Hauptsaison:</strong> 01.06-15.09.2025 & 22.12-28.02.2026<br />
+                    <strong>DPolG-Rabatt:</strong> 15% automatisch für Mitglieder
+                  </p>
                 </div>
               </div>
             </div>

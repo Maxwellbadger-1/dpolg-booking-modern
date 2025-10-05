@@ -10,6 +10,9 @@ pub struct Room {
     pub capacity: i32,
     pub price_member: f64,
     pub price_non_member: f64,
+    pub nebensaison_preis: f64,
+    pub hauptsaison_preis: f64,
+    pub endreinigung: f64,
     pub ort: String,
     pub schluesselcode: Option<String>,
 }
@@ -158,6 +161,7 @@ pub struct PaymentSettings {
     pub bic: String,
     pub account_holder: String,
     pub mwst_rate: f64,
+    pub dpolg_rabatt: f64,
     pub payment_due_days: i32,
     pub reminder_after_days: i32,
     pub payment_text: Option<String>,
@@ -234,6 +238,9 @@ pub fn init_database() -> Result<()> {
             capacity INTEGER NOT NULL,
             price_member REAL NOT NULL,
             price_non_member REAL NOT NULL,
+            nebensaison_preis REAL NOT NULL DEFAULT 0.0,
+            hauptsaison_preis REAL NOT NULL DEFAULT 0.0,
+            endreinigung REAL NOT NULL DEFAULT 0.0,
             ort TEXT NOT NULL,
             schluesselcode TEXT
         )",
@@ -298,6 +305,14 @@ pub fn init_database() -> Result<()> {
     add_column_if_not_exists(&conn, "bookings", "bezahlt_am", "TEXT")?;
     add_column_if_not_exists(&conn, "bookings", "zahlungsmethode", "TEXT")?;
     add_column_if_not_exists(&conn, "bookings", "mahnung_gesendet_am", "TEXT")?;
+
+    // Phase 1.6: Erweiterte Preisstruktur (Nebensaison/Hauptsaison + Endreinigung)
+    add_column_if_not_exists(&conn, "rooms", "nebensaison_preis", "REAL DEFAULT 0.0")?;
+    add_column_if_not_exists(&conn, "rooms", "hauptsaison_preis", "REAL DEFAULT 0.0")?;
+    add_column_if_not_exists(&conn, "rooms", "endreinigung", "REAL DEFAULT 0.0")?;
+
+    // Phase 1.6: DPolG-Rabatt in payment_settings
+    add_column_if_not_exists(&conn, "payment_settings", "dpolg_rabatt", "REAL DEFAULT 15.0")?;
 
     // Phase 1.1: Neue Tabelle für Begleitpersonen
     // CASCADE DELETE: Wenn Buchung gelöscht wird, werden auch die Begleitpersonen gelöscht
@@ -753,8 +768,8 @@ fn insert_default_settings(conn: &Connection) -> Result<()> {
         conn.execute(
             "INSERT INTO payment_settings (
                 id, bank_name, iban, bic, account_holder,
-                mwst_rate, payment_due_days, reminder_after_days
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                mwst_rate, dpolg_rabatt, payment_due_days, reminder_after_days
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 1, // id fixiert auf 1
                 "Sparda Bank München",
@@ -762,11 +777,12 @@ fn insert_default_settings(conn: &Connection) -> Result<()> {
                 "GENODEF1S04",
                 "Stiftung der Deutschen Polizeigewerkschaft",
                 7.0,  // 7% MwSt
+                15.0, // 15% DPolG-Rabatt
                 14,   // Zahlungsziel 14 Tage
                 14    // Mahnung nach 14 Tagen
             ],
         )?;
-        println!("✅ Default Payment Settings eingefügt");
+        println!("✅ Default Payment Settings eingefügt (mit 15% DPolG-Rabatt)");
     }
 
     Ok(())
@@ -831,13 +847,78 @@ fn insert_sample_data(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migration: Lösche alle Zimmer und erstelle Zimmer aus Preisliste 2025
+pub fn migrate_to_price_list_2025() -> Result<()> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    println!("🔄 Migration zu Preisliste 2025 gestartet...");
+
+    // Lösche alle existierenden Zimmer (nur wenn keine Buchungen existieren!)
+    let booking_count: i64 = conn.query_row("SELECT COUNT(*) FROM bookings", [], |row| row.get(0))?;
+
+    if booking_count > 0 {
+        return Err(rusqlite::Error::InvalidQuery);  // Verhindere Datenverlust
+    }
+
+    conn.execute("DELETE FROM rooms", [])?;
+    println!("  ✅ Alte Zimmer gelöscht");
+
+    // Zimmer aus Preisliste 2025 (basierend auf Image)
+    // Format: (id, name, typ, personen, price_m, price_nm, nebensaison, hauptsaison, endreinigung, ort)
+
+    // Fall (Zimmer 1-10)
+    let fall_rooms = vec![
+        (1, "1 - Apartment (BG)", "App", 2, 51.00, 60.00, 51.00, 59.50, 40.00, "Fall"),
+        (2, "2 - Einzelzimmer", "EZ", 1, 25.50, 30.00, 25.50, 34.00, 20.00, "Fall"),
+        (3, "3 - Einzelzimmer", "EZ", 1, 29.75, 35.00, 29.75, 38.25, 25.00, "Fall"),
+        (4, "4 - Doppelzimmer", "DZ", 2, 42.50, 50.00, 42.50, 51.00, 35.00, "Fall"),
+        (5, "5 - Apartment", "App", 2, 51.00, 60.00, 51.00, 59.50, 40.00, "Fall"),
+        (6, "6 - Apartment", "App", 2, 51.00, 60.00, 51.00, 59.50, 40.00, "Fall"),
+        (7, "7 - Apartment", "App", 2, 51.00, 60.00, 51.00, 59.50, 40.00, "Fall"),
+        (8, "8 - Bungalow", "BU", 4, 85.00, 100.00, 85.00, 93.50, 60.00, "Fall"),
+        (9, "9 - Bungalow", "BU", 6, 93.50, 110.00, 93.50, 106.25, 65.00, "Fall"),
+        (10, "10 - Bungalow (BG)", "BU", 6, 102.00, 120.00, 102.00, 114.75, 65.00, "Fall"),
+    ];
+
+    // Lenggries (Zimmer 11-15)
+    let lenggries_rooms = vec![
+        (11, "11 - Ferienwohnung", "FeWo", 5, 80.75, 95.00, 80.75, 89.25, 60.00, "Lenggries"),
+        (12, "12 - Ferienwohnung", "FeWo", 5, 89.25, 105.00, 89.25, 102.00, 60.00, "Lenggries"),
+        (13, "13 - Ferienwohnung", "FeWo", 4, 59.50, 70.00, 59.50, 76.50, 55.00, "Lenggries"),
+        (14, "14 - Ferienwohnung", "FeWo", 4, 59.50, 70.00, 59.50, 76.50, 55.00, "Lenggries"),
+        (15, "15 - Ferienwohnung", "FeWo", 4, 85.00, 100.00, 85.00, 93.50, 60.00, "Lenggries"),
+    ];
+
+    // Brauneckblick (Zimmer 16)
+    let brauneckblick_rooms = vec![
+        (16, "16 - Ferienwohnung", "FeWo", 4, 85.00, 100.00, 85.00, 93.50, 60.00, "Brauneckblick"),
+    ];
+
+    // Alle Zimmer zusammenführen
+    let all_rooms = [fall_rooms, lenggries_rooms, brauneckblick_rooms].concat();
+
+    for (id, name, typ, personen, price_m, price_nm, nebensaison, hauptsaison, endreinigung, ort) in all_rooms {
+        conn.execute(
+            "INSERT INTO rooms (id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![id, name, typ, personen, price_m, price_nm, nebensaison, hauptsaison, endreinigung, ort],
+        )?;
+    }
+
+    println!("  ✅ 16 neue Zimmer aus Preisliste 2025 eingefügt");
+    println!("✅ Migration abgeschlossen!");
+
+    Ok(())
+}
+
 pub fn get_rooms() -> Result<Vec<Room>> {
     let conn = Connection::open(get_db_path())?;
 
     // WICHTIG: Foreign Keys aktivieren für diese Connection
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    let mut stmt = conn.prepare("SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, ort, schluesselcode FROM rooms")?;
+    let mut stmt = conn.prepare("SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode FROM rooms")?;
 
     let rooms = stmt.query_map([], |row| {
         Ok(Room {
@@ -847,8 +928,11 @@ pub fn get_rooms() -> Result<Vec<Room>> {
             capacity: row.get(3)?,
             price_member: row.get(4)?,
             price_non_member: row.get(5)?,
-            ort: row.get(6)?,
-            schluesselcode: row.get(7)?,
+            nebensaison_preis: row.get(6)?,
+            hauptsaison_preis: row.get(7)?,
+            endreinigung: row.get(8)?,
+            ort: row.get(9)?,
+            schluesselcode: row.get(10)?,
         })
     })?;
 
@@ -867,7 +951,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.ort, r.schluesselcode,
+            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
          FROM bookings b
@@ -904,25 +988,28 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 capacity: row.get(22)?,
                 price_member: row.get(23)?,
                 price_non_member: row.get(24)?,
-                ort: row.get(25)?,
-                schluesselcode: row.get(26)?,
+                nebensaison_preis: row.get(25)?,
+                hauptsaison_preis: row.get(26)?,
+                endreinigung: row.get(27)?,
+                ort: row.get(28)?,
+                schluesselcode: row.get(29)?,
             },
             guest: Guest {
-                id: row.get(27)?,
-                vorname: row.get(28)?,
-                nachname: row.get(29)?,
-                email: row.get(30)?,
-                telefon: row.get(31)?,
-                dpolg_mitglied: row.get(32)?,
-                strasse: row.get(33)?,
-                plz: row.get(34)?,
-                ort: row.get(35)?,
-                mitgliedsnummer: row.get(36)?,
-                notizen: row.get(37)?,
-                beruf: row.get(38)?,
-                bundesland: row.get(39)?,
-                dienststelle: row.get(40)?,
-                created_at: row.get(41)?,
+                id: row.get(30)?,
+                vorname: row.get(31)?,
+                nachname: row.get(32)?,
+                email: row.get(33)?,
+                telefon: row.get(34)?,
+                dpolg_mitglied: row.get(35)?,
+                strasse: row.get(36)?,
+                plz: row.get(37)?,
+                ort: row.get(38)?,
+                mitgliedsnummer: row.get(39)?,
+                notizen: row.get(40)?,
+                beruf: row.get(41)?,
+                bundesland: row.get(42)?,
+                dienststelle: row.get(43)?,
+                created_at: row.get(44)?,
             },
         })
     })?;
@@ -1154,6 +1241,9 @@ pub fn create_room(
     capacity: i32,
     price_member: f64,
     price_non_member: f64,
+    nebensaison_preis: f64,
+    hauptsaison_preis: f64,
+    endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
 ) -> Result<Room> {
@@ -1161,14 +1251,17 @@ pub fn create_room(
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
-        "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, ort, schluesselcode)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
             name,
             gebaeude_typ,
             capacity,
             price_member,
             price_non_member,
+            nebensaison_preis,
+            hauptsaison_preis,
+            endreinigung,
             ort,
             schluesselcode
         ],
@@ -1186,6 +1279,9 @@ pub fn update_room(
     capacity: i32,
     price_member: f64,
     price_non_member: f64,
+    nebensaison_preis: f64,
+    hauptsaison_preis: f64,
+    endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
 ) -> Result<Room> {
@@ -1195,14 +1291,18 @@ pub fn update_room(
     let rows_affected = conn.execute(
         "UPDATE rooms SET
          name = ?1, gebaeude_typ = ?2, capacity = ?3, price_member = ?4,
-         price_non_member = ?5, ort = ?6, schluesselcode = ?7
-         WHERE id = ?8",
+         price_non_member = ?5, nebensaison_preis = ?6, hauptsaison_preis = ?7,
+         endreinigung = ?8, ort = ?9, schluesselcode = ?10
+         WHERE id = ?11",
         rusqlite::params![
             name,
             gebaeude_typ,
             capacity,
             price_member,
             price_non_member,
+            nebensaison_preis,
+            hauptsaison_preis,
+            endreinigung,
             ort,
             schluesselcode,
             id
@@ -1236,7 +1336,7 @@ pub fn get_room_by_id(id: i64) -> Result<Room> {
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.query_row(
-        "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, ort, schluesselcode
+        "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode
          FROM rooms WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -1247,8 +1347,11 @@ pub fn get_room_by_id(id: i64) -> Result<Room> {
                 capacity: row.get(3)?,
                 price_member: row.get(4)?,
                 price_non_member: row.get(5)?,
-                ort: row.get(6)?,
-                schluesselcode: row.get(7)?,
+                nebensaison_preis: row.get(6)?,
+                hauptsaison_preis: row.get(7)?,
+                endreinigung: row.get(8)?,
+                ort: row.get(9)?,
+                schluesselcode: row.get(10)?,
             })
         },
     )
@@ -1547,7 +1650,8 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.ort, r.schluesselcode,
+            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
+            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
          FROM bookings b
@@ -1583,25 +1687,28 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
                     capacity: row.get(22)?,
                     price_member: row.get(23)?,
                     price_non_member: row.get(24)?,
-                    ort: row.get(25)?,
-                    schluesselcode: row.get(26)?,
+                    nebensaison_preis: row.get(25)?,
+                    hauptsaison_preis: row.get(26)?,
+                    endreinigung: row.get(27)?,
+                    ort: row.get(28)?,
+                    schluesselcode: row.get(29)?,
                 },
                 guest: Guest {
-                    id: row.get(27)?,
-                    vorname: row.get(28)?,
-                    nachname: row.get(29)?,
-                    email: row.get(30)?,
-                    telefon: row.get(31)?,
-                    dpolg_mitglied: row.get(32)?,
-                    strasse: row.get(33)?,
-                    plz: row.get(34)?,
-                    ort: row.get(35)?,
-                    mitgliedsnummer: row.get(36)?,
-                    notizen: row.get(37)?,
-                    beruf: row.get(38)?,
-                    bundesland: row.get(39)?,
-                    dienststelle: row.get(40)?,
-                    created_at: row.get(41)?,
+                    id: row.get(30)?,
+                    vorname: row.get(31)?,
+                    nachname: row.get(32)?,
+                    email: row.get(33)?,
+                    telefon: row.get(34)?,
+                    dpolg_mitglied: row.get(35)?,
+                    strasse: row.get(36)?,
+                    plz: row.get(37)?,
+                    ort: row.get(38)?,
+                    mitgliedsnummer: row.get(39)?,
+                    notizen: row.get(40)?,
+                    beruf: row.get(41)?,
+                    bundesland: row.get(42)?,
+                    dienststelle: row.get(43)?,
+                    created_at: row.get(44)?,
                 },
             })
         },
@@ -2118,7 +2225,7 @@ pub fn get_payment_settings() -> Result<PaymentSettings> {
 
     conn.query_row(
         "SELECT id, bank_name, iban, bic, account_holder,
-         mwst_rate, payment_due_days, reminder_after_days, payment_text, updated_at
+         mwst_rate, dpolg_rabatt, payment_due_days, reminder_after_days, payment_text, updated_at
          FROM payment_settings WHERE id = 1",
         [],
         |row| {
@@ -2129,10 +2236,11 @@ pub fn get_payment_settings() -> Result<PaymentSettings> {
                 bic: row.get(3)?,
                 account_holder: row.get(4)?,
                 mwst_rate: row.get(5)?,
-                payment_due_days: row.get(6)?,
-                reminder_after_days: row.get(7)?,
-                payment_text: row.get(8)?,
-                updated_at: row.get(9)?,
+                dpolg_rabatt: row.get(6)?,
+                payment_due_days: row.get(7)?,
+                reminder_after_days: row.get(8)?,
+                payment_text: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         },
     )
@@ -2147,15 +2255,16 @@ pub fn save_payment_settings(settings: PaymentSettings) -> Result<PaymentSetting
     conn.execute(
         "INSERT OR REPLACE INTO payment_settings (
             id, bank_name, iban, bic, account_holder,
-            mwst_rate, payment_due_days, reminder_after_days, payment_text,
+            mwst_rate, dpolg_rabatt, payment_due_days, reminder_after_days, payment_text,
             updated_at
-        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, CURRENT_TIMESTAMP)",
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, CURRENT_TIMESTAMP)",
         rusqlite::params![
             settings.bank_name,
             settings.iban,
             settings.bic,
             settings.account_holder,
             settings.mwst_rate,
+            settings.dpolg_rabatt,
             settings.payment_due_days,
             settings.reminder_after_days,
             settings.payment_text,

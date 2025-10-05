@@ -152,6 +152,9 @@ fn create_room_command(
     capacity: i32,
     price_member: f64,
     price_non_member: f64,
+    nebensaison_preis: f64,
+    hauptsaison_preis: f64,
+    endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
 ) -> Result<database::Room, String> {
@@ -161,6 +164,9 @@ fn create_room_command(
         capacity,
         price_member,
         price_non_member,
+        nebensaison_preis,
+        hauptsaison_preis,
+        endreinigung,
         ort,
         schluesselcode,
     )
@@ -175,6 +181,9 @@ fn update_room_command(
     capacity: i32,
     price_member: f64,
     price_non_member: f64,
+    nebensaison_preis: f64,
+    hauptsaison_preis: f64,
+    endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
 ) -> Result<database::Room, String> {
@@ -185,6 +194,9 @@ fn update_room_command(
         capacity,
         price_member,
         price_non_member,
+        nebensaison_preis,
+        hauptsaison_preis,
+        endreinigung,
         ort,
         schluesselcode,
     )
@@ -201,6 +213,12 @@ fn delete_room_command(id: i64) -> Result<(), String> {
 fn get_room_by_id_command(id: i64) -> Result<database::Room, String> {
     database::get_room_by_id(id)
         .map_err(|e| format!("Fehler beim Abrufen des Raums: {}", e))
+}
+
+#[tauri::command]
+fn migrate_to_price_list_2025_command() -> Result<(), String> {
+    database::migrate_to_price_list_2025()
+        .map_err(|e| format!("Fehler bei der Migration: {}", e))
 }
 
 // ============================================================================
@@ -731,6 +749,7 @@ pub fn run() {
             update_room_command,
             delete_room_command,
             get_room_by_id_command,
+            migrate_to_price_list_2025_command,
             // Booking Management
             create_booking_command,
             update_booking_command,

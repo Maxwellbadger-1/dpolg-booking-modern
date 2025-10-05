@@ -330,6 +330,20 @@ export default function DevTools() {
     }
   };
 
+  // ==================== MIGRATION ====================
+
+  const testMigrateToPreisliste2025 = async () => {
+    if (!confirm('⚠️ WARNUNG: Dies löscht alle existierenden Zimmer und erstellt 16 neue Zimmer aus der Preisliste 2025.\n\nFortfahren?')) {
+      return;
+    }
+    try {
+      await invoke('migrate_to_price_list_2025_command');
+      addResult('Migration Preisliste 2025', 'success', '✅ Migration erfolgreich! 16 neue Zimmer erstellt.');
+    } catch (error) {
+      addResult('Migration Preisliste 2025', 'error', String(error));
+    }
+  };
+
   // ==================== COMPLETE TEST SUITE ====================
 
   const runCompleteTest = async () => {
@@ -500,6 +514,13 @@ export default function DevTools() {
           className="px-3 py-2 bg-pink-600 hover:bg-pink-700 text-white font-semibold rounded-lg transition-colors text-sm"
         >
           📊 Occupancy
+        </button>
+
+        <button
+          onClick={testMigrateToPreisliste2025}
+          className="px-3 py-2 bg-yellow-600 hover:bg-yellow-700 text-white font-bold rounded-lg transition-colors text-sm border-2 border-yellow-800"
+        >
+          🔄 Migration Preisliste 2025
         </button>
 
         <button

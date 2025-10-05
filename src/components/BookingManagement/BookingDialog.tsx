@@ -89,6 +89,8 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [priceInfo, setPriceInfo] = useState<any>(null);
+
+  console.log('🚀 [BookingDialog] Component rendered', { isOpen, formData, priceInfo });
   const [availabilityStatus, setAvailabilityStatus] = useState<{
     checking: boolean;
     available: boolean | null;
@@ -180,10 +182,23 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
 
   // Calculate price when relevant fields change
   useEffect(() => {
-    if (formData.room_id && formData.guest_id && formData.checkin_date && formData.checkout_date) {
+    console.log('🔄 [useEffect] Price calculation trigger check:', {
+      room_id: formData.room_id,
+      guest_id: formData.guest_id,
+      checkin: formData.checkin_date,
+      checkout: formData.checkout_date,
+      guests_count: guests.length,
+      rooms_count: rooms.length,
+    });
+
+    if (formData.room_id && formData.guest_id && formData.checkin_date && formData.checkout_date && guests.length > 0 && rooms.length > 0) {
+      console.log('✅ [useEffect] Calling calculatePrice()');
       calculatePrice();
+    } else {
+      console.log('⚠️ [useEffect] Skipping calculatePrice - missing data');
+      setPriceInfo(null); // Clear price if data incomplete
     }
-  }, [formData.room_id, formData.guest_id, formData.checkin_date, formData.checkout_date, additionalServices, discounts]);
+  }, [formData.room_id, formData.guest_id, formData.checkin_date, formData.checkout_date, additionalServices, discounts, guests, rooms]);
 
   // Check room availability when room or dates change
   useEffect(() => {
@@ -272,50 +287,68 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
 
   const calculatePrice = async () => {
     try {
+      console.log('💰 [calculatePrice] START', {
+        room_id: formData.room_id,
+        guest_id: formData.guest_id,
+        checkin: formData.checkin_date,
+        checkout: formData.checkout_date,
+        guests_count: guests.length,
+        rooms_count: rooms.length,
+      });
+
       const guest = guests.find(g => g.id === formData.guest_id);
       const room = rooms.find(r => r.id === formData.room_id);
 
-      if (!guest || !room) return;
+      console.log('💰 [calculatePrice] Found:', { guest: !!guest, room: !!room });
 
-      const nights = await invoke<number>('calculate_nights_command', {
-        checkin: formData.checkin_date,
-        checkout: formData.checkout_date,
-      });
-
-      const pricePerNight = guest.dpolg_mitglied ? room.price_member : room.price_non_member;
-      const basePrice = nights * pricePerNight;
-
-      // Calculate services total
-      const servicesTotal = additionalServices.reduce((sum, service) => sum + service.service_price, 0);
-
-      // Calculate discounts total
-      let discountsTotal = 0;
-      const subtotal = basePrice + servicesTotal;
-
-      for (const discount of discounts) {
-        if (discount.discount_type === 'percent') {
-          discountsTotal += subtotal * (discount.discount_value / 100);
-        } else {
-          discountsTotal += discount.discount_value;
-        }
+      if (!guest || !room || !formData.checkin_date || !formData.checkout_date) {
+        console.warn('⚠️ [calculatePrice] Missing data - aborting');
+        return;
       }
 
-      // Ensure discounts don't exceed subtotal
-      discountsTotal = Math.min(discountsTotal, subtotal);
-
-      const totalPrice = Math.max(0, subtotal - discountsTotal);
-
-      setPriceInfo({
-        nights,
-        pricePerNight,
-        basePrice,
-        servicesTotal,
-        discountsTotal,
-        totalPrice,
-        memberPrice: guest.dpolg_mitglied,
+      // Use backend command for price calculation (supports seasonal pricing + auto DPolG discount + Endreinigung)
+      const priceResult = await invoke<{
+        grundpreis: number;
+        services_preis: number;
+        rabatt_preis: number;
+        gesamtpreis: number;
+        anzahl_naechte: number;
+      }>('calculate_booking_price_command', {
+        roomId: formData.room_id,
+        checkin: formData.checkin_date,
+        checkout: formData.checkout_date,
+        isMember: guest.dpolg_mitglied,
+        services: additionalServices.map(s => [s.service_name, s.service_price]),
+        discounts: discounts.map(d => [d.discount_name, d.discount_type, d.discount_value]),
       });
+
+      console.log('✅ [calculatePrice] Backend result:', priceResult);
+      console.log('📊 [calculatePrice] Backend values:', {
+        anzahl_naechte: priceResult.anzahl_naechte,
+        anzahlNaechte: priceResult.anzahlNaechte,
+        grundpreis: priceResult.grundpreis,
+        services_preis: priceResult.services_preis,
+        servicesPreis: priceResult.servicesPreis,
+      });
+
+      const pricePerNight = priceResult.grundpreis / (priceResult.anzahlNaechte || priceResult.anzahl_naechte || 1);
+
+      const newPriceInfo = {
+        nights: priceResult.anzahlNaechte || priceResult.anzahl_naechte || 0,
+        pricePerNight,
+        basePrice: priceResult.grundpreis || 0,
+        servicesTotal: priceResult.servicesPreis || priceResult.services_preis || 0,
+        discountsTotal: priceResult.rabattPreis || priceResult.rabatt_preis || 0,
+        totalPrice: priceResult.gesamtpreis || 0,
+        memberPrice: guest.dpolg_mitglied,
+      };
+
+      console.log('📦 [calculatePrice] Setting priceInfo to:', newPriceInfo);
+      setPriceInfo(newPriceInfo);
+      console.log('✅ [calculatePrice] Price info set successfully');
     } catch (err) {
-      console.error('Fehler bei Preisberechnung:', err);
+      console.error('❌ [calculatePrice] Fehler:', err);
+      setPriceInfo(null);
     }
   };
 
@@ -886,31 +919,31 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-blue-700">Anzahl Nächte:</span>
-                    <span className="font-semibold text-blue-900">{priceInfo.nights}</span>
+                    <span className="font-semibold text-blue-900">{priceInfo.nights ?? 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-blue-700">Preis pro Nacht {priceInfo.memberPrice && '(Mitglied)'}:</span>
-                    <span className="font-semibold text-blue-900">{priceInfo.pricePerNight.toFixed(2)} €</span>
+                    <span className="font-semibold text-blue-900">{(priceInfo.pricePerNight ?? 0).toFixed(2)} €</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-blue-700">Grundpreis:</span>
-                    <span className="font-semibold text-blue-900">{priceInfo.basePrice.toFixed(2)} €</span>
+                    <span className="font-semibold text-blue-900">{(priceInfo.basePrice ?? 0).toFixed(2)} €</span>
                   </div>
-                  {priceInfo.servicesTotal > 0 && (
+                  {(priceInfo.servicesTotal ?? 0) > 0 && (
                     <div className="flex justify-between">
                       <span className="text-emerald-700">+ Services:</span>
-                      <span className="font-semibold text-emerald-700">{priceInfo.servicesTotal.toFixed(2)} €</span>
+                      <span className="font-semibold text-emerald-700">{(priceInfo.servicesTotal ?? 0).toFixed(2)} €</span>
                     </div>
                   )}
-                  {priceInfo.discountsTotal > 0 && (
+                  {(priceInfo.discountsTotal ?? 0) > 0 && (
                     <div className="flex justify-between">
                       <span className="text-orange-700">- Rabatte:</span>
-                      <span className="font-semibold text-orange-700">{priceInfo.discountsTotal.toFixed(2)} €</span>
+                      <span className="font-semibold text-orange-700">{(priceInfo.discountsTotal ?? 0).toFixed(2)} €</span>
                     </div>
                   )}
                   <div className="border-t border-blue-300 pt-2 mt-2 flex justify-between">
                     <span className="font-bold text-blue-900">Gesamtpreis:</span>
-                    <span className="font-bold text-blue-900 text-lg">{priceInfo.totalPrice.toFixed(2)} €</span>
+                    <span className="font-bold text-blue-900 text-lg">{(priceInfo.totalPrice ?? 0).toFixed(2)} €</span>
                   </div>
                 </div>
               </div>

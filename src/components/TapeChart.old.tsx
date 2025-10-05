@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../lib/utils';
+import { useData } from '../context/DataContext';
 import {
   DndContext,
   DragEndEvent,
@@ -41,19 +43,11 @@ interface Booking {
 }
 
 interface TapeChartProps {
-  rooms: Room[];
-  bookings: Booking[];
   startDate?: Date;
   endDate?: Date;
 }
 
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; shadow: string }> = {
-  reserviert: {
-    bg: 'bg-gradient-to-r from-blue-500 to-blue-600',
-    border: 'border-blue-700',
-    text: 'text-white',
-    shadow: 'shadow-lg shadow-blue-500/50'
-  },
   bestaetigt: {
     bg: 'bg-gradient-to-r from-emerald-500 to-emerald-600',
     border: 'border-emerald-700',
@@ -61,10 +55,10 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
     shadow: 'shadow-lg shadow-emerald-500/50'
   },
   eingecheckt: {
-    bg: 'bg-gradient-to-r from-purple-500 to-purple-600',
-    border: 'border-purple-700',
+    bg: 'bg-gradient-to-r from-blue-500 to-blue-600',
+    border: 'border-blue-700',
     text: 'text-white',
-    shadow: 'shadow-lg shadow-purple-500/50'
+    shadow: 'shadow-lg shadow-blue-500/50'
   },
   ausgecheckt: {
     bg: 'bg-gradient-to-r from-gray-400 to-gray-500',
@@ -138,7 +132,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
     disabled: isResizing, // Disable drag during resize
   });
 
-  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.reserviert;
+  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt;
 
   // Detect if pointer is in resize zone (dnd-timeline pattern)
   const getResizeDirection = useCallback((e: React.PointerEvent, element: HTMLElement): ResizeDirection => {
@@ -320,7 +314,16 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
   );
 }
 
-export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeChartProps) {
+export default function TapeChart({ startDate, endDate }: TapeChartProps) {
+  // Get data from global context
+  const { rooms, bookings, refreshAll, updateBooking } = useData();
+
+  console.log('🎨 [TapeChart] Render:', {
+    roomsCount: rooms.length,
+    bookingsCount: bookings.length,
+    bookings: bookings.map(b => ({ id: b.id, reservierungsnummer: b.reservierungsnummer }))
+  });
+
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [localBookings, setLocalBookings] = useState<Booking[]>(bookings);
@@ -332,6 +335,15 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     const saved = localStorage.getItem('tapechart-density');
     return (saved as DensityMode) || 'comfortable';
   });
+
+  // KRITISCH: Sync localBookings mit bookings aus Context
+  useEffect(() => {
+    console.log('🔄 [TapeChart] useEffect: bookings changed', {
+      bookingsLength: bookings.length,
+      localBookingsLength: localBookings.length
+    });
+    setLocalBookings(bookings);
+  }, [bookings]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Persist density mode to localStorage
@@ -407,7 +419,8 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     const checkout = new Date(booking.checkout_date);
 
     const startOffset = differenceInDays(checkin, defaultStart);
-    const duration = differenceInDays(checkout, checkin);
+    // Include checkout day: add +1 to duration
+    const duration = differenceInDays(checkout, checkin) + 1;
 
     // Add padding: 4px on each side
     const padding = 4;
@@ -522,6 +535,21 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
     setActiveBooking(null);
     setDragHasOverlap(false);
     setOverlapDropZone(null);
+
+    // Save to database
+    invoke('update_booking_dates_and_room_command', {
+      id: activeBooking.id,
+      roomId: targetRoomId,
+      checkinDate: format(newCheckinDate, 'yyyy-MM-dd'),
+      checkoutDate: format(newCheckoutDate, 'yyyy-MM-dd'),
+    }).then(() => {
+      console.log('Buchung erfolgreich in DB gespeichert');
+      refreshAll(); // Refresh to get updated data
+    }).catch(err => {
+      console.error('Fehler beim Speichern der Buchung:', err);
+      alert('Fehler beim Speichern der Buchungsänderung');
+      refreshAll(); // Reload to get original state
+    });
   };
 
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
@@ -582,7 +610,7 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
         new_checkout: format(newCheckout, 'yyyy-MM-dd'),
       });
 
-      return prev.map(booking => {
+      const updatedBookings = prev.map(booking => {
         if (booking.id !== bookingId) return booking;
 
         return {
@@ -591,8 +619,28 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
           checkout_date: format(newCheckout, 'yyyy-MM-dd'),
         };
       });
+
+      // Save resize to database
+      const booking = prev.find(b => b.id === bookingId);
+      if (booking) {
+        invoke('update_booking_dates_and_room_command', {
+          id: bookingId,
+          roomId: booking.room_id,
+          checkinDate: format(newCheckin, 'yyyy-MM-dd'),
+          checkoutDate: format(newCheckout, 'yyyy-MM-dd'),
+        }).then(() => {
+          console.log('Resize erfolgreich in DB gespeichert');
+          refreshAll();
+        }).catch(err => {
+          console.error('Fehler beim Speichern der Resize-Änderung:', err);
+          alert('Fehler beim Speichern der Buchungsänderung');
+          refreshAll();
+        });
+      }
+
+      return updatedBookings;
     });
-  }, []);
+  }, [updateBooking, refreshAll]);
 
   return (
     <DndContext
@@ -784,6 +832,29 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
             </div>
 
             <button
+              onClick={async () => {
+                try {
+                  const changedCount = await invoke<number>('update_booking_statuses_command');
+                  if (changedCount > 0) {
+                    console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
+                    window.location.reload(); // Einfacher Reload
+                  } else {
+                    console.log('ℹ️ Keine Status-Änderungen nötig');
+                  }
+                } catch (error) {
+                  console.error('❌ Fehler beim Status-Update:', error);
+                }
+              }}
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-blue-400/40 hover:border-blue-300/60"
+              title="Buchungs-Status aktualisieren (basierend auf Datum)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="px-1">Status Update</span>
+            </button>
+
+            <button
               onClick={goToToday}
               className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white heute-button py-3 rounded-2xl font-bold text-lg transition-all shadow-xl hover:shadow-2xl hover:scale-[1.03] flex items-center gap-3 border-2 border-emerald-400/40 hover:border-emerald-300/60"
             >
@@ -853,11 +924,15 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
             </div>
 
             {/* Rows */}
-            {rooms.map((room) => (
+            {rooms.map((room, roomIdx) => {
+              const roomBookings = localBookings.filter((b) => b.room_id === room.id);
+              console.log(`🏨 [TapeChart] Zimmer ${roomIdx}: ${room.name} (ID: ${room.id}) hat ${roomBookings.length} Buchungen:`, roomBookings.map(b => ({ booking_id: b.id, room_id: b.room_id, checkin: b.checkin_date, checkout: b.checkout_date })));
+
+              return (
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
                 {/* Room sidebar */}
                 <div
-                  className={cn("sticky left-0 z-10 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
+                  className={cn("sticky left-0 z-20 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
                     height: `${density.rowHeight}px`,
@@ -918,11 +993,12 @@ export default function TapeChart({ rooms, bookings, startDate, endDate }: TapeC
                     })}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
 
           {/* Legend */}
-          <div className="sticky bottom-0 left-0 right-0 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-8 py-5 shadow-2xl">
+          <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-8 py-5 shadow-2xl">
             <div className="flex gap-8 justify-center items-center flex-wrap">
               <div className="text-white font-bold text-sm uppercase tracking-wider mr-4">Status:</div>
               {Object.entries(STATUS_COLORS).map(([status, colors]) => (

@@ -131,6 +131,36 @@ pub fn calculate_services_total(services: &[(String, f64)]) -> f64 {
     services.iter().map(|(_, price)| price).sum()
 }
 
+/// Prüft ob ein Datum in der Hauptsaison liegt.
+///
+/// Hauptsaison: 01.06-15.09.2025 und 22.12-28.02.2026
+///
+/// # Arguments
+/// * `date` - Datum im Format YYYY-MM-DD
+///
+/// # Returns
+/// * `Ok(true)` - Hauptsaison
+/// * `Ok(false)` - Nebensaison
+/// * `Err(String)` - Ungültiges Datum
+pub fn is_hauptsaison(date: &str) -> Result<bool, String> {
+    let date_parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|_| format!("Ungültiges Datum: {}. Erwartetes Format: YYYY-MM-DD", date))?;
+
+    // Hauptsaison 1: 01.06.2025 - 15.09.2025
+    let hs1_start = NaiveDate::from_ymd_opt(2025, 6, 1).unwrap();
+    let hs1_end = NaiveDate::from_ymd_opt(2025, 9, 15).unwrap();
+
+    // Hauptsaison 2: 22.12.2025 - 28.02.2026
+    let hs2_start = NaiveDate::from_ymd_opt(2025, 12, 22).unwrap();
+    let hs2_end = NaiveDate::from_ymd_opt(2026, 2, 28).unwrap();
+
+    // Prüfe ob Datum in einer der Hauptsaison-Perioden liegt
+    let is_in_hs = (date_parsed >= hs1_start && date_parsed <= hs1_end)
+        || (date_parsed >= hs2_start && date_parsed <= hs2_end);
+
+    Ok(is_in_hs)
+}
+
 /// Berechnet alle Preiskomponenten einer Buchung basierend auf Datenbank und Parametern.
 ///
 /// Dies ist die Hauptfunktion für die Preiskalkulation einer Buchung.
@@ -148,6 +178,11 @@ pub fn calculate_services_total(services: &[(String, f64)]) -> f64 {
 /// * `Ok((grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte))`
 /// * `Err(String)` - Fehlermeldung
 ///
+/// # Neue Preisberechnung (Preisliste 2025):
+/// - Saisonpreise: Hauptsaison (01.06-15.09 + 22.12-28.02) vs. Nebensaison
+/// - DPolG-Rabatt: 15% automatisch für Mitglieder (aus payment_settings)
+/// - Endreinigung: Automatisch pro Zimmer hinzugefügt
+///
 /// # Discount Types
 /// * "percent" - Prozentualer Rabatt (0-100)
 /// * "fixed" - Fixer Rabattbetrag
@@ -160,15 +195,21 @@ pub fn calculate_booking_total(
     discounts: &[(String, String, f64)], // (Name, Typ, Wert)
     conn: &Connection,
 ) -> Result<(f64, f64, f64, f64, i32), String> {
-    // 1. Lade Zimmerinformationen aus der Datenbank
-    let room_price: f64 = conn
+    // 1. Lade Zimmerinformationen und Endreinigung aus der Datenbank
+    let (room_price, endreinigung): (f64, f64) = conn
         .query_row(
-            "SELECT price_member, price_non_member FROM rooms WHERE id = ?1",
+            "SELECT nebensaison_preis, hauptsaison_preis, endreinigung FROM rooms WHERE id = ?1",
             rusqlite::params![room_id],
             |row| {
-                let price_member: f64 = row.get(0)?;
-                let price_non_member: f64 = row.get(1)?;
-                Ok(if is_member { price_member } else { price_non_member })
+                let nebensaison: f64 = row.get(0)?;
+                let hauptsaison: f64 = row.get(1)?;
+                let endreinigung: f64 = row.get(2)?;
+
+                // Saisonerkennung basierend auf Check-in Datum
+                let is_hs = is_hauptsaison(checkin).unwrap_or(false);
+                let price = if is_hs { hauptsaison } else { nebensaison };
+
+                Ok((price, endreinigung))
             },
         )
         .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
@@ -176,17 +217,31 @@ pub fn calculate_booking_total(
     // 2. Berechne Anzahl der Nächte
     let anzahl_naechte = calculate_nights(checkin, checkout)?;
 
-    // 3. Berechne Grundpreis
+    // 3. Berechne Grundpreis (Nächte × Saisonpreis)
     let grundpreis = calculate_base_price(anzahl_naechte, room_price);
 
-    // 4. Berechne Services-Summe
-    let services_preis = calculate_services_total(services);
+    // 4. Berechne Services-Summe (inkl. Endreinigung)
+    let mut services_preis = calculate_services_total(services);
+    services_preis += endreinigung; // Endreinigung automatisch hinzufügen
 
     // 5. Berechne Zwischensumme (vor Rabatten)
     let subtotal = grundpreis + services_preis;
 
-    // 6. Berechne alle Rabatte
+    // 6. DPolG-Rabatt automatisch für Mitglieder laden
     let mut rabatt_preis = 0.0;
+    if is_member {
+        let dpolg_rabatt: f64 = conn
+            .query_row(
+                "SELECT dpolg_rabatt FROM payment_settings LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(15.0); // Fallback: 15% wenn nicht in DB
+
+        rabatt_preis += apply_discount_percentage(subtotal, dpolg_rabatt);
+    }
+
+    // 7. Berechne zusätzliche Rabatte
     for (_, discount_type, discount_value) in discounts {
         let discount_amount = match discount_type.as_str() {
             "percent" => apply_discount_percentage(subtotal, *discount_value),
@@ -201,7 +256,7 @@ pub fn calculate_booking_total(
         rabatt_preis += discount_amount;
     }
 
-    // 7. Berechne Gesamtpreis
+    // 8. Berechne Gesamtpreis
     let gesamtpreis = calculate_total_price(grundpreis, services_preis, rabatt_preis);
 
     Ok((grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte))
@@ -474,6 +529,73 @@ mod tests {
     }
 
     // ========================================================================
+    // Tests für is_hauptsaison
+    // ========================================================================
+
+    #[test]
+    fn test_is_hauptsaison_nebensaison() {
+        // Test: Januar = Nebensaison
+        let result = is_hauptsaison("2025-01-15");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_hauptsaison_summer() {
+        // Test: Juli = Hauptsaison (01.06-15.09)
+        let result = is_hauptsaison("2025-07-20");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_hauptsaison_winter() {
+        // Test: Januar 2026 = Hauptsaison (22.12-28.02)
+        let result = is_hauptsaison("2026-01-10");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_start_date_summer() {
+        // Test: Erster Tag der Hauptsaison (01.06.2025)
+        let result = is_hauptsaison("2025-06-01");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_end_date_summer() {
+        // Test: Letzter Tag der Hauptsaison (15.09.2025)
+        let result = is_hauptsaison("2025-09-15");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_after_summer() {
+        // Test: Tag nach Hauptsaison (16.09.2025) = Nebensaison
+        let result = is_hauptsaison("2025-09-16");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_before_summer() {
+        // Test: Tag vor Hauptsaison (31.05.2025) = Nebensaison
+        let result = is_hauptsaison("2025-05-31");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_is_hauptsaison_invalid_date() {
+        // Test: Ungültiges Datum
+        let result = is_hauptsaison("2025-13-01");
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
     // Tests für calculate_services_total
     // ========================================================================
 
@@ -523,27 +645,48 @@ mod tests {
     fn setup_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
 
-        // Erstelle Tabelle
+        // Erstelle Tabellen
         conn.execute(
             "CREATE TABLE rooms (
                 id INTEGER PRIMARY KEY,
                 name TEXT,
                 price_member REAL,
-                price_non_member REAL
+                price_non_member REAL,
+                nebensaison_preis REAL,
+                hauptsaison_preis REAL,
+                endreinigung REAL
             )",
             [],
         )
         .unwrap();
 
-        // Füge Testdaten ein
         conn.execute(
-            "INSERT INTO rooms (id, name, price_member, price_non_member) VALUES (1, 'Zimmer 101', 45.0, 65.0)",
+            "CREATE TABLE payment_settings (
+                id INTEGER PRIMARY KEY,
+                dpolg_rabatt REAL DEFAULT 15.0
+            )",
+            [],
+        )
+        .unwrap();
+
+        // Füge Testdaten ein (Zimmer mit Nebensaison/Hauptsaison Preisen)
+        conn.execute(
+            "INSERT INTO rooms (id, name, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung)
+             VALUES (1, 'Zimmer 101', 45.0, 65.0, 45.0, 55.0, 20.0)",
             [],
         )
         .unwrap();
 
         conn.execute(
-            "INSERT INTO rooms (id, name, price_member, price_non_member) VALUES (2, 'Suite 201', 85.0, 110.0)",
+            "INSERT INTO rooms (id, name, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung)
+             VALUES (2, 'Suite 201', 85.0, 110.0, 85.0, 100.0, 40.0)",
+            [],
+        )
+        .unwrap();
+
+        // Payment Settings mit DPolG-Rabatt 15%
+        conn.execute(
+            "INSERT INTO payment_settings (id, dpolg_rabatt) VALUES (1, 15.0)",
             [],
         )
         .unwrap();
@@ -553,7 +696,8 @@ mod tests {
 
     #[test]
     fn test_calculate_booking_total_member_no_extras() {
-        // Test: Mitglied, 3 Nächte, keine Services/Rabatte
+        // Test: Mitglied, 3 Nächte, keine extra Services (nur Endreinigung)
+        // Oktober = Nebensaison
         let conn = setup_test_db();
         let result = calculate_booking_total(
             1,
@@ -569,15 +713,17 @@ mod tests {
         let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
 
         assert_eq!(anzahl_naechte, 3);
-        assert_eq!(grundpreis, 135.0); // 3 × 45.0
-        assert_eq!(services_preis, 0.0);
-        assert_eq!(rabatt_preis, 0.0);
-        assert_eq!(gesamtpreis, 135.0);
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0
+        assert_eq!(rabatt_preis, 23.25); // 15% DPolG-Rabatt
+        assert_eq!(gesamtpreis, 131.75); // 155 - 23.25
     }
 
     #[test]
     fn test_calculate_booking_total_non_member_no_extras() {
-        // Test: Nicht-Mitglied, 3 Nächte, keine Services/Rabatte
+        // Test: Nicht-Mitglied, 3 Nächte, keine extra Services
+        // Oktober = Nebensaison, kein DPolG-Rabatt
         let conn = setup_test_db();
         let result = calculate_booking_total(
             1,
@@ -590,15 +736,17 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (grundpreis, _, _, gesamtpreis, _) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
-        assert_eq!(grundpreis, 195.0); // 3 × 65.0
-        assert_eq!(gesamtpreis, 195.0);
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        assert_eq!(rabatt_preis, 0.0); // Kein DPolG-Rabatt
+        assert_eq!(gesamtpreis, 155.0); // 135 + 20
     }
 
     #[test]
     fn test_calculate_booking_total_with_services() {
-        // Test: Mit Services
+        // Test: Mit Services + Endreinigung + DPolG-Rabatt
         let conn = setup_test_db();
         let services = vec![
             ("Frühstück".to_string(), 15.0),
@@ -618,14 +766,15 @@ mod tests {
         let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
         assert_eq!(grundpreis, 135.0);
-        assert_eq!(services_preis, 25.0);
-        assert_eq!(rabatt_preis, 0.0);
-        assert_eq!(gesamtpreis, 160.0); // 135 + 25
+        assert_eq!(services_preis, 45.0); // Endreinigung (20) + Services (25)
+        // Subtotal = 180.0
+        assert_eq!(rabatt_preis, 27.0); // 15% DPolG-Rabatt
+        assert_eq!(gesamtpreis, 153.0); // 180 - 27
     }
 
     #[test]
     fn test_calculate_booking_total_with_percent_discount() {
-        // Test: Mit prozentualem Rabatt
+        // Test: Mit prozentualem Rabatt + DPolG-Rabatt + Endreinigung
         let conn = setup_test_db();
         let discounts = vec![
             ("Frühbucher".to_string(), "percent".to_string(), 10.0),
@@ -644,14 +793,17 @@ mod tests {
         let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
         assert_eq!(grundpreis, 135.0);
-        assert_eq!(services_preis, 0.0);
-        assert_eq!(rabatt_preis, 13.5); // 10% von 135
-        assert_eq!(gesamtpreis, 121.5); // 135 - 13.5
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0
+        // DPolG-Rabatt: 15% von 155 = 23.25
+        // Frühbucher: 10% von 155 = 15.5
+        assert_eq!(rabatt_preis, 38.75); // 23.25 + 15.5
+        assert_eq!(gesamtpreis, 116.25); // 155 - 38.75
     }
 
     #[test]
     fn test_calculate_booking_total_with_fixed_discount() {
-        // Test: Mit fixem Rabatt
+        // Test: Mit fixem Rabatt + DPolG-Rabatt + Endreinigung
         let conn = setup_test_db();
         let discounts = vec![
             ("Gutschein".to_string(), "fixed".to_string(), 20.0),
@@ -667,15 +819,20 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (_, _, rabatt_preis, gesamtpreis, _) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
-        assert_eq!(rabatt_preis, 20.0);
-        assert_eq!(gesamtpreis, 115.0); // 135 - 20
+        assert_eq!(grundpreis, 135.0);
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0
+        // DPolG-Rabatt: 15% von 155 = 23.25
+        // Gutschein: 20.0
+        assert_eq!(rabatt_preis, 43.25); // 23.25 + 20.0
+        assert_eq!(gesamtpreis, 111.75); // 155 - 43.25
     }
 
     #[test]
     fn test_calculate_booking_total_multiple_discounts() {
-        // Test: Mehrere Rabatte
+        // Test: Mehrere Rabatte + DPolG-Rabatt + Endreinigung
         let conn = setup_test_db();
         let discounts = vec![
             ("Frühbucher".to_string(), "percent".to_string(), 10.0),
@@ -692,16 +849,21 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (grundpreis, _, rabatt_preis, gesamtpreis, _) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
         assert_eq!(grundpreis, 135.0);
-        assert_eq!(rabatt_preis, 23.5); // 13.5 (10%) + 10.0
-        assert_eq!(gesamtpreis, 111.5); // 135 - 23.5
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0
+        // DPolG: 15% von 155 = 23.25
+        // Frühbucher: 10% von 155 = 15.5
+        // Gutschein: 10.0
+        assert_eq!(rabatt_preis, 48.75); // 23.25 + 15.5 + 10.0
+        assert_eq!(gesamtpreis, 106.25); // 155 - 48.75
     }
 
     #[test]
     fn test_calculate_booking_total_complete_scenario() {
-        // Test: Vollständiges Szenario mit allem
+        // Test: Vollständiges Szenario mit allem (Nebensaison)
         let conn = setup_test_db();
         let services = vec![
             ("Frühstück".to_string(), 15.0),
@@ -724,11 +886,13 @@ mod tests {
         let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
 
         assert_eq!(anzahl_naechte, 5);
-        assert_eq!(grundpreis, 425.0); // 5 × 85.0
-        assert_eq!(services_preis, 25.0); // 15 + 10
-        // Subtotal = 450.0 (425 + 25)
-        assert_eq!(rabatt_preis, 45.0); // 10% von 450
-        assert_eq!(gesamtpreis, 405.0); // 450 - 45
+        assert_eq!(grundpreis, 425.0); // 5 × 85.0 (Nebensaison)
+        assert_eq!(services_preis, 65.0); // Endreinigung (40) + Services (25)
+        // Subtotal = 490.0 (425 + 65)
+        // DPolG: 15% von 490 = 73.5
+        // Frühbucher: 10% von 490 = 49.0
+        assert_eq!(rabatt_preis, 122.5); // 73.5 + 49.0
+        assert_eq!(gesamtpreis, 367.5); // 490 - 122.5
     }
 
     #[test]
@@ -805,16 +969,20 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (_, _, rabatt_preis, gesamtpreis, _) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
 
-        // Rabatt wird auf Subtotal begrenzt
-        assert_eq!(rabatt_preis, 135.0); // gekappt auf Subtotal
-        assert_eq!(gesamtpreis, 0.0);
+        assert_eq!(grundpreis, 135.0);
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0
+        // DPolG: 15% von 155 = 23.25
+        // Großer Rabatt: 155.0 (gekappt)
+        assert_eq!(rabatt_preis, 178.25); // 23.25 + 155.0
+        assert_eq!(gesamtpreis, 0.0); // 155 - 178.25 (min 0)
     }
 
     #[test]
     fn test_calculate_booking_total_single_night() {
-        // Test: Einzelne Nacht
+        // Test: Einzelne Nacht (Nebensaison, Mitglied)
         let conn = setup_test_db();
         let result = calculate_booking_total(
             1,
@@ -827,16 +995,19 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (grundpreis, _, _, gesamtpreis, anzahl_naechte) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
 
         assert_eq!(anzahl_naechte, 1);
-        assert_eq!(grundpreis, 45.0);
-        assert_eq!(gesamtpreis, 45.0);
+        assert_eq!(grundpreis, 45.0); // 1 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 65.0
+        assert_eq!(rabatt_preis, 9.75); // 15% DPolG-Rabatt
+        assert_eq!(gesamtpreis, 55.25); // 65 - 9.75
     }
 
     #[test]
     fn test_calculate_booking_total_long_stay() {
-        // Test: Langer Aufenthalt (30 Nächte)
+        // Test: Langer Aufenthalt (30 Nächte, Nebensaison, Mitglied)
         let conn = setup_test_db();
         let result = calculate_booking_total(
             1,
@@ -849,10 +1020,206 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        let (grundpreis, _, _, gesamtpreis, anzahl_naechte) = result.unwrap();
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
 
         assert_eq!(anzahl_naechte, 30);
-        assert_eq!(grundpreis, 1350.0); // 30 × 45.0
-        assert_eq!(gesamtpreis, 1350.0);
+        assert_eq!(grundpreis, 1350.0); // 30 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 1370.0
+        assert_eq!(rabatt_preis, 205.5); // 15% DPolG-Rabatt
+        assert_eq!(gesamtpreis, 1164.5); // 1370 - 205.5
+    }
+
+    // ========================================================================
+    // Tests für Preisliste 2025 (Saisonpreise + DPolG-Rabatt + Endreinigung)
+    // ========================================================================
+
+    #[test]
+    fn test_calculate_booking_total_nebensaison_member_with_endreinigung() {
+        // Test: Nebensaison, Mitglied, mit Endreinigung
+        // Januar 2025 = Nebensaison
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-01-10",
+            "2025-01-13", // 3 Nächte
+            true,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
+
+        assert_eq!(anzahl_naechte, 3);
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 155.0 (135 + 20)
+        assert_eq!(rabatt_preis, 23.25); // 15% DPolG-Rabatt von 155.0
+        assert_eq!(gesamtpreis, 131.75); // 155 - 23.25
+    }
+
+    #[test]
+    fn test_calculate_booking_total_hauptsaison_member_with_endreinigung() {
+        // Test: Hauptsaison, Mitglied, mit Endreinigung
+        // Juli 2025 = Hauptsaison
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-07-10",
+            "2025-07-13", // 3 Nächte
+            true,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
+
+        assert_eq!(anzahl_naechte, 3);
+        assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        // Subtotal = 185.0 (165 + 20)
+        assert_eq!(rabatt_preis, 27.75); // 15% DPolG-Rabatt von 185.0
+        assert_eq!(gesamtpreis, 157.25); // 185 - 27.75
+    }
+
+    #[test]
+    fn test_calculate_booking_total_nebensaison_non_member_with_endreinigung() {
+        // Test: Nebensaison, Nicht-Mitglied (kein DPolG-Rabatt)
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-01-10",
+            "2025-01-13", // 3 Nächte
+            false,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
+
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 20.0); // Endreinigung
+        assert_eq!(rabatt_preis, 0.0); // Kein DPolG-Rabatt
+        assert_eq!(gesamtpreis, 155.0); // 135 + 20
+    }
+
+    #[test]
+    fn test_calculate_booking_total_hauptsaison_winter() {
+        // Test: Hauptsaison Winter (22.12 - 28.02)
+        // Januar 2026 = Hauptsaison
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            2, // Suite
+            "2026-01-15",
+            "2026-01-20", // 5 Nächte
+            true,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
+
+        assert_eq!(anzahl_naechte, 5);
+        assert_eq!(grundpreis, 500.0); // 5 × 100.0 (Hauptsaison)
+        assert_eq!(services_preis, 40.0); // Endreinigung Suite
+        // Subtotal = 540.0
+        assert_eq!(rabatt_preis, 81.0); // 15% von 540
+        assert_eq!(gesamtpreis, 459.0); // 540 - 81
+    }
+
+    #[test]
+    fn test_calculate_booking_total_with_additional_services_and_endreinigung() {
+        // Test: Services zusätzlich zur Endreinigung
+        let conn = setup_test_db();
+        let services = vec![
+            ("Frühstück".to_string(), 15.0),
+            ("Parkplatz".to_string(), 10.0),
+        ];
+        let result = calculate_booking_total(
+            1,
+            "2025-01-10",
+            "2025-01-13", // 3 Nächte
+            true,
+            &services,
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, services_preis, rabatt_preis, gesamtpreis, _) = result.unwrap();
+
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
+        assert_eq!(services_preis, 45.0); // Endreinigung (20) + Services (25)
+        // Subtotal = 180.0
+        assert_eq!(rabatt_preis, 27.0); // 15% von 180
+        assert_eq!(gesamtpreis, 153.0); // 180 - 27
+    }
+
+    #[test]
+    fn test_calculate_booking_total_season_boundary_start() {
+        // Test: Erster Tag der Hauptsaison (01.06.2025)
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-06-01",
+            "2025-06-04", // 3 Nächte
+            false,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, _, _, _, _) = result.unwrap();
+
+        assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison)
+    }
+
+    #[test]
+    fn test_calculate_booking_total_season_boundary_end() {
+        // Test: Letzter Tag der Hauptsaison (15.09.2025)
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-09-15",
+            "2025-09-18", // 3 Nächte
+            false,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, _, _, _, _) = result.unwrap();
+
+        assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison)
+    }
+
+    #[test]
+    fn test_calculate_booking_total_after_hauptsaison() {
+        // Test: Tag nach Hauptsaison (16.09.2025) = Nebensaison
+        let conn = setup_test_db();
+        let result = calculate_booking_total(
+            1,
+            "2025-09-16",
+            "2025-09-19", // 3 Nächte
+            false,
+            &[],
+            &[],
+            &conn,
+        );
+
+        assert!(result.is_ok());
+        let (grundpreis, _, _, _, _) = result.unwrap();
+
+        assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
     }
 }
