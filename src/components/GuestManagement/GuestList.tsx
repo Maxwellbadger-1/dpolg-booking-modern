@@ -4,6 +4,7 @@ import { useData } from '../../context/DataContext';
 import GuestDialog from './GuestDialog';
 import GuestDetails from './GuestDetails';
 import ConfirmDialog from '../ConfirmDialog';
+import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
 interface Guest {
   id: number;
@@ -136,7 +137,8 @@ export default function GuestList() {
             <select
               value={memberFilter}
               onChange={(e) => setMemberFilter(e.target.value)}
-              className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Gäste</option>
               <option value="member">Nur Mitglieder</option>

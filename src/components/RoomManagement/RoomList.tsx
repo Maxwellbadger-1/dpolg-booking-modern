@@ -3,6 +3,7 @@ import { Hotel, Search, Plus, Edit2, MapPin, Users, Euro, Trash2 } from 'lucide-
 import { useData } from '../../context/DataContext';
 import RoomDialog from './RoomDialog';
 import ConfirmDialog from '../ConfirmDialog';
+import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
 interface Room {
   id: number;
@@ -129,7 +130,8 @@ export default function RoomList() {
             <select
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
-              className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Orte</option>
               {uniqueLocations.map(location => (

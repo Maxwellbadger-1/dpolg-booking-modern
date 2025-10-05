@@ -14,6 +14,7 @@ import BookingDialog from './components/BookingManagement/BookingDialog';
 import QuickBookingFAB from './components/QuickBookingFAB';
 import DashboardQuickStats from './components/DashboardQuickStats';
 import StatisticsView from './components/Statistics/StatisticsView';
+import EmailSelectionDialog from './components/BookingManagement/EmailSelectionDialog';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp } from 'lucide-react';
 
 interface Room {
@@ -61,6 +62,10 @@ function App() {
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [selectedBookingId, setSelectedBookingId] = useState<number | undefined>(undefined);
+  const [emailBookingId, setEmailBookingId] = useState<number | undefined>(undefined);
+  const [prefillData, setPrefillData] = useState<{ roomId?: number; checkinDate?: string; checkoutDate?: string } | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   useEffect(() => {
@@ -283,7 +288,46 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === 'dashboard' && <TapeChart />}
+        {activeTab === 'dashboard' && (
+          <TapeChart
+            onBookingClick={(bookingId) => {
+              setSelectedBookingId(bookingId);
+              setPrefillData(undefined);
+              setShowBookingDialog(true);
+            }}
+            onCreateBooking={(roomId, startDate, endDate) => {
+              console.log('🎨 Create Booking:', { roomId, startDate, endDate });
+              setSelectedBookingId(undefined);
+              setPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
+              setShowBookingDialog(true);
+            }}
+            onBookingEdit={(bookingId) => {
+              setSelectedBookingId(bookingId);
+              setPrefillData(undefined);
+              setShowBookingDialog(true);
+            }}
+            onBookingCancel={async (bookingId) => {
+              const booking = bookings.find(b => b.id === bookingId);
+              if (!booking) return;
+
+              if (confirm(`Buchung ${booking.reservierungsnummer} wirklich stornieren?`)) {
+                try {
+                  await invoke('update_booking_status_command', {
+                    id: bookingId,
+                    newStatus: 'storniert'
+                  });
+                  loadData();
+                } catch (error) {
+                  alert('Fehler beim Stornieren: ' + error);
+                }
+              }
+            }}
+            onSendEmail={(bookingId) => {
+              setEmailBookingId(bookingId);
+              setShowEmailDialog(true);
+            }}
+          />
+        )}
         {activeTab === 'statistics' && <StatisticsView />}
         {activeTab === 'bookings' && <BookingList />}
         {activeTab === 'guests' && <GuestList />}
@@ -316,13 +360,37 @@ function App() {
       {/* Booking Dialog */}
       <BookingDialog
         isOpen={showBookingDialog}
-        onClose={() => setShowBookingDialog(false)}
+        onClose={() => {
+          setShowBookingDialog(false);
+          setSelectedBookingId(undefined);
+          setPrefillData(undefined);
+        }}
         onSuccess={() => {
           console.log('Buchung erfolgreich gespeichert');
           setShowBookingDialog(false);
+          setSelectedBookingId(undefined);
+          setPrefillData(undefined);
           loadData(); // Reload data after successful booking
         }}
+        booking={selectedBookingId ? bookings.find(b => b.id === selectedBookingId) : undefined}
+        prefillData={prefillData}
       />
+
+      {/* Email Selection Dialog */}
+      {emailBookingId && (() => {
+        const booking = bookings.find(b => b.id === emailBookingId);
+        return booking ? (
+          <EmailSelectionDialog
+            bookingId={emailBookingId}
+            guestEmail={booking.guest.email}
+            isOpen={showEmailDialog}
+            onClose={() => {
+              setShowEmailDialog(false);
+              setEmailBookingId(undefined);
+            }}
+          />
+        ) : null;
+      })()}
       </div>
     </DataProvider>
   );

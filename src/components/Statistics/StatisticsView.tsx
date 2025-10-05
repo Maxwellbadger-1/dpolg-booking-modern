@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle } from 'lucide-react';
+import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle, CalendarRange } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -35,6 +35,8 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
+type DateRange = 'thisMonth' | 'lastMonth' | 'thisYear' | 'lastYear' | 'allTime';
+
 interface StatCardProps {
   title: string;
   value: string | number;
@@ -67,6 +69,7 @@ export default function StatisticsView() {
   const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRange>('allTime');
 
   useEffect(() => {
     loadData();
@@ -78,8 +81,16 @@ export default function StatisticsView() {
       const [roomsData, bookingsData, guestsData] = await Promise.all([
         invoke<Room[]>('get_all_rooms'),
         invoke<BookingWithDetails[]>('get_all_bookings'),
-        invoke<Guest[]>('get_all_guests'),
+        invoke<Guest[]>('get_all_guests_command'),
       ]);
+
+      console.log('═══════════════════════════════════════');
+      console.log('📊 STATISTICS DEBUG - Raw Data Loaded:');
+      console.log('  Rooms:', roomsData.length, roomsData);
+      console.log('  Bookings:', bookingsData.length, bookingsData);
+      console.log('  Guests:', guestsData.length, guestsData);
+      console.log('═══════════════════════════════════════');
+
       setRooms(roomsData);
       setBookings(bookingsData);
       setGuests(guestsData);
@@ -90,6 +101,85 @@ export default function StatisticsView() {
     }
   };
 
+  // Date range filter
+  const getDateRangeBounds = (): { start: Date; end: Date } => {
+    const now = new Date();
+    const start = new Date();
+    const end = new Date();
+
+    switch (dateRange) {
+      case 'thisMonth':
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setMonth(end.getMonth() + 1);
+        end.setDate(0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case 'lastMonth':
+        start.setMonth(start.getMonth() - 1);
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setDate(0);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case 'thisYear':
+        start.setMonth(0);
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setMonth(11);
+        end.setDate(31);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case 'lastYear':
+        start.setFullYear(start.getFullYear() - 1);
+        start.setMonth(0);
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setFullYear(end.getFullYear() - 1);
+        end.setMonth(11);
+        end.setDate(31);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case 'allTime':
+        start.setFullYear(2000);
+        end.setFullYear(2100);
+        break;
+    }
+
+    return { start, end };
+  };
+
+  const isBookingInRange = (booking: BookingWithDetails): boolean => {
+    const { start, end } = getDateRangeBounds();
+    const checkin = new Date(booking.checkin_date);
+    const checkout = new Date(booking.checkout_date);
+
+    // Buchung ist im Zeitraum wenn Check-in oder Check-out im Bereich liegt
+    // ODER wenn die Buchung den gesamten Zeitraum überspannt
+    return (
+      (checkin >= start && checkin <= end) ||
+      (checkout >= start && checkout <= end) ||
+      (checkin <= start && checkout >= end)
+    );
+  };
+
+  // Filter bookings by date range
+  const filteredBookings = bookings.filter(isBookingInRange);
+
+  console.log('═══════════════════════════════════════');
+  console.log('📊 STATISTICS DEBUG - After Filtering:');
+  console.log('  dateRange:', dateRange);
+  console.log('  Date bounds:', getDateRangeBounds());
+  console.log('  Total bookings:', bookings.length);
+  console.log('  Filtered bookings:', filteredBookings.length);
+  console.log('  Filtered booking details:', filteredBookings);
+  console.log('═══════════════════════════════════════');
+
+  // Filter guests who have bookings in the selected range
+  const guestsInRange = guests.filter(guest =>
+    filteredBookings.some(b => b.guest_id === guest.id)
+  );
+
   // Helper functions for calculations
   const calculateNights = (checkin: string, checkout: string): number => {
     const start = new Date(checkin);
@@ -97,23 +187,71 @@ export default function StatisticsView() {
     return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
   };
 
+  // Calculate nights within the date range
+  const calculateNightsInRange = (booking: BookingWithDetails): number => {
+    const { start, end } = getDateRangeBounds();
+    const checkin = new Date(booking.checkin_date);
+    const checkout = new Date(booking.checkout_date);
+
+    // Overlap berechnen
+    const effectiveCheckin = checkin > start ? checkin : start;
+    const effectiveCheckout = checkout < end ? checkout : end;
+
+    if (effectiveCheckin >= effectiveCheckout) return 0;
+
+    return Math.ceil((effectiveCheckout.getTime() - effectiveCheckin.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
   // Room Statistics
-  const activeBookings = bookings.filter(b => b.status !== 'storniert');
-  const occupancyRate = rooms.length > 0
-    ? Math.round((activeBookings.length / rooms.length) * 100)
+  const activeBookings = filteredBookings.filter(b => b.status !== 'storniert');
+
+  console.log('═══════════════════════════════════════');
+  console.log('📊 STATISTICS DEBUG - Active Bookings:');
+  console.log('  Active bookings (nicht storniert):', activeBookings.length);
+  console.log('  Active booking statuses:', activeBookings.map(b => b.status));
+  console.log('═══════════════════════════════════════');
+
+  // Auslastung: (Gebuchte Zimmernächte / Verfügbare Zimmernächte) × 100
+  const { start, end } = getDateRangeBounds();
+  const daysInRange = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const availableRoomNights = rooms.length * daysInRange;
+
+  const bookedRoomNights = activeBookings.reduce((sum, b) => {
+    const nights = calculateNightsInRange(b);
+    console.log(`  Booking ${b.reservierungsnummer}: ${nights} nights in range`);
+    return sum + nights;
+  }, 0);
+
+  console.log('═══════════════════════════════════════');
+  console.log('📊 STATISTICS DEBUG - Occupancy:');
+  console.log('  Days in range:', daysInRange);
+  console.log('  Available room nights:', availableRoomNights);
+  console.log('  Booked room nights:', bookedRoomNights);
+  console.log('  Occupancy rate:', Math.round((bookedRoomNights / availableRoomNights) * 100), '%');
+  console.log('═══════════════════════════════════════');
+
+  const occupancyRate = availableRoomNights > 0
+    ? Math.round((bookedRoomNights / availableRoomNights) * 100)
     : 0;
 
   // ADR (Average Daily Rate) - Durchschnittlicher Tagespreis
   const totalRevenue = activeBookings.reduce((sum, b) => sum + b.gesamtpreis, 0);
   const totalNights = activeBookings.reduce((sum, b) => {
-    return sum + calculateNights(b.checkin_date, b.checkout_date);
+    return sum + calculateNightsInRange(b);
   }, 0);
   const adr = totalNights > 0 ? totalRevenue / totalNights : 0;
 
-  // RevPAR (Revenue Per Available Room)
-  const revpar = rooms.length > 0 ? totalRevenue / rooms.length : 0;
+  console.log('═══════════════════════════════════════');
+  console.log('📊 STATISTICS DEBUG - Revenue:');
+  console.log('  Total revenue:', totalRevenue);
+  console.log('  Total nights:', totalNights);
+  console.log('  ADR:', adr);
+  console.log('═══════════════════════════════════════');
 
-  // Most booked room
+  // RevPAR (Revenue Per Available Room) - Umsatz pro verfügbarem Zimmer
+  const revpar = availableRoomNights > 0 ? totalRevenue / rooms.length / daysInRange : 0;
+
+  // Most booked room in this period
   const roomBookingCount = activeBookings.reduce((acc, b) => {
     acc[b.room_id] = (acc[b.room_id] || 0) + 1;
     return acc;
@@ -128,11 +266,11 @@ export default function StatisticsView() {
     return acc;
   }, {} as Record<string, number>);
 
-  // Guest Statistics
-  const memberGuests = guests.filter(g => g.dpolg_mitglied).length;
-  const nonMemberGuests = guests.filter(g => !g.dpolg_mitglied).length;
-  const memberPercentage = guests.length > 0
-    ? Math.round((memberGuests / guests.length) * 100)
+  // Guest Statistics (only for guests with bookings in range)
+  const memberGuests = guestsInRange.filter(g => g.dpolg_mitglied).length;
+  const nonMemberGuests = guestsInRange.filter(g => !g.dpolg_mitglied).length;
+  const memberPercentage = guestsInRange.length > 0
+    ? Math.round((memberGuests / guestsInRange.length) * 100)
     : 0;
 
   // Average length of stay
@@ -140,20 +278,20 @@ export default function StatisticsView() {
     ? totalNights / activeBookings.length
     : 0;
 
-  // Return guest rate (guests with more than 1 booking)
+  // Return guest rate (guests with more than 1 booking in this period)
   const guestBookingCount = activeBookings.reduce((acc, b) => {
     acc[b.guest_id] = (acc[b.guest_id] || 0) + 1;
     return acc;
   }, {} as Record<number, number>);
   const returnGuests = Object.values(guestBookingCount).filter(count => count > 1).length;
-  const returnGuestRate = guests.length > 0
-    ? Math.round((returnGuests / guests.length) * 100)
+  const returnGuestRate = guestsInRange.length > 0
+    ? Math.round((returnGuests / guestsInRange.length) * 100)
     : 0;
 
-  // Cancelled bookings (No-show rate approximation)
-  const cancelledBookings = bookings.filter(b => b.status === 'storniert').length;
-  const cancelRate = bookings.length > 0
-    ? Math.round((cancelledBookings / bookings.length) * 100)
+  // Cancelled bookings in this period
+  const cancelledBookings = filteredBookings.filter(b => b.status === 'storniert').length;
+  const cancelRate = filteredBookings.length > 0
+    ? Math.round((cancelledBookings / filteredBookings.length) * 100)
     : 0;
 
   if (loading) {
@@ -167,8 +305,39 @@ export default function StatisticsView() {
     );
   }
 
+  const dateRangeLabels: Record<DateRange, string> = {
+    thisMonth: 'Dieser Monat',
+    lastMonth: 'Letzter Monat',
+    thisYear: 'Dieses Jahr',
+    lastYear: 'Letztes Jahr',
+    allTime: 'Gesamter Zeitraum',
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-800 to-slate-900 p-6">
+      {/* Date Range Selector */}
+      <div className="mb-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-4 border border-slate-700">
+        <div className="flex items-center gap-4">
+          <CalendarRange className="w-5 h-5 text-blue-400" />
+          <span className="text-sm font-medium text-slate-300">Zeitraum:</span>
+          <div className="flex gap-2">
+            {(Object.keys(dateRangeLabels) as DateRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => setDateRange(range)}
+                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
+                  dateRange === range
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                {dateRangeLabels[range]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Overview Section */}
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
@@ -260,8 +429,8 @@ export default function StatisticsView() {
 
         <div className="grid grid-cols-4 gap-4 mb-6">
           <StatCard
-            title="Gesamtzahl Gäste"
-            value={guests.length}
+            title="Gäste im Zeitraum"
+            value={guestsInRange.length}
             icon={Users}
             iconColor="bg-blue-500"
           />

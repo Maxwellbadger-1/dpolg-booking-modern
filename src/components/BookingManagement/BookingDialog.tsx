@@ -61,6 +61,7 @@ interface BookingDialogProps {
   onClose: () => void;
   onSuccess: () => void;
   booking?: Booking;
+  prefillData?: { roomId?: number; checkinDate?: string; checkoutDate?: string };
 }
 
 const STATUS_OPTIONS = [
@@ -70,7 +71,7 @@ const STATUS_OPTIONS = [
   { value: 'storniert', label: 'Storniert', color: 'bg-red-100 text-red-700' },
 ];
 
-export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: BookingDialogProps) {
+export default function BookingDialog({ isOpen, onClose, onSuccess, booking, prefillData }: BookingDialogProps) {
   const { createBooking, updateBooking } = useData();
 
   const [formData, setFormData] = useState<Booking>({
@@ -141,6 +142,20 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
         loadAdditionalServices(booking.id);
         loadDiscounts(booking.id);
       }
+    } else if (prefillData) {
+      // Drag-to-Create: Prefill with room and dates
+      setFormData({
+        room_id: prefillData.roomId || 0,
+        guest_id: 0,
+        checkin_date: prefillData.checkinDate || '',
+        checkout_date: prefillData.checkoutDate || '',
+        anzahl_gaeste: 1,
+        status: 'bestaetigt',
+        bemerkungen: '',
+      });
+      setAccompanyingGuests([]);
+      setAdditionalServices([]);
+      setDiscounts([]);
     } else {
       setFormData({
         room_id: 0,
@@ -161,7 +176,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
     setNewAccompanyingGuest({ vorname: '', nachname: '', geburtsdatum: '' });
     setNewService({ service_name: '', service_price: 0 });
     setNewDiscount({ discount_name: '', discount_type: 'percent', discount_value: 0 });
-  }, [booking, isOpen]);
+  }, [booking, prefillData, isOpen]);
 
   // Calculate price when relevant fields change
   useEffect(() => {
@@ -828,7 +843,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
                   min="1"
                   value={formData.anzahl_gaeste}
                   onChange={(e) => setFormData({ ...formData, anzahl_gaeste: parseInt(e.target.value) || 1 })}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700 font-medium hover:border-slate-400 transition-colors"
                 />
               </div>
 
@@ -837,18 +852,27 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking }: B
                   <Tag className="w-4 h-4" />
                   Status *
                 </label>
-                <select
-                  required
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {STATUS_OPTIONS.map((status) => (
-                    <option key={status.value} value={status.value}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    required
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none cursor-pointer text-slate-700 font-medium hover:border-slate-400 transition-colors"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 0.75rem center',
+                      backgroundSize: '1.25rem',
+                      paddingRight: '2.5rem'
+                    }}
+                  >
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status.value} value={status.value}>
+                        {status.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 

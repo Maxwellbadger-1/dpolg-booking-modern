@@ -11,6 +11,7 @@ import CancellationConfirmDialog from './CancellationConfirmDialog';
 import StatusDropdown from './StatusDropdown';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
+import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
 interface Room {
   id: number;
@@ -360,7 +361,8 @@ export default function BookingList() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Status</option>
               <option value="reserviert">Reserviert</option>
@@ -372,7 +374,8 @@ export default function BookingList() {
             <select
               value={roomFilter}
               onChange={(e) => setRoomFilter(e.target.value)}
-              className="px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Zimmer</option>
               {rooms.map(room => (

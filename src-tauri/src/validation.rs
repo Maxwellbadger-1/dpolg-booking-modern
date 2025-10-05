@@ -237,21 +237,33 @@ use std::sync::Mutex;
 // Globaler Counter für Reservierungsnummern (Thread-safe)
 static RESERVATION_COUNTER: Lazy<Mutex<u32>> = Lazy::new(|| Mutex::new(1));
 
-/// Generiert eine eindeutige Reservierungsnummer
+/// Generiert eine Reservierungsnummer basierend auf Jahr und Buchungs-ID
 ///
-/// Format: DPOLG-YYYYMMDD-NNNN
-/// - DPOLG: Prefix
-/// - YYYYMMDD: Aktuelles Datum
-/// - NNNN: 4-stelliger Counter (wird täglich zurückgesetzt)
+/// Format: YYYY-BOOKING_ID
+/// - YYYY: Aktuelles Jahr
+/// - BOOKING_ID: Buchungs-ID aus der Datenbank
+///
+/// # Arguments
+/// * `booking_id` - Die ID der Buchung aus der Datenbank
 ///
 /// # Returns
-/// * Eindeutige Reservierungsnummer als String
+/// * Reservierungsnummer als String
 ///
 /// # Example
 /// ```
-/// let nummer = generate_reservation_number();
-/// // Beispiel: "DPOLG-20251001-0001"
+/// let nummer = generate_reservation_number(123);
+/// // Beispiel: "2025-123"
 /// ```
+pub fn generate_reservation_number_with_id(booking_id: i64) -> String {
+    let now = crate::time_utils::now_utc_plus_2();
+    let year = now.format("%Y").to_string();
+
+    // Format: YYYY-BOOKING_ID
+    format!("{}-{}", year, booking_id)
+}
+
+/// DEPRECATED: Legacy-Funktion für Kompatibilität
+/// Verwende stattdessen generate_reservation_number_with_id()
 pub fn generate_reservation_number() -> String {
     let now = crate::time_utils::now_utc_plus_2();
     let date_part = now.format("%Y%m%d").to_string();

@@ -1278,6 +1278,7 @@ pub fn create_booking(
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Erst einfügen mit temporärer Reservierungsnummer
     conn.execute(
         "INSERT INTO bookings (room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
          anzahl_gaeste, status, gesamtpreis, bemerkungen, anzahl_begleitpersonen,
@@ -1286,7 +1287,7 @@ pub fn create_booking(
         rusqlite::params![
             room_id,
             guest_id,
-            reservierungsnummer,
+            "TEMP", // Temporäre Nummer
             checkin_date,
             checkout_date,
             anzahl_gaeste,
@@ -1302,6 +1303,16 @@ pub fn create_booking(
     )?;
 
     let id = conn.last_insert_rowid();
+
+    // Generiere Reservierungsnummer basierend auf ID und Jahr
+    let final_reservierungsnummer = crate::validation::generate_reservation_number_with_id(id);
+
+    // Update mit finaler Reservierungsnummer
+    conn.execute(
+        "UPDATE bookings SET reservierungsnummer = ?1 WHERE id = ?2",
+        rusqlite::params![final_reservierungsnummer, id],
+    )?;
+
     get_booking_by_id(id)
 }
 

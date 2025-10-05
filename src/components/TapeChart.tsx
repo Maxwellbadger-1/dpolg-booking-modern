@@ -18,6 +18,8 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import ContextMenu, { ContextMenuItem } from './ContextMenu';
+import { Edit2, Mail, XCircle, Copy } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -45,6 +47,11 @@ interface Booking {
 interface TapeChartProps {
   startDate?: Date;
   endDate?: Date;
+  onBookingClick?: (bookingId: number) => void;
+  onCreateBooking?: (roomId: number, startDate: string, endDate: string) => void;
+  onBookingEdit?: (bookingId: number) => void;
+  onBookingCancel?: (bookingId: number) => void;
+  onSendEmail?: (bookingId: number) => void;
 }
 
 const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; shadow: string }> = {
@@ -114,11 +121,14 @@ interface DraggableBookingProps {
   position: { left: number; width: number };
   isOverlay?: boolean;
   rowHeight: number;
+  cellWidth: number; // KRITISCH: cellWidth übergeben für korrekte Resize-Berechnung bei Skalierung
   onResize?: (bookingId: number, direction: 'start' | 'end', daysDelta: number) => void;
+  onClick?: (bookingId: number) => void; // NEW: Click handler
+  onContextMenu?: (bookingId: number, x: number, y: number) => void; // NEW: Context menu
   hasOverlap?: boolean; // Red overlay when drag has overlap
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onResize, hasOverlap = false }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -152,9 +162,17 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
     return null;
   }, []);
 
+  // Track if this was a click or drag
+  const clickStartPos = useRef<{ x: number; y: number } | null>(null);
+  const hasMoved = useRef(false);
+
   // Handle pointer down - determine if resize or drag
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (isOverlay) return;
+
+    // Track click start position
+    clickStartPos.current = { x: e.clientX, y: e.clientY };
+    hasMoved.current = false;
 
     const direction = getResizeDirection(e, e.currentTarget);
 
@@ -170,6 +188,23 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
       listeners?.onPointerDown?.(e);
     }
   }, [getResizeDirection, onResize, position, listeners, isOverlay]);
+
+  // Handle click (if not dragged)
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (isOverlay || isResizing) return;
+
+    // Check if pointer moved (drag vs click)
+    if (clickStartPos.current) {
+      const deltaX = Math.abs(e.clientX - clickStartPos.current.x);
+      const deltaY = Math.abs(e.clientY - clickStartPos.current.y);
+
+      // If moved less than 5px, it's a click
+      if (deltaX < 5 && deltaY < 5 && onClick) {
+        e.stopPropagation();
+        onClick(booking.id);
+      }
+    }
+  }, [isOverlay, isResizing, onClick, booking.id]);
 
   // Handle pointer move - update cursor
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -190,24 +225,24 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
 
     const handlePointerMove = (e: PointerEvent) => {
       const deltaX = e.clientX - dragStartX.current;
-      const daysDelta = Math.round(deltaX / CELL_WIDTH);
+      const daysDelta = Math.round(deltaX / cellWidth); // FIX: Verwende cellWidth statt CELL_WIDTH
 
       // Calculate LIVE preview position
       if (resizeDirection === 'start') {
         // Resize from left - change left and width
-        const newLeft = resizeStartPosition.current.left + (daysDelta * CELL_WIDTH);
-        const newWidth = resizeStartPosition.current.width - (daysDelta * CELL_WIDTH);
+        const newLeft = resizeStartPosition.current.left + (daysDelta * cellWidth);
+        const newWidth = resizeStartPosition.current.width - (daysDelta * cellWidth);
 
         // Only update if width stays positive
-        if (newWidth > CELL_WIDTH / 2) {
+        if (newWidth > cellWidth / 2) {
           setResizePreview({ left: newLeft, width: newWidth });
         }
       } else if (resizeDirection === 'end') {
         // Resize from right - only change width
-        const newWidth = resizeStartPosition.current.width + (daysDelta * CELL_WIDTH);
+        const newWidth = resizeStartPosition.current.width + (daysDelta * cellWidth);
 
         // Only update if width stays positive
-        if (newWidth > CELL_WIDTH / 2) {
+        if (newWidth > cellWidth / 2) {
           setResizePreview({
             left: resizeStartPosition.current.left,
             width: newWidth
@@ -218,7 +253,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
 
     const handlePointerUp = (e: PointerEvent) => {
       const deltaX = e.clientX - dragStartX.current;
-      const daysDelta = Math.round(deltaX / CELL_WIDTH);
+      const daysDelta = Math.round(deltaX / cellWidth); // FIX: Verwende cellWidth statt CELL_WIDTH
 
       if (daysDelta !== 0 && resizeDirection) {
         onResize(booking.id, resizeDirection, daysDelta);
@@ -260,6 +295,15 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
       {...attributes}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
+      onClick={handleClick}
+      onContextMenu={(e) => {
+        if (isOverlay) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (onContextMenu) {
+          onContextMenu(booking.id, e.clientX, e.clientY);
+        }
+      }}
       className={cn(
         isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2",
         "flex items-center px-3 transition-all duration-200",
@@ -287,7 +331,19 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, onR
   );
 }
 
-function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasOverlap, children }: { roomId: number; dayIndex: number; isWeekend: boolean; cellWidth: number; rowHeight: number; hasOverlap?: boolean; children?: React.ReactNode }) {
+function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasOverlap, isCreateDragPreview, onCreateDragStart, onCreateDragMove, onCreateDragEnd, children }: {
+  roomId: number;
+  dayIndex: number;
+  isWeekend: boolean;
+  cellWidth: number;
+  rowHeight: number;
+  hasOverlap?: boolean;
+  isCreateDragPreview?: boolean;
+  onCreateDragStart?: (roomId: number, dayIndex: number) => void;
+  onCreateDragMove?: (roomId: number, dayIndex: number) => void;
+  onCreateDragEnd?: () => void;
+  children?: React.ReactNode;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: `cell-${roomId}-${dayIndex}`,
     data: { roomId, dayIndex },
@@ -296,11 +352,29 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
   return (
     <div
       ref={setNodeRef}
+      onMouseDown={(e) => {
+        // Only start drag-to-create if clicking on empty space (not on a booking)
+        if (e.target === e.currentTarget && onCreateDragStart) {
+          e.preventDefault();
+          onCreateDragStart(roomId, dayIndex);
+        }
+      }}
+      onMouseMove={(e) => {
+        if (onCreateDragMove) {
+          onCreateDragMove(roomId, dayIndex);
+        }
+      }}
+      onMouseUp={(e) => {
+        if (onCreateDragEnd) {
+          onCreateDragEnd();
+        }
+      }}
       className={cn(
         "border-r border-slate-200 transition-all duration-200 box-border relative",
         isWeekend ? "bg-blue-50/30" : "bg-white",
         isOver && !hasOverlap && "bg-blue-300/60 ring-2 ring-blue-400 ring-inset",
         isOver && hasOverlap && "bg-red-500/60 ring-2 ring-red-600 ring-inset",
+        isCreateDragPreview && "bg-emerald-400/40 ring-2 ring-emerald-500 ring-inset"
       )}
       style={{
         width: `${cellWidth}px`,
@@ -314,7 +388,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
   );
 }
 
-export default function TapeChart({ startDate, endDate }: TapeChartProps) {
+export default function TapeChart({ startDate, endDate, onBookingClick, onCreateBooking, onBookingEdit, onBookingCancel, onSendEmail }: TapeChartProps) {
   // Get data from global context
   const { rooms, bookings, refreshAll, updateBooking } = useData();
 
@@ -335,6 +409,14 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
     const saved = localStorage.getItem('tapechart-density');
     return (saved as DensityMode) || 'comfortable';
   });
+
+  // Drag-to-Create State
+  const [isCreatingBooking, setIsCreatingBooking] = useState(false);
+  const [createDragStart, setCreateDragStart] = useState<{ roomId: number; dayIndex: number } | null>(null);
+  const [createDragPreview, setCreateDragPreview] = useState<{ roomId: number; startDay: number; endDay: number } | null>(null);
+
+  // Context Menu State
+  const [contextMenu, setContextMenu] = useState<{ bookingId: number; x: number; y: number } | null>(null);
 
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
@@ -642,6 +724,93 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
     });
   }, [updateBooking, refreshAll]);
 
+  // Context Menu Handler
+  const handleContextMenu = useCallback((bookingId: number, x: number, y: number) => {
+    setContextMenu({ bookingId, x, y });
+  }, []);
+
+  const contextMenuItems: ContextMenuItem[] = contextMenu ? [
+    {
+      icon: Edit2,
+      label: 'Bearbeiten',
+      onClick: () => {
+        if (onBookingEdit) {
+          onBookingEdit(contextMenu.bookingId);
+        }
+      },
+    },
+    {
+      icon: Mail,
+      label: 'Email senden',
+      onClick: () => {
+        if (onSendEmail) {
+          onSendEmail(contextMenu.bookingId);
+        }
+      },
+    },
+    {
+      icon: Copy,
+      label: 'Duplizieren',
+      onClick: () => {
+        // TODO: Implement duplicate
+        console.log('Duplizieren:', contextMenu.bookingId);
+      },
+      disabled: true, // Coming soon
+    },
+    {
+      icon: XCircle,
+      label: 'Stornieren',
+      variant: 'danger' as const,
+      onClick: () => {
+        if (onBookingCancel) {
+          onBookingCancel(contextMenu.bookingId);
+        }
+      },
+    },
+  ] : [];
+
+  // Drag-to-Create Handlers
+  const handleCreateDragStart = useCallback((roomId: number, dayIndex: number) => {
+    console.log('🎨 Drag-to-Create START:', { roomId, dayIndex });
+    setIsCreatingBooking(true);
+    setCreateDragStart({ roomId, dayIndex });
+    setCreateDragPreview({ roomId, startDay: dayIndex, endDay: dayIndex });
+  }, []);
+
+  const handleCreateDragMove = useCallback((roomId: number, dayIndex: number) => {
+    if (!isCreatingBooking || !createDragStart) return;
+
+    // Only allow dragging within same room
+    if (roomId === createDragStart.roomId) {
+      const startDay = Math.min(createDragStart.dayIndex, dayIndex);
+      const endDay = Math.max(createDragStart.dayIndex, dayIndex);
+      setCreateDragPreview({ roomId, startDay, endDay });
+    }
+  }, [isCreatingBooking, createDragStart]);
+
+  const handleCreateDragEnd = useCallback(() => {
+    if (!isCreatingBooking || !createDragStart || !createDragPreview || !onCreateBooking) {
+      setIsCreatingBooking(false);
+      setCreateDragStart(null);
+      setCreateDragPreview(null);
+      return;
+    }
+
+    console.log('🎨 Drag-to-Create END:', createDragPreview);
+
+    // Calculate dates
+    const startDate = format(addDays(defaultStart, createDragPreview.startDay), 'yyyy-MM-dd');
+    const endDate = format(addDays(defaultStart, createDragPreview.endDay + 1), 'yyyy-MM-dd'); // +1 for inclusive end
+
+    // Call create callback
+    onCreateBooking(createDragPreview.roomId, startDate, endDate);
+
+    // Reset state
+    setIsCreatingBooking(false);
+    setCreateDragStart(null);
+    setCreateDragPreview(null);
+  }, [isCreatingBooking, createDragStart, createDragPreview, onCreateBooking, defaultStart]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -938,6 +1107,9 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
                   {days.map((day, dayIdx) => {
                     const isWeekend = format(day, 'i') === '6' || format(day, 'i') === '7';
                     const hasOverlapHere = overlapDropZone?.roomId === room.id && overlapDropZone?.dayIndex === dayIdx;
+                    const isInCreatePreview = createDragPreview?.roomId === room.id &&
+                                              dayIdx >= (createDragPreview?.startDay ?? 0) &&
+                                              dayIdx <= (createDragPreview?.endDay ?? 0);
                     return (
                       <DroppableCell
                         key={dayIdx}
@@ -947,6 +1119,10 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
                         cellWidth={density.cellWidth}
                         rowHeight={density.rowHeight}
                         hasOverlap={hasOverlapHere}
+                        isCreateDragPreview={isInCreatePreview}
+                        onCreateDragStart={handleCreateDragStart}
+                        onCreateDragMove={handleCreateDragMove}
+                        onCreateDragEnd={handleCreateDragEnd}
                       />
                     );
                   })}
@@ -964,7 +1140,10 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
                           booking={booking}
                           position={pos}
                           rowHeight={density.rowHeight}
+                          cellWidth={density.cellWidth}
                           onResize={handleResize}
+                          onClick={onBookingClick}
+                          onContextMenu={handleContextMenu}
                         />
                       );
                     })}
@@ -1002,10 +1181,21 @@ export default function TapeChart({ startDate, endDate }: TapeChartProps) {
               booking={activeBooking}
               position={getBookingPosition(activeBooking)}
               rowHeight={density.rowHeight}
+              cellWidth={density.cellWidth}
               isOverlay={true}
             />
           ) : null}
         </DragOverlay>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            items={contextMenuItems}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
       </div>
     </DndContext>
   );
