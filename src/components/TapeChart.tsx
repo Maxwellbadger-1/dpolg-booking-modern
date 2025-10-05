@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
@@ -19,7 +19,11 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import ContextMenu, { ContextMenuItem } from './ContextMenu';
-import { Edit2, Mail, XCircle, Copy } from 'lucide-react';
+import { Edit2, Mail, XCircle, X } from 'lucide-react';
+import ChangeConfirmationDialog from './TapeChart/ChangeConfirmationDialog';
+import TapeChartFilters from './TapeChart/TapeChartFilters';
+import TodayLine from './TapeChart/TodayLine';
+import { filterBookings, getUniqueRoomTypes } from './TapeChart/TapeChartHelpers';
 
 interface Room {
   id: number;
@@ -126,9 +130,12 @@ interface DraggableBookingProps {
   onClick?: (bookingId: number) => void; // NEW: Click handler
   onContextMenu?: (bookingId: number, x: number, y: number) => void; // NEW: Context menu
   hasOverlap?: boolean; // Red overlay when drag has overlap
+  isPending?: boolean; // NEW: Shows save/discard buttons
+  onManualSave?: () => void; // NEW: Manual save handler
+  onManualDiscard?: () => void; // NEW: Manual discard handler
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false, isPending = false, onManualSave, onManualDiscard }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -139,7 +146,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
   const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({
     id: `booking-${booking.id}`,
     data: booking,
-    disabled: isResizing, // Disable drag during resize
+    disabled: isResizing || isPending, // Disable drag during resize OR wenn pending
   });
 
   const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt;
@@ -170,6 +177,9 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (isOverlay) return;
 
+    // ALWAYS stop propagation to prevent DroppableCell drag-to-create
+    e.stopPropagation();
+
     // Track click start position
     clickStartPos.current = { x: e.clientX, y: e.clientY };
     hasMoved.current = false;
@@ -178,7 +188,6 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
 
     if (direction && onResize) {
       // Start resize
-      e.stopPropagation();
       setIsResizing(true);
       setResizeDirection(direction);
       dragStartX.current = e.clientX;
@@ -294,6 +303,12 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       ref={setNodeRef}
       {...attributes}
       onPointerDown={handlePointerDown}
+      onMouseDown={(e) => {
+        // Stop mouseDown from bubbling to DroppableCell
+        if (!isOverlay) {
+          e.stopPropagation();
+        }
+      }}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
       onContextMenu={(e) => {
@@ -305,7 +320,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         }
       }}
       className={cn(
-        isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2",
+        isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2 group",
         "flex items-center px-3 transition-all duration-200",
         !isOverlay && !isResizing && "hover:scale-[1.02] active:scale-95",
         "backdrop-blur-sm",
@@ -327,6 +342,36 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
           {booking.reservierungsnummer}
         </div>
       </div>
+      {/* Quick Actions entfernt - nur Context Menu (Rechtsklick) verwenden */}
+
+      {/* Manual Save/Discard Buttons (wenn Pending) */}
+      {isPending && onManualSave && onManualDiscard && (
+        <div className="absolute -top-10 right-0 flex gap-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onManualSave();
+            }}
+            className="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2 font-semibold text-sm transition-colors animate-pulse"
+            title="Änderungen speichern"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            Speichern
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onManualDiscard();
+            }}
+            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2 font-semibold text-sm transition-colors"
+            title="Änderungen verwerfen"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -353,8 +398,16 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
     <div
       ref={setNodeRef}
       onMouseDown={(e) => {
-        // Only start drag-to-create if clicking on empty space (not on a booking)
-        if (e.target === e.currentTarget && onCreateDragStart) {
+        console.log('🖱️ [DroppableCell] onMouseDown', {
+          target: e.target,
+          currentTarget: e.currentTarget,
+          isDirectClick: e.target === e.currentTarget,
+          hasHandler: !!onCreateDragStart
+        });
+
+        // Start drag-to-create on ANY click in the cell (not just direct)
+        // The booking cards will stop propagation if needed
+        if (onCreateDragStart) {
           e.preventDefault();
           onCreateDragStart(roomId, dayIndex);
         }
@@ -365,6 +418,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
         }
       }}
       onMouseUp={(e) => {
+        console.log('🖱️ [DroppableCell] onMouseUp', { hasHandler: !!onCreateDragEnd });
         if (onCreateDragEnd) {
           onCreateDragEnd();
         }
@@ -418,6 +472,16 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ bookingId: number; x: number; y: number } | null>(null);
 
+  // Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [roomTypeFilter, setRoomTypeFilter] = useState('all');
+
+  // Pending Changes State (for manual confirmation)
+  const [pendingBookingId, setPendingBookingId] = useState<number | null>(null);
+  const [pendingChange, setPendingChange] = useState<any | null>(null);
+  const [showChangeConfirmation, setShowChangeConfirmation] = useState(false);
+
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
     console.log('🔄 [TapeChart] useEffect: bookings changed', {
@@ -451,6 +515,17 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   const defaultEnd = endDate || endOfMonth(currentMonth);
 
   const days = eachDayOfInterval({ start: defaultStart, end: defaultEnd });
+
+  // Filter bookings
+  const filteredBookings = filterBookings(localBookings, searchQuery, statusFilter, roomTypeFilter);
+
+  // Get unique room types for filter
+  const uniqueRoomTypes = getUniqueRoomTypes(rooms);
+
+  // Calculate today's position for TodayLine
+  const today = startOfDay(new Date());
+  const todayIndex = days.findIndex(day => isSameDay(day, today));
+  const todayPosition = todayIndex !== -1 ? todayIndex * density.cellWidth + 250 : -1; // +250 for room name column
 
   const goToPreviousMonth = () => {
     setCurrentMonth(prev => subMonths(prev, 1));
@@ -618,20 +693,29 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     setDragHasOverlap(false);
     setOverlapDropZone(null);
 
-    // Save to database
-    invoke('update_booking_dates_and_room_command', {
-      id: activeBooking.id,
-      roomId: targetRoomId,
-      checkinDate: format(newCheckinDate, 'yyyy-MM-dd'),
-      checkoutDate: format(newCheckoutDate, 'yyyy-MM-dd'),
-    }).then(() => {
-      console.log('Buchung erfolgreich in DB gespeichert');
-      refreshAll(); // Refresh to get updated data
-    }).catch(err => {
-      console.error('Fehler beim Speichern der Buchung:', err);
-      alert('Fehler beim Speichern der Buchungsänderung');
-      refreshAll(); // Reload to get original state
-    });
+    // Store pending change for manual confirmation
+    const changeData = {
+      bookingId: activeBooking.id,
+      reservierungsnummer: activeBooking.reservierungsnummer,
+      guestName: `${activeBooking.guest.vorname} ${activeBooking.guest.nachname}`,
+      roomName: targetRoom.name,
+      oldData: pendingChange?.oldData || {
+        checkin_date: activeBooking.checkin_date,
+        checkout_date: activeBooking.checkout_date,
+        room_id: activeBooking.room_id,
+        gesamtpreis: activeBooking.gesamtpreis,
+      },
+      newData: {
+        checkin_date: format(newCheckinDate, 'yyyy-MM-dd'),
+        checkout_date: format(newCheckoutDate, 'yyyy-MM-dd'),
+        room_id: targetRoomId,
+        gesamtpreis: activeBooking.gesamtpreis, // TODO: Recalculate price
+      },
+    };
+
+    // Set pending state (zeigt Save-Button am Balken)
+    setPendingBookingId(activeBooking.id);
+    setPendingChange(changeData);
   };
 
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
@@ -702,27 +786,110 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         };
       });
 
-      // Save resize to database
+      // Store pending change for manual confirmation
       const booking = prev.find(b => b.id === bookingId);
       if (booking) {
-        invoke('update_booking_dates_and_room_command', {
-          id: bookingId,
-          roomId: booking.room_id,
-          checkinDate: format(newCheckin, 'yyyy-MM-dd'),
-          checkoutDate: format(newCheckout, 'yyyy-MM-dd'),
-        }).then(() => {
-          console.log('Resize erfolgreich in DB gespeichert');
-          refreshAll();
-        }).catch(err => {
-          console.error('Fehler beim Speichern der Resize-Änderung:', err);
-          alert('Fehler beim Speichern der Buchungsänderung');
-          refreshAll();
+        setPendingChange(prevChange => {
+          const changeData = {
+            bookingId: booking.id,
+            reservierungsnummer: booking.reservierungsnummer,
+            guestName: `${booking.guest.vorname} ${booking.guest.nachname}`,
+            roomName: booking.room.name,
+            oldData: prevChange?.oldData || {
+              checkin_date: currentBooking.checkin_date,
+              checkout_date: currentBooking.checkout_date,
+              room_id: currentBooking.room_id,
+              gesamtpreis: currentBooking.gesamtpreis,
+            },
+            newData: {
+              checkin_date: format(newCheckin, 'yyyy-MM-dd'),
+              checkout_date: format(newCheckout, 'yyyy-MM-dd'),
+              room_id: booking.room_id,
+              gesamtpreis: booking.gesamtpreis, // TODO: Recalculate price
+            },
+          };
+          return changeData;
         });
+
+        // Set pending state (zeigt Save-Button am Balken)
+        setPendingBookingId(booking.id);
       }
 
       return updatedBookings;
     });
   }, [updateBooking, refreshAll]);
+
+  // Manual Confirmation Handlers
+  const handleManualSave = () => {
+    // User clicked save button → Show dialog
+    setShowChangeConfirmation(true);
+  };
+
+  const handleManualDiscard = () => {
+    // User clicked discard button → Reload original data
+    console.log('Änderungen verwerfen');
+    setPendingBookingId(null);
+    setPendingChange(null);
+    refreshAll(); // Reload original data
+  };
+
+  // Confirmation Dialog Handlers
+  const handleConfirmChange = async (sendEmail: boolean, sendInvoice: boolean) => {
+    if (!pendingChange) return;
+
+    try {
+      // Save to database
+      await invoke('update_booking_dates_and_room_command', {
+        id: pendingChange.bookingId,
+        roomId: pendingChange.newData.room_id,
+        checkinDate: pendingChange.newData.checkin_date,
+        checkoutDate: pendingChange.newData.checkout_date,
+      });
+
+      console.log('Buchung erfolgreich in DB gespeichert');
+
+      // Send email if requested
+      if (sendEmail) {
+        console.log('Buchungsbestätigung senden für Buchung:', pendingChange.bookingId);
+        try {
+          await invoke('send_confirmation_email_command', { bookingId: pendingChange.bookingId });
+          console.log('✅ Buchungsbestätigung erfolgreich versendet');
+        } catch (err) {
+          console.error('❌ Fehler beim Versenden der Buchungsbestätigung:', err);
+          alert('Buchung gespeichert, aber Email konnte nicht versendet werden: ' + err);
+        }
+      }
+
+      // Send invoice if requested
+      if (sendInvoice) {
+        console.log('Rechnung senden für Buchung:', pendingChange.bookingId);
+        try {
+          await invoke('send_invoice_email_command', { bookingId: pendingChange.bookingId });
+          console.log('✅ Rechnung erfolgreich versendet');
+        } catch (err) {
+          console.error('❌ Fehler beim Versenden der Rechnung:', err);
+          alert('Buchung gespeichert, aber Rechnung konnte nicht versendet werden: ' + err);
+        }
+      }
+
+      refreshAll(); // Refresh to get updated data
+      setPendingBookingId(null);
+      setPendingChange(null);
+      setShowChangeConfirmation(false);
+    } catch (err) {
+      console.error('Fehler beim Speichern der Buchung:', err);
+      alert('Fehler beim Speichern der Buchungsänderung');
+      refreshAll(); // Reload to get original state
+    }
+  };
+
+  const handleDiscardChange = () => {
+    console.log('Änderungen im Dialog verwerfen');
+    setPendingBookingId(null);
+    setPendingChange(null);
+    setShowChangeConfirmation(false);
+    refreshAll(); // Reload original data
+  };
 
   // Context Menu Handler
   const handleContextMenu = useCallback((bookingId: number, x: number, y: number) => {
@@ -734,28 +901,27 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       icon: Edit2,
       label: 'Bearbeiten',
       onClick: () => {
+        console.log('🖱️ [ContextMenu] Bearbeiten clicked', { bookingId: contextMenu.bookingId, hasHandler: !!onBookingEdit });
         if (onBookingEdit) {
           onBookingEdit(contextMenu.bookingId);
+        } else {
+          console.error('❌ onBookingEdit handler missing!');
         }
+        setContextMenu(null);
       },
     },
     {
       icon: Mail,
       label: 'Email senden',
       onClick: () => {
+        console.log('🖱️ [ContextMenu] Email clicked', { bookingId: contextMenu.bookingId, hasHandler: !!onSendEmail });
         if (onSendEmail) {
           onSendEmail(contextMenu.bookingId);
+        } else {
+          console.error('❌ onSendEmail handler missing!');
         }
+        setContextMenu(null);
       },
-    },
-    {
-      icon: Copy,
-      label: 'Duplizieren',
-      onClick: () => {
-        // TODO: Implement duplicate
-        console.log('Duplizieren:', contextMenu.bookingId);
-      },
-      disabled: true, // Coming soon
     },
     {
       icon: XCircle,
@@ -765,6 +931,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         if (onBookingCancel) {
           onBookingCancel(contextMenu.bookingId);
         }
+        setContextMenu(null);
       },
     },
   ] : [];
@@ -789,7 +956,15 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   }, [isCreatingBooking, createDragStart]);
 
   const handleCreateDragEnd = useCallback(() => {
+    console.log('🎨 [handleCreateDragEnd] CALLED', {
+      isCreatingBooking,
+      createDragStart,
+      createDragPreview,
+      onCreateBooking: !!onCreateBooking
+    });
+
     if (!isCreatingBooking || !createDragStart || !createDragPreview || !onCreateBooking) {
+      console.log('❌ [handleCreateDragEnd] ABORTED - missing data');
       setIsCreatingBooking(false);
       setCreateDragStart(null);
       setCreateDragPreview(null);
@@ -1012,9 +1187,21 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           </div>
         </div>
 
+        {/* Filter Bar */}
+        <TapeChartFilters
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          roomTypeFilter={roomTypeFilter}
+          onRoomTypeFilterChange={setRoomTypeFilter}
+          availableRoomTypes={uniqueRoomTypes}
+        />
+
         {/* Chart Container */}
         <div ref={chartContainerRef} className="flex-1 overflow-auto">
           <div className="relative">
+            {/* Today Line */}
+            <TodayLine position={todayPosition} visible={todayPosition > 0} />
+
             {/* Header */}
             <div className="sticky top-0 z-20 bg-white shadow-xl">
               <div className="flex">
@@ -1128,7 +1315,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                   })}
 
                   {/* Bookings */}
-                  {localBookings
+                  {filteredBookings
                     .filter((b) => b.room_id === room.id)
                     .map((booking) => {
                       const pos = getBookingPosition(booking);
@@ -1144,6 +1331,9 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                           onResize={handleResize}
                           onClick={onBookingClick}
                           onContextMenu={handleContextMenu}
+                          isPending={pendingBookingId === booking.id}
+                          onManualSave={handleManualSave}
+                          onManualDiscard={handleManualDiscard}
                         />
                       );
                     })}
@@ -1153,23 +1343,60 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
             })}
           </div>
 
-          {/* Legend */}
-          <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-8 py-5 shadow-2xl">
-            <div className="flex gap-8 justify-center items-center flex-wrap">
-              <div className="text-white font-bold text-sm uppercase tracking-wider mr-4">Status:</div>
-              {Object.entries(STATUS_COLORS).map(([status, colors]) => (
-                <div key={status} className="flex items-center gap-3 group cursor-pointer">
-                  <div className={cn(
-                    "w-8 h-8 rounded-lg border-2 transition-transform group-hover:scale-110",
-                    colors.bg,
-                    colors.border,
-                    colors.shadow
-                  )} />
-                  <span className="text-sm font-semibold capitalize text-white group-hover:text-blue-300 transition-colors">
-                    {status}
-                  </span>
-                </div>
-              ))}
+          {/* Status Filter Footer (Compact) */}
+          <div className="sticky bottom-0 left-0 right-0 z-30 bg-gradient-to-r from-slate-800 to-slate-900 border-t-2 border-slate-700 px-6 py-3 shadow-2xl">
+            <div className="flex gap-4 justify-center items-center flex-wrap">
+              <div className="text-slate-400 font-semibold text-xs uppercase tracking-wider mr-2">Status:</div>
+
+              {/* All Status Button */}
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all",
+                  statusFilter === 'all'
+                    ? "bg-blue-500 border-blue-400 text-white scale-105"
+                    : "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:border-slate-500"
+                )}
+              >
+                <div className="w-5 h-5 rounded border-2 border-current opacity-70" />
+                <span className="text-xs font-semibold">Alle</span>
+              </button>
+
+              {/* Individual Status Buttons */}
+              {Object.entries(STATUS_COLORS).map(([status, colors]) => {
+                const count = localBookings.filter(b => b.status === status).length;
+                const isActive = statusFilter === status;
+
+                return (
+                  <button
+                    key={status}
+                    onClick={() => setStatusFilter(status)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg border-2 transition-all",
+                      isActive
+                        ? "scale-105 shadow-lg"
+                        : "hover:scale-105",
+                      isActive ? colors.bg : "bg-slate-700",
+                      isActive ? colors.border : "border-slate-600",
+                      isActive ? "text-white" : "text-slate-300 hover:text-white"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-5 h-5 rounded border-2",
+                      isActive ? "border-white" : colors.border
+                    )} />
+                    <span className="text-xs font-semibold capitalize">
+                      {status}
+                    </span>
+                    <span className={cn(
+                      "ml-1 text-xs px-1.5 py-0.5 rounded",
+                      isActive ? "bg-white/20" : "bg-slate-600"
+                    )}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1194,6 +1421,15 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
             y={contextMenu.y}
             items={contextMenuItems}
             onClose={() => setContextMenu(null)}
+          />
+        )}
+
+        {/* Change Confirmation Dialog */}
+        {showChangeConfirmation && pendingChange && (
+          <ChangeConfirmationDialog
+            change={pendingChange}
+            onConfirm={handleConfirmChange}
+            onDiscard={handleDiscardChange}
           />
         )}
       </div>

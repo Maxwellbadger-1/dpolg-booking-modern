@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { DataProvider } from './context/DataContext';
+import { DataProvider, useData } from './context/DataContext';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
 import GuestList from './components/GuestManagement/GuestList';
@@ -10,7 +10,12 @@ import GuestDialog from './components/GuestManagement/GuestDialog';
 import SettingsDialog from './components/Settings/SettingsDialog';
 import EmailHistoryView from './components/Email/EmailHistoryView';
 import TemplatesManagement from './components/TemplatesManagement/TemplatesManagement';
-import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase } from 'lucide-react';
+import BookingDialog from './components/BookingManagement/BookingDialog';
+import EmailSelectionDialog from './components/BookingManagement/EmailSelectionDialog';
+import CancellationConfirmDialog from './components/BookingManagement/CancellationConfirmDialog';
+import QuickBookingFAB from './components/QuickBookingFAB';
+import StatisticsView from './components/Statistics/StatisticsView';
+import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -47,19 +52,23 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates';
+type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics';
 
-function App() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
-  const [loading, setLoading] = useState(true);
+function AppContent() {
+  const { rooms, bookings, loading, refreshAll, updateBookingStatus } = useData(); // Use Context directly!
   const [error, setError] = useState<string | null>(null);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [selectedBookingId, setSelectedBookingId] = useState<number | undefined>(undefined);
+  const [emailBookingId, setEmailBookingId] = useState<number | undefined>(undefined);
+  const [prefillData, setPrefillData] = useState<{ roomId?: number; checkinDate?: string; checkoutDate?: string } | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
+  const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | undefined>(undefined);
 
   useEffect(() => {
-    loadData();
     updateBookingStatuses(); // Status-Update bei App-Start
   }, []);
 
@@ -79,35 +88,41 @@ function App() {
       if (changedCount > 0) {
         console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
         // Daten neu laden wenn sich etwas geändert hat
-        loadData();
+        await refreshAll();
       }
     } catch (error) {
       console.error('❌ Fehler beim Status-Update:', error);
     }
   };
 
-  const loadData = async () => {
+  const confirmCancellation = async (sendEmail: boolean) => {
+    if (!bookingToCancel) return;
+
     try {
-      setLoading(true);
-      console.log('Loading rooms...');
-      const roomsData = await invoke<Room[]>('get_all_rooms');
-      console.log('Rooms loaded:', roomsData);
+      // Status auf "storniert" setzen mit Optimistic Update
+      await updateBookingStatus(bookingToCancel.id, 'storniert');
 
-      console.log('Loading bookings...');
-      const bookingsData = await invoke<BookingWithDetails[]>('get_all_bookings');
-      console.log('Bookings loaded:', bookingsData);
+      // Optional: Stornierungsbestätigung senden
+      if (sendEmail) {
+        try {
+          await invoke('send_cancellation_email_command', { bookingId: bookingToCancel.id });
+          console.log('Stornierungsbestätigung gesendet');
+        } catch (emailError) {
+          console.error('Fehler beim Senden der Stornierungsbestätigung:', emailError);
+        }
+      }
 
-      setRooms(roomsData);
-      setBookings(bookingsData);
-      setError(null);
-    } catch (err) {
-      console.error('FULL ERROR:', err);
-      console.error('Error type:', typeof err);
-      console.error('Error object:', JSON.stringify(err, null, 2));
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+      setShowCancellationConfirm(false);
+      setBookingToCancel(undefined);
+    } catch (error) {
+      console.error('Fehler beim Stornieren:', error);
+      alert('Fehler beim Stornieren: ' + error);
     }
+  };
+
+  const cancelCancellation = () => {
+    setShowCancellationConfirm(false);
+    setBookingToCancel(undefined);
   };
 
   if (loading) {
@@ -145,10 +160,10 @@ function App() {
     { id: 'rooms' as Tab, label: 'Zimmer', icon: Hotel },
     { id: 'templates' as Tab, label: 'Services & Rabatte', icon: Briefcase },
     { id: 'emails' as Tab, label: 'Email-Verlauf', icon: Mail },
+    { id: 'statistics' as Tab, label: 'Statistiken', icon: TrendingUp },
   ];
 
   return (
-    <DataProvider>
       <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header - Compact Single Row */}
       <header className="bg-gradient-to-r from-slate-800 to-slate-900 shadow-2xl border-b border-slate-700">
@@ -166,10 +181,14 @@ function App() {
               </div>
             </div>
 
-            {/* Stats Inline */}
+            {/* Stats Inline - Clickable */}
             <div className="flex items-center gap-6 border-l border-slate-600 pl-6">
-              <div className="flex items-center gap-2">
-                <div className="bg-blue-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-blue-500/20 p-1.5 rounded-lg group-hover:bg-blue-500/30 transition-colors">
                   <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
@@ -178,10 +197,14 @@ function App() {
                   <span className="text-lg font-bold text-white">{rooms.length}</span>
                   <span className="text-xs text-slate-400">Zimmer</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="flex items-center gap-2">
-                <div className="bg-emerald-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-emerald-500/20 p-1.5 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
                   <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
@@ -190,10 +213,14 @@ function App() {
                   <span className="text-lg font-bold text-white">{bookings.filter(b => b.status !== 'storniert').length}</span>
                   <span className="text-xs text-slate-400">Aktiv</span>
                 </div>
-              </div>
+              </button>
 
-              <div className="flex items-center gap-2">
-                <div className="bg-purple-500/20 p-1.5 rounded-lg">
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
+                title="Zu Statistiken navigieren"
+              >
+                <div className="bg-purple-500/20 p-1.5 rounded-lg group-hover:bg-purple-500/30 transition-colors">
                   <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
@@ -202,7 +229,7 @@ function App() {
                   <span className="text-lg font-bold text-white">{Math.round((bookings.filter(b => b.status !== 'storniert').length / rooms.length) * 100)}%</span>
                   <span className="text-xs text-slate-400">Auslastung</span>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -265,7 +292,39 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
-        {activeTab === 'dashboard' && <TapeChart />}
+        {activeTab === 'dashboard' && (
+          <TapeChart
+            onBookingClick={(bookingId) => {
+              setSelectedBookingId(bookingId);
+              setPrefillData(undefined);
+              setShowBookingDialog(true);
+            }}
+            onCreateBooking={(roomId, startDate, endDate) => {
+              console.log('🎨 Create Booking:', { roomId, startDate, endDate });
+              setSelectedBookingId(undefined);
+              setPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
+              setShowBookingDialog(true);
+            }}
+            onBookingEdit={(bookingId) => {
+              setSelectedBookingId(bookingId);
+              setPrefillData(undefined);
+              setShowBookingDialog(true);
+            }}
+            onBookingCancel={(bookingId) => {
+              const booking = bookings.find(b => b.id === bookingId);
+              if (!booking) return;
+
+              // Zeige CancellationConfirmDialog
+              setBookingToCancel({ id: booking.id, reservierungsnummer: booking.reservierungsnummer });
+              setShowCancellationConfirm(true);
+            }}
+            onSendEmail={(bookingId) => {
+              setEmailBookingId(bookingId);
+              setShowEmailDialog(true);
+            }}
+          />
+        )}
+        {activeTab === 'statistics' && <StatisticsView />}
         {activeTab === 'bookings' && <BookingList />}
         {activeTab === 'guests' && <GuestList />}
         {activeTab === 'rooms' && <RoomList />}
@@ -273,10 +332,13 @@ function App() {
         {activeTab === 'emails' && <EmailHistoryView />}
       </main>
 
+      {/* Floating Action Button - Always Visible */}
+      <QuickBookingFAB onClick={() => setShowBookingDialog(true)} />
+
       {/* DevTools - nur während Development */}
       <DevTools />
 
-      {/* Guest Dialog */}
+      {/* Dialogs */}
       <SettingsDialog
         isOpen={showSettingsDialog}
         onClose={() => setShowSettingsDialog(false)}
@@ -290,7 +352,60 @@ function App() {
           setShowGuestDialog(false);
         }}
       />
+
+      {/* Booking Dialog */}
+      <BookingDialog
+        isOpen={showBookingDialog}
+        onClose={() => {
+          setShowBookingDialog(false);
+          setSelectedBookingId(undefined);
+          setPrefillData(undefined);
+        }}
+        onSuccess={() => {
+          console.log('Buchung erfolgreich gespeichert');
+          setShowBookingDialog(false);
+          setSelectedBookingId(undefined);
+          setPrefillData(undefined);
+          // BookingDialog already calls createBooking/updateBooking which auto-refreshes!
+        }}
+        booking={selectedBookingId ? bookings.find(b => b.id === selectedBookingId) : undefined}
+        prefillData={prefillData}
+      />
+
+      {/* Email Selection Dialog */}
+      {emailBookingId && (() => {
+        const booking = bookings.find(b => b.id === emailBookingId);
+        return booking ? (
+          <EmailSelectionDialog
+            bookingId={emailBookingId}
+            guestEmail={booking.guest.email}
+            isOpen={showEmailDialog}
+            onClose={() => {
+              setShowEmailDialog(false);
+              setEmailBookingId(undefined);
+            }}
+          />
+        ) : null;
+      })()}
+
+      {/* Cancellation Confirm Dialog */}
+      {bookingToCancel && (
+        <CancellationConfirmDialog
+          isOpen={showCancellationConfirm}
+          reservierungsnummer={bookingToCancel.reservierungsnummer}
+          onConfirm={confirmCancellation}
+          onCancel={cancelCancellation}
+        />
+      )}
       </div>
+  );
+}
+
+// Wrapper component with DataProvider
+function App() {
+  return (
+    <DataProvider>
+      <AppContent />
     </DataProvider>
   );
 }

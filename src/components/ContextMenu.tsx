@@ -21,9 +21,12 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      // Use setTimeout to allow button onClick to fire first
+      setTimeout(() => {
+        if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+          onClose();
+        }
+      }, 0);
     };
 
     const handleEscape = (e: KeyboardEvent) => {

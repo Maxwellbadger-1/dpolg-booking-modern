@@ -67,6 +67,9 @@ interface DataContextType {
   createBooking: (data: any) => Promise<Booking>;
   updateBooking: (id: number, data: any) => Promise<Booking>;
   deleteBooking: (id: number) => Promise<void>;
+
+  // Optimistic Updates
+  updateBookingStatus: (id: number, status: string) => Promise<void>;
 }
 
 // Context
@@ -192,6 +195,35 @@ export function DataProvider({ children }: { children: ReactNode }) {
     await refreshRooms(); // Rooms könnten Verfügbarkeit ändern
   }, [refreshBookings, refreshRooms]);
 
+  // Optimistic Update für Booking Status
+  const updateBookingStatus = useCallback(async (id: number, status: string): Promise<void> => {
+    // 1. Alte Buchung sichern für Rollback
+    const oldBooking = bookings.find(b => b.id === id);
+
+    // 2. SOFORT im UI ändern (Optimistic Update)
+    setBookings(prev => prev.map(b =>
+      b.id === id ? { ...b, status } : b
+    ));
+
+    try {
+      // 3. Backend Update
+      await invoke('update_booking_status_command', { bookingId: id, newStatus: status });
+
+      // 4. Refresh um sicherzustellen dass alle Daten synchron sind
+      // (z.B. falls Backend weitere Änderungen vorgenommen hat)
+      await refreshBookings();
+    } catch (error) {
+      // 5. Rollback bei Fehler - alte Buchung wiederherstellen
+      if (oldBooking) {
+        setBookings(prev => prev.map(b =>
+          b.id === id ? oldBooking : b
+        ));
+      }
+      console.error('Fehler beim Aktualisieren des Buchungsstatus:', error);
+      throw error;
+    }
+  }, [bookings, refreshBookings]);
+
   const value: DataContextType = {
     // Data
     rooms,
@@ -215,6 +247,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     createBooking,
     updateBooking,
     deleteBooking,
+
+    // Optimistic Updates
+    updateBookingStatus,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -51,11 +51,7 @@ type SortField = 'reservierungsnummer' | 'guest' | 'room' | 'checkin' | 'checkou
 type SortDirection = 'asc' | 'desc' | null;
 
 export default function BookingList() {
-  const { deleteBooking } = useData();
-
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
@@ -73,31 +69,7 @@ export default function BookingList() {
   const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | null>(null);
   const [sendCancellationEmail, setSendCancellationEmail] = useState(false);
 
-  useEffect(() => {
-    loadBookings();
-    loadRooms();
-  }, []);
-
-  const loadBookings = async () => {
-    try {
-      setLoading(true);
-      const data = await invoke<Booking[]>('get_all_bookings');
-      setBookings(data);
-    } catch (error) {
-      console.error('Fehler beim Laden der Buchungen:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadRooms = async () => {
-    try {
-      const data = await invoke<Room[]>('get_all_rooms');
-      setRooms(data);
-    } catch (error) {
-      console.error('Fehler beim Laden der Zimmer:', error);
-    }
-  };
+  // Data is loaded automatically via DataContext - no need for manual loading!
 
   const handleDeleteBooking = (id: number, reservierungsnummer: string) => {
     setBookingToDelete({ id, reservierungsnummer });
@@ -122,7 +94,7 @@ export default function BookingList() {
         }
       }
 
-      await loadBookings(); // Reload für lokale Liste
+      await refreshAll(); // Auto-refresh via Context
       setShowDeleteConfirm(false);
       setBookingToDelete(null);
       setSendCancellationEmail(false);
@@ -149,10 +121,9 @@ export default function BookingList() {
       return;
     }
 
-    // Andere Status: Direkt ändern
+    // Andere Status: Direkt ändern mit Optimistic Update
     try {
-      await invoke('update_booking_status_command', { bookingId, newStatus });
-      await loadBookings();
+      await updateBookingStatus(bookingId, newStatus);
     } catch (error) {
       console.error('Fehler beim Ändern des Status:', error);
       alert('Fehler beim Ändern des Status: ' + (error instanceof Error ? error.message : String(error)));
@@ -163,11 +134,8 @@ export default function BookingList() {
     if (!bookingToCancel) return;
 
     try {
-      // Status auf "storniert" setzen
-      await invoke('update_booking_status_command', {
-        bookingId: bookingToCancel.id,
-        newStatus: 'storniert'
-      });
+      // Status auf "storniert" setzen mit Optimistic Update
+      await updateBookingStatus(bookingToCancel.id, 'storniert');
 
       // Optional: Stornierungsbestätigung senden
       if (sendEmail) {
@@ -179,7 +147,6 @@ export default function BookingList() {
         }
       }
 
-      await loadBookings();
       setShowCancellationConfirm(false);
       setBookingToCancel(null);
     } catch (error) {
@@ -196,7 +163,7 @@ export default function BookingList() {
   const handlePaymentChange = async (bookingId: number, isPaid: boolean) => {
     try {
       await invoke('update_booking_payment_command', { bookingId, bezahlt: isPaid });
-      await loadBookings();
+      await refreshAll();
     } catch (error) {
       console.error('Fehler beim Ändern des Bezahlt-Status:', error);
       alert('Fehler beim Ändern des Bezahlt-Status: ' + (error instanceof Error ? error.message : String(error)));
@@ -311,7 +278,7 @@ export default function BookingList() {
     return filtered;
   })();
 
-  if (loading) {
+  if (contextLoading) {
     return (
       <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 p-6 flex items-center justify-center">
         <div className="text-center">
@@ -605,7 +572,7 @@ export default function BookingList() {
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
         onSuccess={() => {
-          loadBookings();
+          refreshAll();
           setShowDialog(false);
         }}
         booking={selectedBooking}
