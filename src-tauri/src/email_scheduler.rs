@@ -187,25 +187,27 @@ pub struct ScheduledEmail {
 /// Zeigt alle geplanten automatischen Emails
 #[tauri::command]
 pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
+    println!("🔍 get_scheduled_emails called");
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
 
     let mut scheduled = Vec::new();
+    let today = crate::time_utils::now_utc_plus_2().format("%Y-%m-%d").to_string();
 
-    // 1. Check-in Erinnerungen (morgen)
-    let tomorrow = crate::time_utils::add_days(1)
-        .format("%Y-%m-%d").to_string();
+    // 1. Check-in Erinnerungen (alle zukünftigen Buchungen)
+    println!("📅 Searching for all future check-ins (from today: {})", today);
 
     let mut stmt = conn.prepare(
         "SELECT b.id, b.reservierungsnummer, b.checkin_date,
                 g.vorname, g.nachname, g.email
          FROM bookings b
          JOIN guests g ON b.guest_id = g.id
-         WHERE b.checkin_date = ?1
-         AND b.status != 'storniert'"
+         WHERE b.checkin_date > ?1
+         AND b.status != 'storniert'
+         ORDER BY b.checkin_date ASC"
     ).map_err(|e| format!("SQL Fehler: {}", e))?;
 
-    let checkin_reminders: Vec<_> = stmt.query_map([&tomorrow], |row| {
+    let checkin_reminders: Vec<_> = stmt.query_map([&today], |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
@@ -219,16 +221,27 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
     .filter_map(|r| r.ok())
     .collect();
 
+    println!("✅ Found {} future bookings for check-in reminders", checkin_reminders.len());
+
     for (booking_id, res_num, checkin, vorname, nachname, email) in checkin_reminders {
+        // Berechne das Datum für die Erinnerung (1 Tag vor Check-in)
+        let checkin_date = chrono::NaiveDate::parse_from_str(&checkin, "%Y-%m-%d")
+            .map_err(|e| format!("Fehler beim Parsen des Datums: {}", e))?;
+        let reminder_date = checkin_date - chrono::Duration::days(1);
+        let reminder_date_str = reminder_date.format("%Y-%m-%d").to_string();
+
         let already_sent: bool = conn.query_row(
             "SELECT COUNT(*) > 0
              FROM email_log
              WHERE booking_id = ?1
-             AND template_type = 'reminder'
-             AND status = 'sent'",
+             AND template_name LIKE '%Erinnerung%'
+             AND status = 'gesendet'",
             [booking_id],
             |row| row.get(0)
         ).unwrap_or(false);
+
+        println!("  Booking {}: checkin={}, reminder_date={}, already_sent={}",
+                 booking_id, checkin, reminder_date_str, already_sent);
 
         if !already_sent {
             scheduled.push(ScheduledEmail {
@@ -236,8 +249,8 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
                 reservierungsnummer: res_num.clone(),
                 guest_name: format!("{} {}", vorname, nachname),
                 guest_email: email,
-                email_type: "reminder".to_string(),
-                scheduled_date: tomorrow.clone(),
+                email_type: "Erinnerung".to_string(),
+                scheduled_date: reminder_date_str,
                 reason: format!("Check-in Erinnerung (1 Tag vor Check-in am {})", checkin),
             });
         }
@@ -278,13 +291,15 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
     .filter_map(|r| r.ok())
     .collect();
 
+    println!("✅ Found {} payment reminders", payment_reminders.len());
+
     for (booking_id, res_num, checkin, total, vorname, nachname, email) in payment_reminders {
         let last_reminder: Option<String> = conn.query_row(
             "SELECT sent_at
              FROM email_log
              WHERE booking_id = ?1
-             AND template_type = 'payment_reminder'
-             AND status = 'sent'
+             AND template_name LIKE '%Zahlungs%'
+             AND status = 'gesendet'
              ORDER BY sent_at DESC
              LIMIT 1",
             [booking_id],
@@ -311,12 +326,13 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
                 reservierungsnummer: res_num.clone(),
                 guest_name: format!("{} {}", vorname, nachname),
                 guest_email: email,
-                email_type: "payment_reminder".to_string(),
+                email_type: "Zahlungserinnerung".to_string(),
                 scheduled_date: next_send_date,
                 reason: format!("Unbezahlt ({:.2}€) - Check-in: {}", total, checkin),
             });
         }
     }
 
+    println!("📧 Total scheduled emails: {}", scheduled.len());
     Ok(scheduled)
 }

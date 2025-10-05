@@ -984,6 +984,20 @@ pub fn get_all_email_logs() -> Result<Vec<EmailLog>, String> {
     Ok(result)
 }
 
+/// Löscht einen Email-Log Eintrag
+pub fn delete_email_log(log_id: i64) -> Result<(), String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    conn.execute(
+        "DELETE FROM email_logs WHERE id = ?1",
+        [log_id],
+    ).map_err(|e| format!("Fehler beim Löschen des Email-Logs: {}", e))?;
+
+    println!("✅ Email-Log {} gelöscht", log_id);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

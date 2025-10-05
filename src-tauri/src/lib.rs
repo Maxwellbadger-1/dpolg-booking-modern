@@ -587,6 +587,11 @@ fn get_all_email_logs_command() -> Result<Vec<database::EmailLog>, String> {
 }
 
 #[tauri::command]
+fn delete_email_log_command(log_id: i64) -> Result<(), String> {
+    email::delete_email_log(log_id)
+}
+
+#[tauri::command]
 async fn send_payment_reminder_email_command(booking_id: i64) -> Result<String, String> {
     email::send_payment_reminder_email(booking_id).await
 }
@@ -768,6 +773,7 @@ pub fn run() {
             send_invoice_email_command,
             get_email_logs_for_booking_command,
             get_all_email_logs_command,
+            delete_email_log_command,
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,

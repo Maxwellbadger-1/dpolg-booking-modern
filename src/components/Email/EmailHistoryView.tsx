@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock } from 'lucide-react';
+import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock, Trash2 } from 'lucide-react';
 import { SELECT_SMALL_STYLES, SELECT_SMALL_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
 interface EmailLog {
@@ -43,6 +43,13 @@ export default function EmailHistoryView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Initial load: Load both lists
+  useEffect(() => {
+    loadAllEmailLogs();
+    loadScheduledEmails();
+  }, []);
+
+  // Load data when switching tabs
   useEffect(() => {
     if (activeTab === 'history') {
       loadAllEmailLogs();
@@ -167,6 +174,17 @@ export default function EmailHistoryView() {
       loadAllEmailLogs();
     } catch (err) {
       alert(`Fehler beim Senden: ${err}`);
+    }
+  };
+
+  const handleDelete = async (log: EmailLog) => {
+    if (!confirm(`Email-Log wirklich löschen?\n\nEmpfänger: ${log.recipient_email}\nBetreff: ${log.subject}`)) return;
+
+    try {
+      await invoke('delete_email_log_command', { logId: log.id });
+      loadAllEmailLogs();
+    } catch (err) {
+      alert(`Fehler beim Löschen: ${err}`);
     }
   };
 
@@ -419,14 +437,23 @@ export default function EmailHistoryView() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleResend(log)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
-                            title="Email erneut senden"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            Erneut senden
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleResend(log)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                              title="Email erneut senden"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              Erneut senden
+                            </button>
+                            <button
+                              onClick={() => handleDelete(log)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                              title="Löschen"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
