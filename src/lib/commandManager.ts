@@ -9,6 +9,19 @@
 
 import { Booking, Guest, Room } from '../types/booking';
 
+// EmailLog interface (from EmailHistoryView)
+interface EmailLog {
+  id: number;
+  booking_id: number;
+  guest_id: number;
+  template_name: string;
+  recipient_email: string;
+  subject: string;
+  status: string;
+  error_message: string | null;
+  sent_at: string;
+}
+
 // Command Interface
 export interface Command {
   execute: () => void;
@@ -301,6 +314,31 @@ export class DeleteRoomCommand implements Command {
 
   undo() {
     this.setRooms(prev => [...prev, this.room]);
+  }
+}
+
+// ============================================
+// EMAIL LOG COMMANDS
+// ============================================
+
+export class DeleteEmailLogCommand implements Command {
+  description: string;
+  timestamp: Date;
+
+  constructor(
+    private emailLog: EmailLog,
+    private setEmailLogs: React.Dispatch<React.SetStateAction<EmailLog[]>>
+  ) {
+    this.description = `Email-Log gelöscht: ${emailLog.recipient_email}`;
+    this.timestamp = new Date();
+  }
+
+  execute() {
+    this.setEmailLogs(prev => prev.filter(e => e.id !== this.emailLog.id));
+  }
+
+  undo() {
+    this.setEmailLogs(prev => [...prev, this.emailLog]);
   }
 }
 

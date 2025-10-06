@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock, Trash2 } from 'lucide-react';
 import { SELECT_SMALL_STYLES, SELECT_SMALL_BACKGROUND_STYLE } from '../../lib/selectStyles';
+import { commandManager, DeleteEmailLogCommand } from '../../lib/commandManager';
 
 interface EmailLog {
   id: number;
@@ -215,11 +216,18 @@ export default function EmailHistoryView() {
     if (!deleteDialog.log) return;
 
     setDeleting(true);
+
+    // Create and execute command (INSTANT UI update!)
+    const command = new DeleteEmailLogCommand(deleteDialog.log, setEmailLogs);
+    commandManager.executeCommand(command);
+    setDeleteDialog({ show: false, log: null });
+
     try {
+      // Backend sync (fire-and-forget, runs in background)
       await invoke('delete_email_log_command', { logId: deleteDialog.log.id });
-      loadAllEmailLogs();
-      setDeleteDialog({ show: false, log: null });
     } catch (err) {
+      // On error: Undo the command (instant rollback!)
+      commandManager.undo();
       alert(`Fehler beim Löschen: ${err}`);
     } finally {
       setDeleting(false);
