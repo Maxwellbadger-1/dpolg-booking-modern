@@ -43,6 +43,12 @@ export default function EmailHistoryView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Resend Dialog State
+  const [resendDialog, setResendDialog] = useState<{ show: boolean; log: EmailLog | null }>({ show: false, log: null });
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+
   // Initial load: Load both lists
   useEffect(() => {
     loadAllEmailLogs();
@@ -133,8 +139,15 @@ export default function EmailHistoryView() {
   };
 
   const formatDateTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleString('de-DE', {
+    // SQLite CURRENT_TIMESTAMP gibt UTC zurück
+    // Wir parsen es als UTC und konvertieren zu UTC+2
+    const date = new Date(dateStr.replace(' ', 'T') + 'Z'); // ISO Format mit Z für UTC
+
+    // Konvertiere zu UTC+2 (deutsche Zeit)
+    const offset = 2 * 60 * 60 * 1000; // 2 Stunden in Millisekunden
+    const localDate = new Date(date.getTime() + offset);
+
+    return localDate.toLocaleString('de-DE', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -143,12 +156,20 @@ export default function EmailHistoryView() {
     });
   };
 
-  const handleResend = async (log: EmailLog) => {
-    if (!confirm('Email wirklich erneut senden?')) return;
+  const handleResend = (log: EmailLog) => {
+    setResendDialog({ show: true, log });
+  };
+
+  const confirmResend = async () => {
+    if (!resendDialog.log) return;
+
+    setResending(true);
+    setResendError(null);
+    setResendSuccess(false);
 
     try {
       let commandName = '';
-      switch (log.template_name) {
+      switch (resendDialog.log.template_name) {
         case 'confirmation':
           commandName = 'send_confirmation_email_command';
           break;
@@ -165,15 +186,24 @@ export default function EmailHistoryView() {
           commandName = 'send_cancellation_email_command';
           break;
         default:
-          alert('Unbekannter Template-Typ');
+          setResendError('Unbekannter Template-Typ');
+          setResending(false);
           return;
       }
 
-      await invoke(commandName, { bookingId: log.booking_id });
-      alert('Email erfolgreich versendet!');
+      await invoke(commandName, { bookingId: resendDialog.log.booking_id });
+      setResendSuccess(true);
       loadAllEmailLogs();
+
+      // Auto-close nach 2 Sekunden bei Erfolg
+      setTimeout(() => {
+        setResendDialog({ show: false, log: null });
+        setResendSuccess(false);
+      }, 2000);
     } catch (err) {
-      alert(`Fehler beim Senden: ${err}`);
+      setResendError(`Fehler beim Senden: ${err}`);
+    } finally {
+      setResending(false);
     }
   };
 
@@ -532,6 +562,90 @@ export default function EmailHistoryView() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Custom Resend Confirmation Dialog */}
+      {resendDialog.show && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-3 bg-blue-500/10 rounded-xl">
+                <Send className="w-6 h-6 text-blue-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white">Email erneut senden</h2>
+            </div>
+
+            {resendSuccess ? (
+              <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg mb-6">
+                <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <p className="text-emerald-300">Email erfolgreich versendet!</p>
+              </div>
+            ) : resendError ? (
+              <div className="flex items-start gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg mb-6">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <p className="text-red-300">{resendError}</p>
+              </div>
+            ) : (
+              <div className="space-y-4 mb-6">
+                <p className="text-slate-300">
+                  Möchten Sie diese Email wirklich erneut senden?
+                </p>
+                {resendDialog.log && (
+                  <div className="bg-slate-700/50 rounded-lg p-4 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <Mail className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-slate-400">Empfänger</p>
+                        <p className="text-sm text-white font-medium truncate">{resendDialog.log.recipient_email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <FileText className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-slate-400">Betreff</p>
+                        <p className="text-sm text-white truncate">{resendDialog.log.subject}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              {!resendSuccess && (
+                <>
+                  <button
+                    onClick={() => {
+                      setResendDialog({ show: false, log: null });
+                      setResendError(null);
+                    }}
+                    disabled={resending}
+                    className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold rounded-lg transition-colors"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    onClick={confirmResend}
+                    disabled={resending}
+                    className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:text-blue-300 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    {resending ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Sende...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Senden
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

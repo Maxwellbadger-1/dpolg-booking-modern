@@ -193,6 +193,10 @@ export default function EmailTemplatesTab() {
                   <div><code className="text-blue-400">{'{gast_nachname}'}</code> - Nachname</div>
                   <div><code className="text-blue-400">{'{gast_email}'}</code> - Email-Adresse</div>
                   <div><code className="text-blue-400">{'{gast_telefon}'}</code> - Telefonnummer</div>
+                  <div><code className="text-blue-400">{'{gast_strasse}'}</code> - Straße <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{gast_plz}'}</code> - PLZ <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{gast_ort}'}</code> - Ort <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{gast_land}'}</code> - Land <span className="text-orange-400">NEU</span></div>
                 </div>
               </div>
 
@@ -205,6 +209,19 @@ export default function EmailTemplatesTab() {
                   <div><code className="text-blue-400">{'{checkout_date}'}</code> - Check-out Datum</div>
                   <div><code className="text-blue-400">{'{anzahl_gaeste}'}</code> - Anzahl Gäste</div>
                   <div><code className="text-blue-400">{'{anzahl_naechte}'}</code> - Anzahl Nächte</div>
+                  <div><code className="text-blue-400">{'{buchung_status}'}</code> - Status <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{bezahlt_status}'}</code> - Bezahlt/Offen <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{erstellt_am}'}</code> - Buchungsdatum <span className="text-orange-400">NEU</span></div>
+                </div>
+              </div>
+
+              {/* Mitreisende */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-cyan-400 mb-1.5">👥 Mitreisende/Begleitpersonen:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{anzahl_mitreisende}'}</code> - Anzahl <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{mitreisende_namen}'}</code> - Namen (Komma) <span className="text-orange-400">NEU</span></div>
+                  <div className="col-span-2"><code className="text-blue-400">{'{mitreisende_liste}'}</code> - Formatierte Liste <span className="text-orange-400">NEU</span></div>
                 </div>
               </div>
 
@@ -221,12 +238,24 @@ export default function EmailTemplatesTab() {
 
               {/* Preis-Daten */}
               <div className="mb-3">
-                <p className="text-xs font-semibold text-green-400 mb-1.5">💰 Preis-Daten:</p>
+                <p className="text-xs font-semibold text-green-400 mb-1.5">💰 Preis & Zahlung:</p>
                 <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
                   <div><code className="text-blue-400">{'{grundpreis}'}</code> - Grundpreis</div>
                   <div><code className="text-blue-400">{'{services_preis}'}</code> - Zusatzleistungen</div>
                   <div><code className="text-blue-400">{'{rabatt_preis}'}</code> - Rabatt</div>
                   <div><code className="text-blue-400">{'{gesamtpreis}'}</code> - Gesamtpreis</div>
+                  <div><code className="text-blue-400">{'{offener_betrag}'}</code> - Offener Betrag <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{zahlungsziel_tage}'}</code> - Zahlungsfrist (Tage) <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{zahlungsziel_datum}'}</code> - Zahlungsdatum <span className="text-orange-400">NEU</span></div>
+                </div>
+              </div>
+
+              {/* Services */}
+              <div className="mb-3">
+                <p className="text-xs font-semibold text-indigo-400 mb-1.5">🛎️ Zusatzleistungen:</p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs text-slate-400 ml-2">
+                  <div><code className="text-blue-400">{'{services_liste}'}</code> - Einfache Liste <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{services_details}'}</code> - Liste mit Preisen <span className="text-orange-400">NEU</span></div>
                 </div>
               </div>
 
@@ -242,9 +271,9 @@ export default function EmailTemplatesTab() {
                   <div><code className="text-blue-400">{'{firma_email}'}</code> - Email</div>
                   <div><code className="text-blue-400">{'{firma_website}'}</code> - Website</div>
                   <div><code className="text-blue-400">{'{firma_steuernummer}'}</code> - Steuernr.</div>
-                  <div><code className="text-blue-400">{'{firma_iban}'}</code> - IBAN</div>
-                  <div><code className="text-blue-400">{'{firma_bic}'}</code> - BIC</div>
-                  <div><code className="text-blue-400">{'{firma_bank}'}</code> - Bankname</div>
+                  <div><code className="text-blue-400">{'{firma_iban}'}</code> - IBAN <span className="text-orange-400">✓</span></div>
+                  <div><code className="text-blue-400">{'{firma_bic}'}</code> - BIC <span className="text-orange-400">✓</span></div>
+                  <div><code className="text-blue-400">{'{firma_kontoinhaber}'}</code> - Kontoinhaber <span className="text-orange-400">NEU</span></div>
                 </div>
               </div>
 

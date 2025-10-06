@@ -379,22 +379,33 @@ fn create_all_placeholders(
     guest: &crate::database::Guest,
     room: &crate::database::Room,
 ) -> std::collections::HashMap<String, String> {
-    use crate::database::get_company_settings;
+    use crate::database::{get_company_settings, get_booking_accompanying_guests, get_booking_services, get_payment_settings};
 
     let mut placeholders = std::collections::HashMap::new();
 
-    // Gast-Daten
+    // Gast-Daten (Basis)
     placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
     placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
     placeholders.insert("gast_email".to_string(), guest.email.clone());
     placeholders.insert("gast_telefon".to_string(), guest.telefon.clone());
 
-    // Buchungs-Daten
+    // Gast-Adresse (NEU)
+    placeholders.insert("gast_strasse".to_string(), guest.strasse.clone().unwrap_or_default());
+    placeholders.insert("gast_plz".to_string(), guest.plz.clone().unwrap_or_default());
+    placeholders.insert("gast_ort".to_string(), guest.ort.clone().unwrap_or_default());
+    placeholders.insert("gast_land".to_string(), "Deutschland".to_string()); // Default - kann später erweitert werden
+
+    // Buchungs-Daten (Basis)
     placeholders.insert("reservierungsnummer".to_string(), booking.reservierungsnummer.clone());
     placeholders.insert("checkin_date".to_string(), booking.checkin_date.clone());
     placeholders.insert("checkout_date".to_string(), booking.checkout_date.clone());
     placeholders.insert("anzahl_gaeste".to_string(), booking.anzahl_gaeste.to_string());
     placeholders.insert("anzahl_naechte".to_string(), booking.anzahl_naechte.to_string());
+
+    // Buchungs-Status (NEU)
+    placeholders.insert("buchung_status".to_string(), booking.status.clone());
+    placeholders.insert("bezahlt_status".to_string(), if booking.bezahlt { "Bezahlt".to_string() } else { "Offen".to_string() });
+    placeholders.insert("erstellt_am".to_string(), booking.reservierungsnummer.clone()); // TODO: created_at fehlt in BookingWithDetails
 
     // Zimmer-Daten
     placeholders.insert("zimmer_name".to_string(), room.name.clone());
@@ -406,11 +417,74 @@ fn create_all_placeholders(
         placeholders.insert("schluesselcode".to_string(), "Wird beim Check-in bekannt gegeben".to_string());
     }
 
+    // Mitreisende/Begleitpersonen (NEU)
+    if let Ok(accompanying) = get_booking_accompanying_guests(booking.id) {
+        placeholders.insert("anzahl_mitreisende".to_string(), accompanying.len().to_string());
+
+        // Formatierte Liste
+        let mut liste = String::new();
+        for (i, person) in accompanying.iter().enumerate() {
+            liste.push_str(&format!("{}. {} {}", i + 1, person.vorname, person.nachname));
+            if let Some(geburtsdatum) = &person.geburtsdatum {
+                liste.push_str(&format!(" (geb. {})", geburtsdatum));
+            }
+            liste.push('\n');
+        }
+        placeholders.insert("mitreisende_liste".to_string(), liste.trim().to_string());
+
+        // Komma-separierte Namen
+        let namen: Vec<String> = accompanying.iter()
+            .map(|p| format!("{} {}", p.vorname, p.nachname))
+            .collect();
+        placeholders.insert("mitreisende_namen".to_string(), namen.join(", "));
+    } else {
+        placeholders.insert("anzahl_mitreisende".to_string(), "0".to_string());
+        placeholders.insert("mitreisende_liste".to_string(), "Keine Begleitpersonen".to_string());
+        placeholders.insert("mitreisende_namen".to_string(), "".to_string());
+    }
+
     // Preis-Daten
     placeholders.insert("grundpreis".to_string(), format!("{:.2}", booking.grundpreis));
     placeholders.insert("services_preis".to_string(), format!("{:.2}", booking.services_preis));
     placeholders.insert("rabatt_preis".to_string(), format!("{:.2}", booking.rabatt_preis));
     placeholders.insert("gesamtpreis".to_string(), format!("{:.2}", booking.gesamtpreis));
+
+    // Zahlungs-Informationen (NEU)
+    if let Ok(payment_settings) = get_payment_settings() {
+        let zahlungsziel_tage = payment_settings.payment_due_days;
+        placeholders.insert("zahlungsziel_tage".to_string(), zahlungsziel_tage.to_string());
+
+        // Berechne Zahlungsziel-Datum (created_at + payment_due_days)
+        // TODO: created_at fehlt in BookingWithDetails, verwende vorläufig checkin_date
+        placeholders.insert("zahlungsziel_datum".to_string(), booking.checkin_date.clone());
+    } else {
+        placeholders.insert("zahlungsziel_tage".to_string(), "14".to_string());
+        placeholders.insert("zahlungsziel_datum".to_string(), "".to_string());
+    }
+
+    // Offener Betrag
+    let offener_betrag = if booking.bezahlt { 0.0 } else { booking.gesamtpreis };
+    placeholders.insert("offener_betrag".to_string(), format!("{:.2}", offener_betrag));
+
+    // Services/Zusatzleistungen (NEU)
+    if let Ok(services) = get_booking_services(booking.id) {
+        // Einfache Liste
+        let mut services_liste = String::new();
+        for (i, service) in services.iter().enumerate() {
+            services_liste.push_str(&format!("{}. {}\n", i + 1, service.service_name));
+        }
+        placeholders.insert("services_liste".to_string(), services_liste.trim().to_string());
+
+        // Details mit Preisen
+        let mut services_details = String::new();
+        for service in &services {
+            services_details.push_str(&format!("{}: {:.2} €\n", service.service_name, service.service_price));
+        }
+        placeholders.insert("services_details".to_string(), services_details.trim().to_string());
+    } else {
+        placeholders.insert("services_liste".to_string(), "Keine Zusatzleistungen".to_string());
+        placeholders.insert("services_details".to_string(), "".to_string());
+    }
 
     // Datums-Platzhalter
     placeholders.insert("heute".to_string(), crate::time_utils::format_today_de());
@@ -426,10 +500,17 @@ fn create_all_placeholders(
         placeholders.insert("firma_email".to_string(), company.email);
         placeholders.insert("firma_website".to_string(), company.website);
         placeholders.insert("firma_steuernummer".to_string(), company.tax_id);
-        // Bank-Daten vorerst leer lassen (müssen noch zu CompanySettings hinzugefügt werden)
+    }
+
+    // Bank-Daten aus payment_settings (NEU)
+    if let Ok(payment_settings) = get_payment_settings() {
+        placeholders.insert("firma_iban".to_string(), payment_settings.iban);
+        placeholders.insert("firma_bic".to_string(), payment_settings.bic);
+        placeholders.insert("firma_kontoinhaber".to_string(), payment_settings.account_holder);
+    } else {
         placeholders.insert("firma_iban".to_string(), "".to_string());
         placeholders.insert("firma_bic".to_string(), "".to_string());
-        placeholders.insert("firma_bank".to_string(), "".to_string());
+        placeholders.insert("firma_kontoinhaber".to_string(), "".to_string());
     }
 
     placeholders

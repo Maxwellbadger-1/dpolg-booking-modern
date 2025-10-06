@@ -8,10 +8,20 @@ use crate::email::{send_reminder_email, send_payment_reminder_email};
 pub fn start_email_scheduler() {
     thread::spawn(|| {
         loop {
-            // Warte 1 Stunde zwischen Checks (in Production: 24 Stunden empfohlen)
-            thread::sleep(Duration::from_secs(3600)); // 1 Stunde
+            // Lade scheduler_interval_hours aus notification_settings
+            let interval_hours = match get_scheduler_interval() {
+                Ok(hours) => hours,
+                Err(e) => {
+                    eprintln!("❌ Fehler beim Laden des Scheduler-Intervalls: {}. Verwende Default: 1 Stunde", e);
+                    1
+                }
+            };
 
-            println!("📧 Email-Scheduler: Prüfe anstehende Emails...");
+            // Warte X Stunden zwischen Checks (konfigurierbar via Settings)
+            let interval_secs = (interval_hours as u64) * 3600;
+            thread::sleep(Duration::from_secs(interval_secs));
+
+            println!("📧 Email-Scheduler: Prüfe anstehende Emails... (Intervall: {} Stunden)", interval_hours);
 
             // Check-in Erinnerungen versenden (1 Tag vor Check-in)
             if let Err(e) = check_and_send_checkin_reminders() {
@@ -26,10 +36,36 @@ pub fn start_email_scheduler() {
     });
 }
 
+/// Lädt das Scheduler-Intervall aus den notification_settings
+fn get_scheduler_interval() -> Result<i64, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let interval: i64 = conn.query_row(
+        "SELECT scheduler_interval_hours FROM notification_settings WHERE id = 1",
+        [],
+        |row| row.get(0)
+    ).map_err(|e| format!("Fehler beim Laden des Intervalls: {}", e))?;
+
+    Ok(interval)
+}
+
 /// Prüft und versendet Check-in Erinnerungen für Buchungen mit Check-in morgen
 fn check_and_send_checkin_reminders() -> Result<(), String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    // Prüfe ob Check-in Erinnerungen aktiviert sind
+    let enabled: bool = conn.query_row(
+        "SELECT checkin_reminders_enabled FROM notification_settings WHERE id = 1",
+        [],
+        |row| row.get(0)
+    ).unwrap_or(true); // Default: aktiviert
+
+    if !enabled {
+        println!("   ⏭️ Check-in Erinnerungen sind deaktiviert");
+        return Ok(());
+    }
 
     // Suche Buchungen mit Check-in MORGEN
     let tomorrow = crate::time_utils::add_days(1)
@@ -86,26 +122,38 @@ fn check_and_send_payment_reminders() -> Result<(), String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
 
-    // Hole reminder_after_days aus payment_settings
-    let reminder_after_days: i64 = conn.query_row(
-        "SELECT reminder_after_days FROM payment_settings WHERE id = 1",
+    // Prüfe ob Zahlungserinnerungen aktiviert sind
+    let enabled: bool = conn.query_row(
+        "SELECT payment_reminders_enabled FROM notification_settings WHERE id = 1",
         [],
         |row| row.get(0)
-    ).unwrap_or(30); // Default: 30 Tage
+    ).unwrap_or(true); // Default: aktiviert
+
+    if !enabled {
+        println!("   ⏭️ Zahlungserinnerungen sind deaktiviert");
+        return Ok(());
+    }
+
+    // Hole reminder_after_days aus notification_settings
+    let reminder_after_days: i64 = conn.query_row(
+        "SELECT payment_reminder_after_days FROM notification_settings WHERE id = 1",
+        [],
+        |row| row.get(0)
+    ).unwrap_or(14); // Default: 14 Tage
 
     // Berechne Datum vor X Tagen
     let reminder_date = crate::time_utils::add_days(-reminder_after_days)
         .format("%Y-%m-%d").to_string();
 
-    println!("   Suche unbezahlte Buchungen älter als {} Tage (vor {})", reminder_after_days, reminder_date);
+    println!("   Suche unbezahlte Buchungen erstellt vor {} (älter als {} Tage)", reminder_date, reminder_after_days);
 
-    // Suche unbezahlte Buchungen, die älter als reminder_after_days sind
+    // Suche unbezahlte Buchungen, die älter als reminder_after_days sind (basierend auf created_at)
     let mut stmt = conn.prepare(
         "SELECT b.id, b.reservierungsnummer
          FROM bookings b
          WHERE b.bezahlt = 0
          AND b.status != 'storniert'
-         AND date(b.checkin_date) <= date(?1)"
+         AND date(b.created_at) <= date(?1)"
     ).map_err(|e| format!("SQL Fehler: {}", e))?;
 
     let bookings: Vec<(i64, String)> = stmt.query_map([&reminder_date], |row| {
@@ -119,6 +167,13 @@ fn check_and_send_payment_reminders() -> Result<(), String> {
 
     // Versende Zahlungserinnerung für jede Buchung
     for (booking_id, reservation_num) in bookings {
+        // Hole repeat_days aus notification_settings für Wiederholungsintervall
+        let repeat_days: i64 = conn.query_row(
+            "SELECT payment_reminder_repeat_days FROM notification_settings WHERE id = 1",
+            [],
+            |row| row.get(0)
+        ).unwrap_or(14); // Default: 14 Tage
+
         // Prüfe wann letzte Zahlungserinnerung versendet wurde
         let last_reminder: Option<String> = conn.query_row(
             "SELECT sent_at
@@ -133,14 +188,14 @@ fn check_and_send_payment_reminders() -> Result<(), String> {
         ).ok();
 
         // Versende nur wenn noch keine Erinnerung versendet wurde
-        // ODER letzte Erinnerung mehr als 14 Tage her ist
+        // ODER letzte Erinnerung mehr als repeat_days Tage her ist
         let should_send = match &last_reminder {
             None => true,
             Some(last_sent) => {
-                // Parse last_sent und prüfe ob > 14 Tage her
-                let fourteen_days_ago = crate::time_utils::add_days(-14)
+                // Parse last_sent und prüfe ob > repeat_days her
+                let repeat_threshold = crate::time_utils::add_days(-repeat_days)
                     .format("%Y-%m-%d %H:%M:%S").to_string();
-                last_sent < &fourteen_days_ago
+                last_sent < &repeat_threshold
             }
         };
 
@@ -194,10 +249,18 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
     let mut scheduled = Vec::new();
     let today = crate::time_utils::now_utc_plus_2().format("%Y-%m-%d").to_string();
 
-    // 1. Check-in Erinnerungen (alle zukünftigen Buchungen)
-    println!("📅 Searching for all future check-ins (from today: {})", today);
+    // Prüfe ob Check-in Erinnerungen aktiviert sind
+    let checkin_enabled: bool = conn.query_row(
+        "SELECT checkin_reminders_enabled FROM notification_settings WHERE id = 1",
+        [],
+        |row| row.get(0)
+    ).unwrap_or(true); // Default: aktiviert
 
-    let mut stmt = conn.prepare(
+    // 1. Check-in Erinnerungen (alle zukünftigen Buchungen) - nur wenn aktiviert
+    if checkin_enabled {
+        println!("📅 Searching for all future check-ins (from today: {})", today);
+
+        let mut stmt = conn.prepare(
         "SELECT b.id, b.reservierungsnummer, b.checkin_date,
                 g.vorname, g.nachname, g.email
          FROM bookings b
@@ -255,82 +318,105 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
             });
         }
     }
+    } else {
+        println!("   ⏭️ Check-in Erinnerungen sind deaktiviert - keine geplanten Emails");
+    }
 
-    // 2. Zahlungserinnerungen
-    let reminder_after_days: i64 = conn.query_row(
-        "SELECT reminder_after_days FROM payment_settings WHERE id = 1",
+    // Prüfe ob Zahlungserinnerungen aktiviert sind
+    let payment_enabled: bool = conn.query_row(
+        "SELECT payment_reminders_enabled FROM notification_settings WHERE id = 1",
         [],
         |row| row.get(0)
-    ).unwrap_or(30);
+    ).unwrap_or(true); // Default: aktiviert
 
-    let reminder_date = crate::time_utils::add_days(-reminder_after_days)
-        .format("%Y-%m-%d").to_string();
-
-    let mut stmt2 = conn.prepare(
-        "SELECT b.id, b.reservierungsnummer, b.checkin_date, b.gesamtpreis,
-                g.vorname, g.nachname, g.email
-         FROM bookings b
-         JOIN guests g ON b.guest_id = g.id
-         WHERE b.bezahlt = 0
-         AND b.status != 'storniert'
-         AND date(b.checkin_date) <= date(?1)"
-    ).map_err(|e| format!("SQL Fehler: {}", e))?;
-
-    let payment_reminders: Vec<_> = stmt2.query_map([&reminder_date], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, f64>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, String>(5)?,
-            row.get::<_, String>(6)?,
-        ))
-    })
-    .map_err(|e| format!("Query Fehler: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
-
-    println!("✅ Found {} payment reminders", payment_reminders.len());
-
-    for (booking_id, res_num, checkin, total, vorname, nachname, email) in payment_reminders {
-        let last_reminder: Option<String> = conn.query_row(
-            "SELECT sent_at
-             FROM email_log
-             WHERE booking_id = ?1
-             AND template_name LIKE '%Zahlungs%'
-             AND status = 'gesendet'
-             ORDER BY sent_at DESC
-             LIMIT 1",
-            [booking_id],
+    // 2. Zahlungserinnerungen - nur wenn aktiviert
+    if payment_enabled {
+        let reminder_after_days: i64 = conn.query_row(
+            "SELECT payment_reminder_after_days FROM notification_settings WHERE id = 1",
+            [],
             |row| row.get(0)
-        ).ok();
+        ).unwrap_or(14); // Default: 14 Tage
 
-        let should_send = match &last_reminder {
-            None => true,
-            Some(last_sent) => {
-                let fourteen_days_ago = crate::time_utils::add_days(-14)
-                    .format("%Y-%m-%d %H:%M:%S").to_string();
-                last_sent < &fourteen_days_ago
-            }
-        };
+        let reminder_date = crate::time_utils::add_days(-reminder_after_days)
+            .format("%Y-%m-%d").to_string();
 
-        if should_send {
-            let next_send_date = match &last_reminder {
-                None => "Sofort".to_string(),
-                Some(_) => "In < 14 Tagen".to_string(),
+        println!("   Suche unbezahlte Buchungen erstellt vor {} (älter als {} Tage)", reminder_date, reminder_after_days);
+
+        let mut stmt2 = conn.prepare(
+            "SELECT b.id, b.reservierungsnummer, b.checkin_date, b.gesamtpreis,
+                    g.vorname, g.nachname, g.email
+             FROM bookings b
+             JOIN guests g ON b.guest_id = g.id
+             WHERE b.bezahlt = 0
+             AND b.status != 'storniert'
+             AND date(b.created_at) <= date(?1)"
+        ).map_err(|e| format!("SQL Fehler: {}", e))?;
+
+        let payment_reminders: Vec<_> = stmt2.query_map([&reminder_date], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|e| format!("Query Fehler: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+        println!("✅ Found {} payment reminders", payment_reminders.len());
+
+        // Hole repeat_days für Wiederholungsintervall
+        let repeat_days: i64 = conn.query_row(
+            "SELECT payment_reminder_repeat_days FROM notification_settings WHERE id = 1",
+            [],
+            |row| row.get(0)
+        ).unwrap_or(14); // Default: 14 Tage
+
+        for (booking_id, res_num, checkin, total, vorname, nachname, email) in payment_reminders {
+            let last_reminder: Option<String> = conn.query_row(
+                "SELECT sent_at
+                 FROM email_log
+                 WHERE booking_id = ?1
+                 AND template_name LIKE '%Zahlungs%'
+                 AND status = 'gesendet'
+                 ORDER BY sent_at DESC
+                 LIMIT 1",
+                [booking_id],
+                |row| row.get(0)
+            ).ok();
+
+            let should_send = match &last_reminder {
+                None => true,
+                Some(last_sent) => {
+                    let repeat_threshold = crate::time_utils::add_days(-repeat_days)
+                        .format("%Y-%m-%d %H:%M:%S").to_string();
+                    last_sent < &repeat_threshold
+                }
             };
 
-            scheduled.push(ScheduledEmail {
-                booking_id,
-                reservierungsnummer: res_num.clone(),
-                guest_name: format!("{} {}", vorname, nachname),
-                guest_email: email,
-                email_type: "Zahlungserinnerung".to_string(),
-                scheduled_date: next_send_date,
-                reason: format!("Unbezahlt ({:.2}€) - Check-in: {}", total, checkin),
-            });
+            if should_send {
+                let next_send_date = match &last_reminder {
+                    None => "Sofort".to_string(),
+                    Some(_) => "In < 14 Tagen".to_string(),
+                };
+
+                scheduled.push(ScheduledEmail {
+                    booking_id,
+                    reservierungsnummer: res_num.clone(),
+                    guest_name: format!("{} {}", vorname, nachname),
+                    guest_email: email,
+                    email_type: "Zahlungserinnerung".to_string(),
+                    scheduled_date: next_send_date,
+                    reason: format!("Unbezahlt ({:.2}€) - Check-in: {}", total, checkin),
+                });
+            }
         }
+    } else {
+        println!("   ⏭️ Zahlungserinnerungen sind deaktiviert - keine geplanten Emails");
     }
 
     println!("📧 Total scheduled emails: {}", scheduled.len());

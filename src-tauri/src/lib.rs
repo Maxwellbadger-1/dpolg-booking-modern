@@ -590,8 +590,24 @@ async fn send_reminder_email_command(booking_id: i64) -> Result<String, String> 
 }
 
 #[tauri::command]
-async fn send_invoice_email_command(booking_id: i64) -> Result<String, String> {
-    email::send_invoice_email(booking_id).await
+async fn send_invoice_email_command(app: tauri::AppHandle, booking_id: i64) -> Result<String, String> {
+    use crate::pdf_generator_html::generate_invoice_pdf_html;
+    use crate::database::get_booking_with_details_by_id;
+    use std::path::PathBuf;
+
+    // 1. Buchung laden
+    let booking = get_booking_with_details_by_id(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
+
+    // 2. PDF generieren
+    let pdf_path_str = generate_invoice_pdf_html(app, booking)
+        .map_err(|e| format!("Fehler beim Generieren des PDFs: {}", e))?;
+
+    // 3. String zu PathBuf konvertieren
+    let pdf_path = PathBuf::from(pdf_path_str);
+
+    // 4. Email mit PDF-Anhang senden
+    email::send_invoice_email_with_pdf(booking_id, pdf_path).await
 }
 
 #[tauri::command]
@@ -682,6 +698,18 @@ fn get_payment_settings_command() -> Result<database::PaymentSettings, String> {
 fn save_payment_settings_command(settings: database::PaymentSettings) -> Result<database::PaymentSettings, String> {
     database::save_payment_settings(settings)
         .map_err(|e| format!("Fehler beim Speichern der Zahlungseinstellungen: {}", e))
+}
+
+#[tauri::command]
+fn get_notification_settings_command() -> Result<database::NotificationSettings, String> {
+    database::get_notification_settings()
+        .map_err(|e| format!("Fehler beim Laden der Benachrichtigungseinstellungen: {}", e))
+}
+
+#[tauri::command]
+fn save_notification_settings_command(settings: database::NotificationSettings) -> Result<database::NotificationSettings, String> {
+    database::save_notification_settings(settings)
+        .map_err(|e| format!("Fehler beim Speichern der Benachrichtigungseinstellungen: {}", e))
 }
 
 #[tauri::command]
@@ -809,6 +837,8 @@ pub fn run() {
             // Payment Settings
             get_payment_settings_command,
             save_payment_settings_command,
+            get_notification_settings_command,
+            save_notification_settings_command,
             // PDF Generation
             pdf_generator::generate_invoice_pdf_command,
             pdf_generator::get_invoice_pdfs_for_booking_command,

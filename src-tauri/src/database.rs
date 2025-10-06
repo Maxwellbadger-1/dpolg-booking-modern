@@ -168,6 +168,18 @@ pub struct PaymentSettings {
     pub updated_at: String,
 }
 
+// Notification Settings (Email Scheduler Configuration)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    pub id: i64,
+    pub checkin_reminders_enabled: bool,
+    pub payment_reminders_enabled: bool,
+    pub payment_reminder_after_days: i64,
+    pub payment_reminder_repeat_days: i64,
+    pub scheduler_interval_hours: i64,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EmailTemplate {
     pub id: i64,
@@ -532,6 +544,27 @@ fn create_indexes(conn: &Connection) -> Result<()> {
             payment_text TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )",
+        [],
+    )?;
+
+    // Notification Settings Table (Email Scheduler Configuration)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS notification_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            checkin_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+            payment_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+            payment_reminder_after_days INTEGER NOT NULL DEFAULT 14,
+            payment_reminder_repeat_days INTEGER NOT NULL DEFAULT 14,
+            scheduler_interval_hours INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Standard Notification Settings einfügen (falls noch nicht vorhanden)
+    conn.execute(
+        "INSERT OR IGNORE INTO notification_settings (id, checkin_reminders_enabled, payment_reminders_enabled, payment_reminder_after_days, payment_reminder_repeat_days, scheduler_interval_hours)
+         VALUES (1, 1, 1, 14, 14, 1)",
         [],
     )?;
 
@@ -2244,6 +2277,60 @@ pub fn get_payment_settings() -> Result<PaymentSettings> {
             })
         },
     )
+}
+
+// ============================================================================
+// NOTIFICATION SETTINGS
+// ============================================================================
+
+pub fn get_notification_settings() -> Result<NotificationSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.query_row(
+        "SELECT id, checkin_reminders_enabled, payment_reminders_enabled,
+         payment_reminder_after_days, payment_reminder_repeat_days,
+         scheduler_interval_hours, updated_at
+         FROM notification_settings WHERE id = 1",
+        [],
+        |row| {
+            Ok(NotificationSettings {
+                id: row.get(0)?,
+                checkin_reminders_enabled: row.get(1)?,
+                payment_reminders_enabled: row.get(2)?,
+                payment_reminder_after_days: row.get(3)?,
+                payment_reminder_repeat_days: row.get(4)?,
+                scheduler_interval_hours: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+}
+
+pub fn save_notification_settings(settings: NotificationSettings) -> Result<NotificationSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.execute(
+        "UPDATE notification_settings
+         SET checkin_reminders_enabled = ?1,
+             payment_reminders_enabled = ?2,
+             payment_reminder_after_days = ?3,
+             payment_reminder_repeat_days = ?4,
+             scheduler_interval_hours = ?5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = 1",
+        rusqlite::params![
+            settings.checkin_reminders_enabled,
+            settings.payment_reminders_enabled,
+            settings.payment_reminder_after_days,
+            settings.payment_reminder_repeat_days,
+            settings.scheduler_interval_hours,
+        ],
+    )?;
+
+    // Return updated settings
+    get_notification_settings()
 }
 
 /// Speichert/Aktualisiert die Zahlungseinstellungen (id ist immer 1)

@@ -874,10 +874,16 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                   type="number"
                   required
                   min="1"
+                  max={rooms.find(r => r.id === formData.room_id)?.capacity || 10}
                   value={formData.anzahl_gaeste}
                   onChange={(e) => setFormData({ ...formData, anzahl_gaeste: parseInt(e.target.value) || 1 })}
                   className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-700 font-medium hover:border-slate-400 transition-colors"
                 />
+                {formData.room_id && rooms.find(r => r.id === formData.room_id) && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Max. Kapazität: {rooms.find(r => r.id === formData.room_id)?.capacity} Personen
+                  </p>
+                )}
               </div>
 
               <div>
@@ -964,12 +970,13 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
               />
             </div>
 
-            {/* Accompanying Guests */}
-            <div className="border border-slate-200 rounded-lg p-4">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-4">
-                <UserCheck className="w-4 h-4" />
-                Begleitpersonen
-              </h3>
+            {/* Accompanying Guests - nur anzeigen wenn mehr als 1 Gast */}
+            {formData.anzahl_gaeste > 1 && (
+              <div className="border border-slate-200 rounded-lg p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-4">
+                  <UserCheck className="w-4 h-4" />
+                  Begleitpersonen ({formData.anzahl_gaeste - 1} möglich)
+                </h3>
 
               {/* List of Accompanying Guests */}
               {accompanyingGuests.length > 0 && (
@@ -1035,7 +1042,8 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                   Begleitperson hinzufügen
                 </button>
               </div>
-            </div>
+              </div>
+            )}
 
             {/* Additional Services */}
             <div className="border border-slate-200 rounded-lg p-4">
