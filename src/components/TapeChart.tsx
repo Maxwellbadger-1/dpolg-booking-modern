@@ -303,12 +303,6 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       ref={setNodeRef}
       {...attributes}
       onPointerDown={handlePointerDown}
-      onMouseDown={(e) => {
-        // Stop mouseDown from bubbling to DroppableCell
-        if (!isOverlay) {
-          e.stopPropagation();
-        }
-      }}
       onPointerMove={handlePointerMove}
       onClick={handleClick}
       onContextMenu={(e) => {
@@ -323,7 +317,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2 group",
         "flex items-center px-3 transition-all duration-200",
         !isOverlay && !isResizing && "hover:scale-[1.02] active:scale-95",
-        "backdrop-blur-sm",
+        "backdrop-blur-sm select-none", // select-none prevents text selection
         isDragging && !isOverlay && "opacity-0",
         isResizing && "border-dashed border-4 scale-[1.02]",
         colors.bg,
@@ -331,7 +325,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         colors.text,
         colors.shadow
       )}
-      style={style}
+      style={{
+        ...style,
+        userSelect: 'none', // Prevent text selection
+        WebkitUserSelect: 'none', // Safari
+      }}
       title={`${booking.guest.vorname} ${booking.guest.nachname}\n${booking.reservierungsnummer}\n${booking.checkin_date} - ${booking.checkout_date}`}
     >
       <div className="flex-1 overflow-hidden">
@@ -398,27 +396,18 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
     <div
       ref={setNodeRef}
       onMouseDown={(e) => {
-        console.log('🖱️ [DroppableCell] onMouseDown', {
-          target: e.target,
-          currentTarget: e.currentTarget,
-          isDirectClick: e.target === e.currentTarget,
-          hasHandler: !!onCreateDragStart
-        });
-
-        // Start drag-to-create on ANY click in the cell (not just direct)
-        // The booking cards will stop propagation if needed
-        if (onCreateDragStart) {
+        // Only start drag-to-create if clicking directly on cell (not on booking)
+        if (e.target === e.currentTarget && onCreateDragStart) {
           e.preventDefault();
           onCreateDragStart(roomId, dayIndex);
         }
       }}
-      onMouseMove={(e) => {
+      onMouseEnter={() => {
         if (onCreateDragMove) {
           onCreateDragMove(roomId, dayIndex);
         }
       }}
-      onMouseUp={(e) => {
-        console.log('🖱️ [DroppableCell] onMouseUp', { hasHandler: !!onCreateDragEnd });
+      onMouseUp={() => {
         if (onCreateDragEnd) {
           onCreateDragEnd();
         }
@@ -826,11 +815,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   };
 
   const handleManualDiscard = () => {
-    // User clicked discard button → Reload original data
+    // User clicked discard button → Reset to original data
     console.log('Änderungen verwerfen');
+    // Reset local state to original bookings (undo visual changes)
+    setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
-    refreshAll(); // Reload original data
   };
 
   // Confirmation Dialog Handlers
@@ -885,10 +875,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
   const handleDiscardChange = () => {
     console.log('Änderungen im Dialog verwerfen');
+    // Reset local state to original bookings (undo visual changes)
+    setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
     setShowChangeConfirmation(false);
-    refreshAll(); // Reload original data
   };
 
   // Context Menu Handler
@@ -956,15 +947,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   }, [isCreatingBooking, createDragStart]);
 
   const handleCreateDragEnd = useCallback(() => {
-    console.log('🎨 [handleCreateDragEnd] CALLED', {
-      isCreatingBooking,
-      createDragStart,
-      createDragPreview,
-      onCreateBooking: !!onCreateBooking
-    });
-
     if (!isCreatingBooking || !createDragStart || !createDragPreview || !onCreateBooking) {
-      console.log('❌ [handleCreateDragEnd] ABORTED - missing data');
       setIsCreatingBooking(false);
       setCreateDragStart(null);
       setCreateDragPreview(null);
@@ -975,7 +958,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
     // Calculate dates
     const startDate = format(addDays(defaultStart, createDragPreview.startDay), 'yyyy-MM-dd');
-    const endDate = format(addDays(defaultStart, createDragPreview.endDay + 1), 'yyyy-MM-dd'); // +1 for inclusive end
+    const endDate = format(addDays(defaultStart, createDragPreview.endDay + 1), 'yyyy-MM-dd');
 
     // Call create callback
     onCreateBooking(createDragPreview.roomId, startDate, endDate);
@@ -1265,12 +1248,14 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
                 {/* Room sidebar */}
                 <div
-                  className={cn("sticky left-0 z-20 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border", density.padding)}
+                  className={cn("sticky left-0 z-20 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border select-none", density.padding)}
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
                     height: `${density.rowHeight}px`,
                     minWidth: `${SIDEBAR_WIDTH}px`,
                     maxWidth: `${SIDEBAR_WIDTH}px`,
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
                   }}
                 >
                   <div className={cn("font-bold text-slate-800 mb-1", density.fontSize)}>{room.name}</div>
