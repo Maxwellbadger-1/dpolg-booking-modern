@@ -35,6 +35,9 @@ export interface Booking {
   status: 'reserviert' | 'bestaetigt' | 'eingecheckt' | 'ausgecheckt' | 'storniert';
   gesamtpreis: number;
   bemerkungen?: string;
+  bezahlt: boolean;
+  bezahlt_am?: string | null;
+  zahlungsmethode?: string | null;
   created_at: string;
 }
 

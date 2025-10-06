@@ -1,5 +1,19 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  commandManager,
+  UpdateBookingStatusCommand,
+  UpdateBookingPaymentCommand,
+  CreateBookingCommand,
+  UpdateBookingCommand,
+  DeleteBookingCommand,
+  CreateGuestCommand,
+  UpdateGuestCommand,
+  DeleteGuestCommand,
+  CreateRoomCommand,
+  UpdateRoomCommand,
+  DeleteRoomCommand
+} from '../lib/commandManager';
 
 // Types
 interface Room {
@@ -129,15 +143,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Initial data load on mount
   useEffect(() => {
     refreshAll();
-
-    // Listen ONLY for UNDO operations (not regular mutations!)
-    const handleUndoRefresh = () => {
-      console.log('🔄 Global data refresh triggered by UNDO operation');
-      refreshAll();
-    };
-
-    window.addEventListener('undo-executed', handleUndoRefresh);
-    return () => window.removeEventListener('undo-executed', handleUndoRefresh);
+    // No more event listeners - Command Pattern handles undo/redo in frontend!
   }, [refreshAll]);
 
   // Room CRUD Operations
@@ -150,7 +156,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setRooms(prev => [...prev, room]);
 
       // 3. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return room;
     } catch (error) {
@@ -173,7 +178,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const room = await invoke<Room>('update_room_command', { id, ...data });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return room;
     } catch (error) {
@@ -199,7 +203,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('delete_room_command', { id });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 5. Rollback - Room wiederherstellen
       if (deletedRoom) {
@@ -219,7 +222,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setGuests(prev => [...prev, guest]);
 
       // 3. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return guest;
     } catch (error) {
@@ -242,7 +244,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const guest = await invoke<Guest>('update_guest_command', { id, ...data });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return guest;
     } catch (error) {
@@ -268,7 +269,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('delete_guest_command', { id });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 5. Rollback - Guest wiederherstellen
       if (deletedGuest) {
@@ -290,7 +290,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setBookings(prev => [...prev, booking]);
 
       // 3. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return booking;
     } catch (error) {
@@ -314,7 +313,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const booking = await invoke<Booking>('update_booking_command', { id, ...data });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return booking;
     } catch (error) {
@@ -340,7 +338,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('delete_booking_command', { id });
 
       // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 5. Rollback - Booking wiederherstellen
       if (deletedBooking) {
@@ -350,70 +347,62 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [bookings]);
 
-  // Optimistic Update für Booking Status
+  // Command Pattern: Update Booking Status (INSTANT UNDO/REDO!)
   const updateBookingStatus = useCallback(async (id: number, status: string): Promise<void> => {
-    // 1. Alte Buchung sichern für Rollback
     const oldBooking = bookings.find(b => b.id === id);
+    if (!oldBooking) return;
 
-    // 2. SOFORT im UI ändern (Optimistic Update)
-    setBookings(prev => prev.map(b =>
-      b.id === id ? { ...b, status } : b
-    ));
+    // Create and execute command (INSTANT UI update!)
+    const command = new UpdateBookingStatusCommand(
+      id,
+      oldBooking.status,
+      status,
+      setBookings
+    );
+    commandManager.executeCommand(command);
 
     try {
-      // 3. Backend Update
+      // Backend sync (fire-and-forget, runs in background)
       await invoke('update_booking_status_command', { bookingId: id, newStatus: status });
-
-      // 4. Trigger refresh-data event for Undo button (OHNE refreshBookings!)
-      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
-      // 5. Rollback bei Fehler - alte Buchung wiederherstellen
-      if (oldBooking) {
-        setBookings(prev => prev.map(b =>
-          b.id === id ? oldBooking : b
-        ));
-      }
+      // On error: Undo the command (instant rollback!)
+      commandManager.undo();
       console.error('Fehler beim Aktualisieren des Buchungsstatus:', error);
       throw error;
     }
   }, [bookings]);
 
-  // Optimistic Update für Booking Payment
+  // Command Pattern: Update Booking Payment (INSTANT UNDO/REDO!)
   const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string): Promise<void> => {
-    console.log('🔍 [DataContext] updateBookingPayment called:', { id, isPaid, zahlungsmethode });
-
-    // 1. Alte Buchung sichern für Rollback
     const oldBooking = bookings.find(b => b.id === id);
+    if (!oldBooking) return;
 
-    // 2. SOFORT im UI ändern (Optimistic Update)
-    setBookings(prev => prev.map(b =>
-      b.id === id ? {
-        ...b,
-        bezahlt: isPaid,
-        bezahlt_am: isPaid ? new Date().toISOString().split('T')[0] : null,
-        zahlungsmethode: isPaid ? (zahlungsmethode || 'Überweisung') : null
-      } : b
-    ));
+    const newPaidAt = isPaid ? new Date().toISOString().split('T')[0] : null;
+    const newMethod = isPaid ? (zahlungsmethode || 'Überweisung') : null;
+
+    // Create and execute command (INSTANT UI update!)
+    const command = new UpdateBookingPaymentCommand(
+      id,
+      oldBooking.bezahlt,
+      isPaid,
+      oldBooking.bezahlt_am || null,
+      newPaidAt,
+      oldBooking.zahlungsmethode || null,
+      newMethod,
+      setBookings
+    );
+    commandManager.executeCommand(command);
 
     try {
-      // 3. Backend Update mit Zahlungsmethode
-      console.log('🔍 [DataContext] Calling invoke update_booking_payment_command...');
+      // Backend sync (fire-and-forget, runs in background)
       await invoke('update_booking_payment_command', {
         bookingId: id,
         bezahlt: isPaid,
-        zahlungsmethode: isPaid ? zahlungsmethode : null
+        zahlungsmethode: newMethod
       });
-      console.log('✅ [DataContext] Backend update successful');
-
-      // 4. Trigger refresh-data event for Undo button (OHNE refreshBookings!)
-      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
-      // 5. Rollback bei Fehler
-      if (oldBooking) {
-        setBookings(prev => prev.map(b =>
-          b.id === id ? oldBooking : b
-        ));
-      }
+      // On error: Undo the command (instant rollback!)
+      commandManager.undo();
       console.error('Fehler beim Aktualisieren des Zahlungsstatus:', error);
       throw error;
     }
