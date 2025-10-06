@@ -318,6 +318,52 @@ export class DeleteRoomCommand implements Command {
 }
 
 // ============================================
+// TAPE CHART COMMANDS (Drag & Drop, Resize)
+// ============================================
+
+export class UpdateBookingDatesCommand implements Command {
+  description: string;
+  timestamp: Date;
+
+  constructor(
+    private bookingId: number,
+    private oldCheckinDate: string,
+    private newCheckinDate: string,
+    private oldCheckoutDate: string,
+    private newCheckoutDate: string,
+    private oldRoomId: number,
+    private newRoomId: number,
+    private setBookings: React.Dispatch<React.SetStateAction<Booking[]>>
+  ) {
+    const formatDate = (date: string) => new Date(date).toLocaleDateString('de-DE');
+    this.description = `Buchung verschoben: ${formatDate(oldCheckinDate)} → ${formatDate(newCheckinDate)}`;
+    this.timestamp = new Date();
+  }
+
+  execute() {
+    this.setBookings(prev => prev.map(b =>
+      b.id === this.bookingId ? {
+        ...b,
+        checkin_date: this.newCheckinDate,
+        checkout_date: this.newCheckoutDate,
+        room_id: this.newRoomId
+      } : b
+    ));
+  }
+
+  undo() {
+    this.setBookings(prev => prev.map(b =>
+      b.id === this.bookingId ? {
+        ...b,
+        checkin_date: this.oldCheckinDate,
+        checkout_date: this.oldCheckoutDate,
+        room_id: this.oldRoomId
+      } : b
+    ));
+  }
+}
+
+// ============================================
 // EMAIL LOG COMMANDS
 // ============================================
 

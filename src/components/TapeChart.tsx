@@ -4,6 +4,7 @@ import { de } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
 import { cn } from '../lib/utils';
 import { useData } from '../context/DataContext';
+import { commandManager, UpdateBookingDatesCommand } from '../lib/commandManager';
 import {
   DndContext,
   DragEndEvent,
@@ -439,7 +440,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
 
 export default function TapeChart({ startDate, endDate, onBookingClick, onCreateBooking, onBookingEdit, onBookingCancel, onSendEmail }: TapeChartProps) {
   // Get data from global context
-  const { rooms, bookings, refreshAll, updateBooking } = useData();
+  const { rooms, bookings, updateBooking } = useData();
 
   console.log('🎨 [TapeChart] Render:', {
     roomsCount: rooms.length,
@@ -812,7 +813,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
       return updatedBookings;
     });
-  }, [updateBooking, refreshAll]);
+  }, [updateBooking]);
 
   // Manual Confirmation Handlers
   const handleManualSave = () => {
@@ -829,12 +830,30 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     setPendingChange(null);
   };
 
-  // Confirmation Dialog Handlers
+  // Confirmation Dialog Handlers (Command Pattern - NO REFRESH!)
   const handleConfirmChange = async (sendEmail: boolean, sendInvoice: boolean) => {
     if (!pendingChange) return;
 
+    const oldBooking = bookings.find(b => b.id === pendingChange.bookingId);
+    if (!oldBooking) return;
+
+    // Create command for undo/redo support
+    const command = new UpdateBookingDatesCommand(
+      pendingChange.bookingId,
+      oldBooking.checkin_date,
+      pendingChange.newData.checkin_date,
+      oldBooking.checkout_date,
+      pendingChange.newData.checkout_date,
+      oldBooking.room_id,
+      pendingChange.newData.room_id,
+      setLocalBookings as any // Type workaround for BookingWithDetails
+    );
+
+    // Execute command (already done via localBookings, but register for undo)
+    commandManager.executeCommand(command);
+
     try {
-      // Save to database
+      // Backend sync (fire-and-forget)
       await invoke('update_booking_dates_and_room_command', {
         id: pendingChange.bookingId,
         roomId: pendingChange.newData.room_id,
@@ -842,11 +861,8 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         checkoutDate: pendingChange.newData.checkout_date,
       });
 
-      console.log('Buchung erfolgreich in DB gespeichert');
-
       // Send email if requested
       if (sendEmail) {
-        console.log('Buchungsbestätigung senden für Buchung:', pendingChange.bookingId);
         try {
           await invoke('send_confirmation_email_command', { bookingId: pendingChange.bookingId });
           console.log('✅ Buchungsbestätigung erfolgreich versendet');
@@ -858,7 +874,6 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
       // Send invoice if requested
       if (sendInvoice) {
-        console.log('Rechnung senden für Buchung:', pendingChange.bookingId);
         try {
           await invoke('send_invoice_email_command', { bookingId: pendingChange.bookingId });
           console.log('✅ Rechnung erfolgreich versendet');
@@ -868,14 +883,15 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         }
       }
 
-      refreshAll(); // Refresh to get updated data
+      // NO refreshAll()! Command Pattern keeps UI in sync
       setPendingBookingId(null);
       setPendingChange(null);
       setShowChangeConfirmation(false);
     } catch (err) {
+      // On error: Undo the command (instant rollback!)
+      commandManager.undo();
       console.error('Fehler beim Speichern der Buchung:', err);
       alert('Fehler beim Speichern der Buchungsänderung');
-      refreshAll(); // Reload to get original state
     }
   };
 

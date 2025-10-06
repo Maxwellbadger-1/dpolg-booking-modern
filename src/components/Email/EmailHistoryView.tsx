@@ -60,11 +60,10 @@ export default function EmailHistoryView() {
     loadScheduledEmails();
   }, []);
 
-  // Load data when switching tabs
+  // Load data when switching tabs (ONLY on mount, not on every tab switch)
+  // This prevents overwriting Command Pattern state changes
   useEffect(() => {
-    if (activeTab === 'history') {
-      loadAllEmailLogs();
-    } else {
+    if (activeTab === 'scheduled') {
       loadScheduledEmails();
     }
   }, [activeTab]);
