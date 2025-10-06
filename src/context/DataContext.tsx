@@ -37,6 +37,9 @@ interface Booking {
   status: string;
   gesamtpreis: number;
   bemerkungen?: string;
+  bezahlt: boolean;
+  bezahlt_am?: string | null;
+  zahlungsmethode?: string | null;
   room: Room;
   guest: Guest;
 }
@@ -70,6 +73,7 @@ interface DataContextType {
 
   // Optimistic Updates
   updateBookingStatus: (id: number, status: string) => Promise<void>;
+  updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string) => Promise<void>;
 }
 
 // Context
@@ -224,6 +228,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [bookings, refreshBookings]);
 
+  // Optimistic Update für Booking Payment
+  const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string): Promise<void> => {
+    // 1. Alte Buchung sichern für Rollback
+    const oldBooking = bookings.find(b => b.id === id);
+
+    // 2. SOFORT im UI ändern (Optimistic Update)
+    setBookings(prev => prev.map(b =>
+      b.id === id ? {
+        ...b,
+        bezahlt: isPaid,
+        bezahlt_am: isPaid ? new Date().toISOString().split('T')[0] : null,
+        zahlungsmethode: isPaid ? (zahlungsmethode || 'Überweisung') : null
+      } : b
+    ));
+
+    try {
+      // 3. Backend Update mit Zahlungsmethode
+      await invoke('update_booking_payment_command', {
+        bookingId: id,
+        bezahlt: isPaid,
+        zahlungsmethode: isPaid ? zahlungsmethode : null
+      });
+
+      // 4. Refresh um echte Daten vom Backend zu holen
+      await refreshBookings();
+    } catch (error) {
+      // 5. Rollback bei Fehler
+      if (oldBooking) {
+        setBookings(prev => prev.map(b =>
+          b.id === id ? oldBooking : b
+        ));
+      }
+      console.error('Fehler beim Aktualisieren des Zahlungsstatus:', error);
+      throw error;
+    }
+  }, [bookings, refreshBookings]);
+
   const value: DataContextType = {
     // Data
     rooms,
@@ -250,6 +291,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     // Optimistic Updates
     updateBookingStatus,
+    updateBookingPayment,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

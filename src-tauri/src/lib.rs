@@ -9,6 +9,7 @@ mod pdf_generator;
 mod pdf_generator_html;
 mod time_utils;
 mod email_scheduler;
+mod backup;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -663,8 +664,9 @@ fn update_booking_status_command(
 fn update_booking_payment_command(
     booking_id: i64,
     bezahlt: bool,
+    zahlungsmethode: Option<String>,
 ) -> Result<database::Booking, String> {
-    database::update_booking_payment(booking_id, bezahlt)
+    database::update_booking_payment(booking_id, bezahlt, zahlungsmethode)
         .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))
 }
 
@@ -744,6 +746,72 @@ fn upload_logo_command(app: tauri::AppHandle, source_path: String) -> Result<Str
     println!("✅ Logo erfolgreich hochgeladen: {}", result);
 
     Ok(result)
+}
+
+// ============================================================================
+// BACKUP COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn create_backup_command(app: tauri::AppHandle) -> Result<backup::BackupInfo, String> {
+    backup::create_backup(&app)
+}
+
+#[tauri::command]
+fn list_backups_command(app: tauri::AppHandle) -> Result<Vec<backup::BackupInfo>, String> {
+    backup::list_backups(&app)
+}
+
+#[tauri::command]
+fn restore_backup_command(backup_path: String) -> Result<String, String> {
+    backup::restore_backup(backup_path)
+}
+
+#[tauri::command]
+fn delete_backup_command(backup_path: String) -> Result<String, String> {
+    backup::delete_backup(backup_path)
+}
+
+#[tauri::command]
+fn get_backup_settings_command() -> Result<backup::BackupSettings, String> {
+    backup::get_backup_settings()
+}
+
+#[tauri::command]
+fn save_backup_settings_command(settings: backup::BackupSettings) -> Result<backup::BackupSettings, String> {
+    backup::save_backup_settings(settings)
+}
+
+#[tauri::command]
+fn open_backup_folder_command(app: tauri::AppHandle) -> Result<String, String> {
+    let backup_dir = backup::get_backup_dir(&app)?;
+
+    // Open folder in file explorer
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&backup_dir)
+            .spawn()
+            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&backup_dir)
+            .spawn()
+            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&backup_dir)
+            .spawn()
+            .map_err(|e| format!("Fehler beim Öffnen des Ordners: {}", e))?;
+    }
+
+    Ok(backup_dir.to_string_lossy().to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -857,12 +925,47 @@ pub fn run() {
             get_active_discount_templates_command,
             update_discount_template_command,
             delete_discount_template_command,
+            // Backup
+            create_backup_command,
+            list_backups_command,
+            restore_backup_command,
+            delete_backup_command,
+            get_backup_settings_command,
+            save_backup_settings_command,
+            open_backup_folder_command,
         ])
-        .setup(|_app| {
+        .setup(|app| {
             // Starte Email-Scheduler im Hintergrund
             println!("🚀 Starte Email-Scheduler...");
             email_scheduler::start_email_scheduler();
             println!("✅ Email-Scheduler aktiv");
+
+            // Automatisches Backup beim App-Start (falls aktiviert)
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // Kurz warten damit Datenbank initialisiert ist
+                std::thread::sleep(std::time::Duration::from_secs(2));
+
+                match backup::get_backup_settings() {
+                    Ok(settings) => {
+                        if settings.auto_backup_enabled && settings.backup_interval == "on_startup" {
+                            println!("💾 Erstelle automatisches Backup...");
+                            match backup::create_backup(&app_handle) {
+                                Ok(backup_info) => {
+                                    println!("✅ Automatisches Backup erstellt: {}", backup_info.filename);
+                                }
+                                Err(e) => {
+                                    eprintln!("❌ Fehler beim automatischen Backup: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️  Konnte Backup-Einstellungen nicht laden: {}", e);
+                    }
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -1,20 +1,30 @@
 import { useState, useRef, useEffect } from 'react';
-import { CheckCircle, AlertCircle, ChevronDown } from 'lucide-react';
+import { CheckCircle, AlertCircle, ChevronDown, CreditCard, Banknote, Wallet } from 'lucide-react';
 
 interface PaymentDropdownProps {
   isPaid: boolean;
   bookingId: number;
-  onPaymentChange: (isPaid: boolean) => void;
+  onPaymentChange: (isPaid: boolean, zahlungsmethode?: string) => void;
 }
+
+const ZAHLUNGSMETHODEN = [
+  { value: 'Überweisung', label: 'Überweisung', icon: Banknote },
+  { value: 'Barzahlung', label: 'Barzahlung', icon: Wallet },
+  { value: 'EC-Karte', label: 'EC-Karte', icon: CreditCard },
+  { value: 'Kreditkarte', label: 'Kreditkarte', icon: CreditCard },
+  { value: 'PayPal', label: 'PayPal', icon: Wallet },
+];
 
 export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: PaymentDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [showPaymentMethods, setShowPaymentMethods] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setShowPaymentMethods(false);
       }
     };
 
@@ -27,10 +37,22 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
     };
   }, [isOpen]);
 
-  const handleSelect = (newIsPaid: boolean) => {
+  const handleSelectPaid = () => {
+    // Zeige Zahlungsmethoden-Auswahl
+    setShowPaymentMethods(true);
+  };
+
+  const handleSelectPaymentMethod = (zahlungsmethode: string) => {
     setIsOpen(false);
-    if (newIsPaid !== isPaid) {
-      onPaymentChange(newIsPaid);
+    setShowPaymentMethods(false);
+    onPaymentChange(true, zahlungsmethode);
+  };
+
+  const handleSelectUnpaid = () => {
+    setIsOpen(false);
+    setShowPaymentMethods(false);
+    if (isPaid) {
+      onPaymentChange(false);
     }
   };
 
@@ -60,10 +82,10 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
       </button>
 
       {/* Dropdown Menu */}
-      {isOpen && (
+      {isOpen && !showPaymentMethods && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[140px]">
           <button
-            onClick={() => handleSelect(true)}
+            onClick={handleSelectPaid}
             className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${
               isPaid ? 'bg-slate-100 font-semibold' : ''
             }`}
@@ -75,7 +97,7 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
             )}
           </button>
           <button
-            onClick={() => handleSelect(false)}
+            onClick={handleSelectUnpaid}
             className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${
               !isPaid ? 'bg-slate-100 font-semibold' : ''
             }`}
@@ -86,6 +108,28 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
               <CheckCircle className="w-3.5 h-3.5 text-blue-600 ml-auto" />
             )}
           </button>
+        </div>
+      )}
+
+      {/* Zahlungsmethoden Menu */}
+      {isOpen && showPaymentMethods && (
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 min-w-[180px]">
+          <div className="px-3 py-2 border-b border-slate-200">
+            <p className="text-xs font-semibold text-slate-600">Zahlungsmethode wählen</p>
+          </div>
+          {ZAHLUNGSMETHODEN.map((method) => {
+            const Icon = method.icon;
+            return (
+              <button
+                key={method.value}
+                onClick={() => handleSelectPaymentMethod(method.value)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-emerald-50 transition-colors"
+              >
+                <Icon className="w-4 h-4 text-slate-600" />
+                <span className="text-slate-700">{method.label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

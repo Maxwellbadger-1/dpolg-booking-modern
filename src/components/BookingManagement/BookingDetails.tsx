@@ -4,10 +4,12 @@ import {
   X, Calendar, Users, MapPin, Mail, Phone, DollarSign, Tag,
   UserCheck, ShoppingBag, Percent, Edit2, XCircle, FileText,
   Clock, Home, Send, CheckCircle, AlertCircle, Euro, Download,
-  FolderOpen, Eye
+  FolderOpen, Eye, AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import PaymentDropdown from './PaymentDropdown';
+import { useData } from '../../context/DataContext';
 
 interface BookingDetailsProps {
   bookingId: number;
@@ -94,6 +96,7 @@ interface InvoicePdfInfo {
 }
 
 export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: BookingDetailsProps) {
+  const { updateBookingPayment } = useData();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [accompanyingGuests, setAccompanyingGuests] = useState<AccompanyingGuest[]>([]);
   const [services, setServices] = useState<AdditionalService[]>([]);
@@ -101,10 +104,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
-  const [markingPaid, setMarkingPaid] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [zahlungsmethode, setZahlungsmethode] = useState('Überweisung');
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const [showErrorDialog, setShowErrorDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
   useEffect(() => {
     if (isOpen && bookingId) {
@@ -164,16 +167,15 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleCancelBooking = async () => {
     if (!booking) return;
 
-    if (!confirm(`Buchung ${booking.reservierungsnummer} wirklich stornieren?`)) {
-      return;
-    }
-
     try {
       await invoke('cancel_booking_command', { id: bookingId });
+      setShowCancelDialog(false);
       loadBookingDetails(); // Reload to show updated status
+      setShowSuccessDialog({ show: true, message: 'Buchung erfolgreich storniert!' });
     } catch (error) {
       console.error('Fehler beim Stornieren der Buchung:', error);
-      alert('Fehler beim Stornieren der Buchung');
+      setShowCancelDialog(false);
+      setShowErrorDialog({ show: true, message: 'Fehler beim Stornieren der Buchung' });
     }
   };
 
@@ -183,9 +185,9 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     setSendingEmail(true);
     try {
       const result = await invoke<string>('send_confirmation_email_command', { bookingId });
-      alert(result);
+      setShowSuccessDialog({ show: true, message: result });
     } catch (error) {
-      alert(`Fehler beim Senden: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
     } finally {
       setSendingEmail(false);
     }
@@ -197,9 +199,9 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     setSendingEmail(true);
     try {
       const result = await invoke<string>('send_reminder_email_command', { bookingId });
-      alert(result);
+      setShowSuccessDialog({ show: true, message: result });
     } catch (error) {
-      alert(`Fehler beim Senden: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
     } finally {
       setSendingEmail(false);
     }
@@ -213,30 +215,11 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       // Verwende generate_and_send_invoice_command statt send_invoice_email_command
       // damit PDF automatisch generiert und angehängt wird
       const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
-      alert(result);
+      setShowSuccessDialog({ show: true, message: result });
     } catch (error) {
-      alert(`Fehler beim Senden: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
     } finally {
       setSendingEmail(false);
-    }
-  };
-
-  const handleMarkAsPaid = async () => {
-    if (!booking) return;
-
-    setMarkingPaid(true);
-    try {
-      const updatedBooking = await invoke<Booking>('mark_booking_as_paid_command', {
-        bookingId,
-        zahlungsmethode,
-      });
-      setBooking(updatedBooking);
-      setShowPaymentDialog(false);
-      alert('Buchung erfolgreich als bezahlt markiert!');
-    } catch (error) {
-      alert(`Fehler beim Markieren als bezahlt: ${error}`);
-    } finally {
-      setMarkingPaid(false);
     }
   };
 
@@ -257,7 +240,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       console.log('🟢 Calling generate_invoice_pdf_command with bookingId:', bookingId);
       const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
       console.log('✅ PDF CREATED:', pdfPath);
-      alert(`PDF-Rechnung erfolgreich erstellt: ${pdfPath}`);
+      setShowSuccessDialog({ show: true, message: `PDF-Rechnung erfolgreich erstellt: ${pdfPath}` });
 
       // Reload PDFs to show newly generated one
       console.log('🔵 Reloading PDFs list...');
@@ -270,7 +253,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       console.error('❌ ERROR generating PDF:', error);
       console.error('Error type:', typeof error);
       console.error('Error details:', JSON.stringify(error, null, 2));
-      alert(`Fehler beim Erstellen der PDF: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Erstellen der PDF: ${error}` });
     } finally {
       console.log('🟡 Setting generatingPdf to FALSE');
       setGeneratingPdf(false);
@@ -281,7 +264,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     try {
       await invoke('open_pdf_file_command', { filePath: pdfPath });
     } catch (error) {
-      alert(`Fehler beim Öffnen der PDF: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Öffnen der PDF: ${error}` });
     }
   };
 
@@ -290,7 +273,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       const result = await invoke<string>('open_invoices_folder_command');
       console.log(result);
     } catch (error) {
-      alert(`Fehler beim Öffnen des Ordners: ${error}`);
+      setShowErrorDialog({ show: true, message: `Fehler beim Öffnen des Ordners: ${error}` });
     }
   };
 
@@ -405,7 +388,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         Bearbeiten
                       </button>
                       <button
-                        onClick={handleCancelBooking}
+                        onClick={() => setShowCancelDialog(true)}
                         className="flex items-center gap-2 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-semibold transition-colors"
                       >
                         <XCircle className="w-4 h-4" />
@@ -646,13 +629,25 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   <Euro className="w-5 h-5 text-blue-600" />
                   Zahlungsstatus
                 </h3>
-                {booking.bezahlt ? (
-                  <div className="space-y-3">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-100 border border-emerald-200">
-                      <CheckCircle className="w-5 h-5 text-emerald-600" />
-                      <span className="font-semibold text-emerald-800">Bezahlt</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="space-y-3">
+                  <PaymentDropdown
+                    isPaid={booking.bezahlt}
+                    bookingId={bookingId}
+                    onPaymentChange={async (isPaid, zahlungsmethode) => {
+                      try {
+                        await updateBookingPayment(bookingId, isPaid, zahlungsmethode);
+                        // Reload booking details um aktuelle Daten zu zeigen
+                        await loadBookingDetails();
+                      } catch (error) {
+                        setShowErrorDialog({
+                          show: true,
+                          message: `Fehler beim Ändern des Zahlungsstatus: ${error}`
+                        });
+                      }
+                    }}
+                  />
+                  {booking.bezahlt && (
+                    <div className="grid grid-cols-2 gap-4 text-sm mt-3">
                       {booking.bezahlt_am && (
                         <div>
                           <span className="text-slate-600">Bezahlt am:</span>
@@ -668,22 +663,8 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         </div>
                       )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-100 border border-amber-200">
-                      <AlertCircle className="w-5 h-5 text-amber-600" />
-                      <span className="font-semibold text-amber-800">Noch nicht bezahlt</span>
-                    </div>
-                    <button
-                      onClick={() => setShowPaymentDialog(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors text-sm"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Als bezahlt markieren
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               {/* Invoice PDFs */}
@@ -801,62 +782,91 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         </div>
       </div>
 
-      {/* Payment Dialog */}
-      {showPaymentDialog && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-xl font-bold text-slate-800 mb-4">
-              Buchung als bezahlt markieren
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Zahlungsmethode
-                </label>
-                <select
-                  value={zahlungsmethode}
-                  onChange={(e) => setZahlungsmethode(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="Überweisung">Überweisung</option>
-                  <option value="Barzahlung">Barzahlung</option>
-                  <option value="EC-Karte">EC-Karte</option>
-                  <option value="Kreditkarte">Kreditkarte</option>
-                  <option value="PayPal">PayPal</option>
-                  <option value="Sonstige">Sonstige</option>
-                </select>
+      {/* Cancel Booking Confirmation Dialog */}
+      {showCancelDialog && booking && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="p-3 bg-red-500/10 rounded-full">
+                <XCircle className="w-6 h-6 text-red-400" />
               </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm text-blue-800">
-                  Die Buchung wird mit dem heutigen Datum als bezahlt markiert.
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-white mb-2">Buchung stornieren?</h3>
+                <p className="text-slate-300 text-sm">
+                  Möchten Sie diese Buchung wirklich stornieren?
                 </p>
               </div>
             </div>
-            <div className="flex justify-end gap-3 mt-6">
+
+            <div className="bg-slate-700/30 rounded-lg p-4 mb-6">
+              <p className="text-sm text-white">
+                <span className="font-semibold">Reservierungsnummer:</span> {booking.reservierungsnummer}
+              </p>
+            </div>
+
+            <div className="flex gap-3">
               <button
-                onClick={() => setShowPaymentDialog(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-semibold transition-colors"
+                onClick={() => setShowCancelDialog(false)}
+                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
               >
                 Abbrechen
               </button>
               <button
-                onClick={handleMarkAsPaid}
-                disabled={markingPaid}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                onClick={handleCancelBooking}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
               >
-                {markingPaid ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Speichert...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-4 h-4" />
-                    Als bezahlt markieren
-                  </>
-                )}
+                <XCircle className="w-4 h-4" />
+                Stornieren
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Dialog */}
+      {showSuccessDialog.show && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="p-3 bg-emerald-500/10 rounded-full">
+                <CheckCircle className="w-6 h-6 text-emerald-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-white mb-2">Erfolgreich!</h3>
+                <p className="text-slate-300 text-sm">{showSuccessDialog.message}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowSuccessDialog({ show: false, message: '' })}
+              className="w-full px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error Dialog */}
+      {showErrorDialog.show && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="p-3 bg-red-500/10 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-white mb-2">Fehler</h3>
+                <p className="text-slate-300 text-sm">{showErrorDialog.message}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowErrorDialog({ show: false, message: '' })}
+              className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

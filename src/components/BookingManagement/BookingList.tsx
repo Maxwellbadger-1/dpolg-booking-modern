@@ -51,7 +51,7 @@ type SortField = 'reservierungsnummer' | 'guest' | 'room' | 'checkin' | 'checkou
 type SortDirection = 'asc' | 'desc' | null;
 
 export default function BookingList() {
-  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus } = useData();
+  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus, updateBookingPayment } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
@@ -160,10 +160,9 @@ export default function BookingList() {
     setBookingToCancel(null);
   };
 
-  const handlePaymentChange = async (bookingId: number, isPaid: boolean) => {
+  const handlePaymentChange = async (bookingId: number, isPaid: boolean, zahlungsmethode?: string) => {
     try {
-      await invoke('update_booking_payment_command', { bookingId, bezahlt: isPaid });
-      await refreshAll();
+      await updateBookingPayment(bookingId, isPaid, zahlungsmethode);
     } catch (error) {
       console.error('Fehler beim Ändern des Bezahlt-Status:', error);
       alert('Fehler beim Ändern des Bezahlt-Status: ' + (error instanceof Error ? error.message : String(error)));
@@ -518,7 +517,7 @@ export default function BookingList() {
                           <PaymentDropdown
                             isPaid={booking.bezahlt}
                             bookingId={booking.id}
-                            onPaymentChange={(isPaid) => handlePaymentChange(booking.id, isPaid)}
+                            onPaymentChange={(isPaid, zahlungsmethode) => handlePaymentChange(booking.id, isPaid, zahlungsmethode)}
                           />
                           {booking.bezahlt && booking.bezahlt_am && (
                             <span className="text-xs text-slate-500 mt-1">

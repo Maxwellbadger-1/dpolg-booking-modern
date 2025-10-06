@@ -1602,16 +1602,17 @@ pub fn update_booking_status(id: i64, new_status: String) -> Result<Booking> {
 }
 
 /// Ändert den Bezahlt-Status einer Buchung
-pub fn update_booking_payment(id: i64, bezahlt: bool) -> Result<Booking> {
+pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<String>) -> Result<Booking> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     if bezahlt {
-        // Bezahlt markieren
+        // Bezahlt markieren mit Zahlungsmethode
         let bezahlt_am = crate::time_utils::format_today_db();
+        let zahlungsmethode = zahlungsmethode.unwrap_or_else(|| "Überweisung".to_string());
         let rows_affected = conn.execute(
-            "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2",
-            rusqlite::params![bezahlt_am, id],
+            "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, zahlungsmethode = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
+            rusqlite::params![bezahlt_am, zahlungsmethode, id],
         )?;
 
         if rows_affected == 0 {

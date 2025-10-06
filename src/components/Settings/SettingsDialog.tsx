@@ -1,17 +1,18 @@
 import { useState } from 'react';
-import { X, Mail, FileText, CreditCard, Building2, Bell } from 'lucide-react';
+import { X, Mail, FileText, CreditCard, Building2, Bell, HardDrive } from 'lucide-react';
 import EmailConfigTab from './EmailConfigTab';
 import EmailTemplatesTab from './EmailTemplatesTab';
 import PaymentSettingsTab from './PaymentSettingsTab';
 import GeneralSettingsTab from './GeneralSettingsTab';
 import NotificationsTab from './NotificationsTab';
+import BackupTab from './BackupTab';
 
 interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type SettingsTab = 'email' | 'templates' | 'payment' | 'general' | 'notifications';
+type SettingsTab = 'email' | 'templates' | 'payment' | 'general' | 'notifications' | 'backup';
 
 export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('email');
@@ -24,6 +25,7 @@ export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps)
     { id: 'payment' as SettingsTab, label: 'Zahlungseinstellungen', icon: CreditCard },
     { id: 'general' as SettingsTab, label: 'Allgemein', icon: Building2 },
     { id: 'notifications' as SettingsTab, label: 'Benachrichtigungen', icon: Bell },
+    { id: 'backup' as SettingsTab, label: 'Backup & Sicherheit', icon: HardDrive },
   ];
 
   return (
@@ -41,38 +43,44 @@ export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps)
         </div>
 
         {/* Tabs Navigation */}
-        <div className="flex gap-2 border-b border-slate-600 mb-6 relative overflow-visible">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 font-medium transition-colors whitespace-nowrap relative ${
-                  activeTab === tab.id
-                    ? 'text-blue-400'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-                {activeTab === tab.id && (
-                  <div className="absolute left-0 right-0 h-0.5 bg-blue-400" style={{ bottom: '-1px' }}></div>
-                )}
-              </button>
-            );
-          })}
+        <div className="flex-shrink-0 border-b border-slate-600 mb-6 relative">
+          <div className="overflow-x-auto no-scrollbar min-w-0">
+            <div className="flex gap-2 pb-px">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-4 py-3 font-medium transition-colors whitespace-nowrap relative flex-shrink-0 ${
+                      activeTab === tab.id
+                        ? 'text-blue-400'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                    {activeTab === tab.id && (
+                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400"></div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Fade-out indicator on the right */}
+          <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-slate-800 to-transparent pointer-events-none"></div>
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto px-1">
+        <div className="flex-1 overflow-y-auto px-1 min-h-0">
           {activeTab === 'email' && <EmailConfigTab />}
           {activeTab === 'templates' && <EmailTemplatesTab />}
           {activeTab === 'payment' && <PaymentSettingsTab />}
           {activeTab === 'general' && <GeneralSettingsTab />}
           {activeTab === 'notifications' && <NotificationsTab />}
+          {activeTab === 'backup' && <BackupTab />}
         </div>
-
         {/* Footer */}
         <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-slate-700">
           <button

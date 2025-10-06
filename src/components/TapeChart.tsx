@@ -44,6 +44,7 @@ interface Booking {
   checkin_date: string;
   checkout_date: string;
   status: string;
+  bezahlt: boolean;
   room: Room;
   guest: Guest;
 }
@@ -336,8 +337,13 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         <div className="text-sm font-bold truncate drop-shadow-sm">
           {booking.guest.vorname} {booking.guest.nachname}
         </div>
-        <div className="text-xs truncate opacity-90 font-medium">
+        <div className="text-xs truncate opacity-90 font-medium flex items-center gap-1">
           {booking.reservierungsnummer}
+          {booking.bezahlt && (
+            <div className="inline-flex items-center justify-center w-4 h-4 bg-emerald-500 rounded-full" title="Bezahlt">
+              <span className="text-[10px] font-bold text-white">€</span>
+            </div>
+          )}
         </div>
       </div>
       {/* Quick Actions entfernt - nur Context Menu (Rechtsklick) verwenden */}

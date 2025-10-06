@@ -499,6 +499,59 @@ dpolg-booking-modern/
 
 ## 💻 Code-Konventionen
 
+### UI/UX Dialoge & Bestätigungen:
+
+**KRITISCH:** NIEMALS Browser-Standard-Dialoge (`alert()`, `confirm()`, `prompt()`) verwenden!
+
+```typescript
+// ❌ VERBOTEN - Browser-Standard-Dialoge
+const confirmed = confirm('Wirklich löschen?');
+alert('Erfolgreich gespeichert!');
+const input = prompt('Name eingeben:');
+
+// ✅ RICHTIG - Eigene Custom Dialoge
+const [showDialog, setShowDialog] = useState(false);
+const [dialogData, setDialogData] = useState<SomeType | null>(null);
+
+// Dialog Component mit modernem Design
+{showDialog && (
+  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+      {/* Dialog Content */}
+      <div className="flex items-start gap-4 mb-6">
+        <div className="p-3 bg-amber-500/10 rounded-full">
+          <AlertTriangle className="w-6 h-6 text-amber-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-xl font-bold text-white mb-2">Bestätigung erforderlich</h3>
+          <p className="text-slate-300 text-sm">Beschreibung der Aktion...</p>
+        </div>
+      </div>
+
+      {/* Buttons */}
+      <div className="flex gap-3">
+        <button onClick={() => setShowDialog(false)} className="...">Abbrechen</button>
+        <button onClick={handleConfirm} className="...">Bestätigen</button>
+      </div>
+    </div>
+  </div>
+)}
+```
+
+**Warum eigene Dialoge?**
+- ✅ Konsistentes Design mit der App
+- ✅ Bessere UX (Icons, Farben, Layout)
+- ✅ Mehr Kontrolle (Loading States, Details anzeigen)
+- ✅ Accessibility-Features
+- ✅ Funktionieren zuverlässig (keine Browser-Unterschiede)
+
+**Dialog-Typen:**
+- **Bestätigung (Confirm):** Amber/Warning-Icon, "Abbrechen" + "Bestätigen"
+- **Fehler (Alert Error):** Red-Icon, nur "OK" Button
+- **Erfolg (Alert Success):** Green-Icon, nur "OK" Button oder auto-close
+- **Löschen:** Red/Trash-Icon, "Abbrechen" + "Löschen" (rot)
+- **Warnung:** Amber/AlertTriangle-Icon, Details + deutliche Warning-Box
+
 ### Rust (Backend):
 
 #### Naming:
