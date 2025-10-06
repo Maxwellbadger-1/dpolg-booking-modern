@@ -1094,7 +1094,16 @@ pub fn create_guest(
     )?;
 
     let id = conn.last_insert_rowid();
-    get_guest_by_id(id)
+    let guest = get_guest_by_id(id)?;
+
+    // Transaction Log: CREATE
+    let guest_json = serde_json::to_string(&guest).unwrap_or_default();
+    let user_action = format!("Gast {} {} erstellt", guest.vorname, guest.nachname);
+    if let Err(e) = crate::transaction_log::log_create("guests", id, &guest_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(guest)
 }
 
 /// Aktualisiert einen existierenden Gast
@@ -1116,6 +1125,10 @@ pub fn update_guest(
 ) -> Result<Guest> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Get old data for transaction log
+    let old_guest = get_guest_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_guest).unwrap_or_default();
 
     let rows_affected = conn.execute(
         "UPDATE guests SET
@@ -1145,7 +1158,16 @@ pub fn update_guest(
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    get_guest_by_id(id)
+    let updated_guest = get_guest_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_guest).unwrap_or_default();
+    let user_action = format!("Gast {} {} aktualisiert", updated_guest.vorname, updated_guest.nachname);
+    if let Err(e) = crate::transaction_log::log_update("guests", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_guest)
 }
 
 /// Löscht einen Gast (schlägt fehl, wenn der Gast Buchungen hat)
@@ -1153,10 +1175,21 @@ pub fn delete_guest(id: i64) -> Result<()> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Get old data for transaction log BEFORE deleting
+    let old_guest = get_guest_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_guest).unwrap_or_default();
+    let guest_name = format!("{} {}", old_guest.vorname, old_guest.nachname);
+
     let rows_affected = conn.execute("DELETE FROM guests WHERE id = ?1", rusqlite::params![id])?;
 
     if rows_affected == 0 {
         return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    // Transaction Log: DELETE
+    let user_action = format!("Gast {} gelöscht", guest_name);
+    if let Err(e) = crate::transaction_log::log_delete("guests", id, &old_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
     Ok(())
@@ -1301,7 +1334,16 @@ pub fn create_room(
     )?;
 
     let id = conn.last_insert_rowid();
-    get_room_by_id(id)
+    let room = get_room_by_id(id)?;
+
+    // Transaction Log: CREATE
+    let room_json = serde_json::to_string(&room).unwrap_or_default();
+    let user_action = format!("Zimmer {} erstellt", room.name);
+    if let Err(e) = crate::transaction_log::log_create("rooms", id, &room_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(room)
 }
 
 /// Aktualisiert einen existierenden Raum
@@ -1320,6 +1362,10 @@ pub fn update_room(
 ) -> Result<Room> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Get old data for transaction log
+    let old_room = get_room_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_room).unwrap_or_default();
 
     let rows_affected = conn.execute(
         "UPDATE rooms SET
@@ -1346,7 +1392,16 @@ pub fn update_room(
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    get_room_by_id(id)
+    let updated_room = get_room_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_room).unwrap_or_default();
+    let user_action = format!("Zimmer {} aktualisiert", updated_room.name);
+    if let Err(e) = crate::transaction_log::log_update("rooms", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_room)
 }
 
 /// Löscht einen Raum (schlägt fehl, wenn der Raum Buchungen hat)
@@ -1354,10 +1409,21 @@ pub fn delete_room(id: i64) -> Result<()> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Get old data for transaction log BEFORE deleting
+    let old_room = get_room_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_room).unwrap_or_default();
+    let room_name = old_room.name.clone();
+
     let rows_affected = conn.execute("DELETE FROM rooms WHERE id = ?1", rusqlite::params![id])?;
 
     if rows_affected == 0 {
         return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    // Transaction Log: DELETE
+    let user_action = format!("Zimmer {} gelöscht", room_name);
+    if let Err(e) = crate::transaction_log::log_delete("rooms", id, &old_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
     Ok(())
@@ -1411,6 +1477,7 @@ pub fn create_booking(
     rabatt_preis: f64,
     anzahl_naechte: i32,
 ) -> Result<Booking> {
+    println!("🔍 create_booking() aufgerufen - Transaction Logging aktiviert");
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
@@ -1449,7 +1516,16 @@ pub fn create_booking(
         rusqlite::params![final_reservierungsnummer, id],
     )?;
 
-    get_booking_by_id(id)
+    let booking = get_booking_by_id(id)?;
+
+    // Transaction Log: CREATE
+    let booking_json = serde_json::to_string(&booking).unwrap_or_default();
+    let user_action = format!("Buchung {} erstellt", booking.reservierungsnummer);
+    if let Err(e) = crate::transaction_log::log_create("bookings", id, &booking_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(booking)
 }
 
 /// Aktualisiert eine existierende Buchung
@@ -1471,6 +1547,10 @@ pub fn update_booking(
 ) -> Result<Booking> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Get old data for transaction log
+    let old_booking = get_booking_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
 
     let rows_affected = conn.execute(
         "UPDATE bookings SET
@@ -1501,7 +1581,16 @@ pub fn update_booking(
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    get_booking_by_id(id)
+    let updated_booking = get_booking_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
+    let user_action = format!("Buchung {} aktualisiert", updated_booking.reservierungsnummer);
+    if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_booking)
 }
 
 /// Löscht eine Buchung (CASCADE löscht auch Services, Gäste, Rabatte)
@@ -1509,10 +1598,21 @@ pub fn delete_booking(id: i64) -> Result<()> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Get old data for transaction log BEFORE deleting
+    let old_booking = get_booking_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
+    let reservierungsnummer = old_booking.reservierungsnummer.clone();
+
     let rows_affected = conn.execute("DELETE FROM bookings WHERE id = ?1", rusqlite::params![id])?;
 
     if rows_affected == 0 {
         return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    // Transaction Log: DELETE
+    let user_action = format!("Buchung {} gelöscht", reservierungsnummer);
+    if let Err(e) = crate::transaction_log::log_delete("bookings", id, &old_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
     Ok(())
@@ -1528,6 +1628,10 @@ pub fn update_booking_dates_and_room(
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Get old data for transaction log
+    let old_booking = get_booking_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
+
     let rows_affected = conn.execute(
         "UPDATE bookings SET
          room_id = ?1, checkin_date = ?2, checkout_date = ?3, updated_at = CURRENT_TIMESTAMP
@@ -1539,7 +1643,16 @@ pub fn update_booking_dates_and_room(
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    get_booking_by_id(id)
+    let updated_booking = get_booking_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
+    let user_action = format!("Buchung {} verschoben (Drag & Drop)", updated_booking.reservierungsnummer);
+    if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_booking)
 }
 
 /// Storniert eine Buchung (setzt Status auf 'storniert')
@@ -1583,6 +1696,10 @@ pub fn update_booking_status(id: i64, new_status: String) -> Result<Booking> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // Get old data for transaction log
+    let old_booking = get_booking_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
+
     // Validiere Status
     let valid_statuses = ["reserviert", "bestaetigt", "eingecheckt", "ausgecheckt", "storniert"];
     if !valid_statuses.contains(&new_status.as_str()) {
@@ -1598,21 +1715,40 @@ pub fn update_booking_status(id: i64, new_status: String) -> Result<Booking> {
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    get_booking_by_id(id)
+    let updated_booking = get_booking_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
+    let user_action = format!("Buchung {} Status geändert: {} → {}", updated_booking.reservierungsnummer, old_booking.status, new_status);
+    if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_booking)
 }
 
 /// Ändert den Bezahlt-Status einer Buchung
 pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<String>) -> Result<Booking> {
+    println!("🔍 [update_booking_payment] Called:");
+    println!("   id: {}", id);
+    println!("   bezahlt: {}", bezahlt);
+    println!("   zahlungsmethode: {:?}", zahlungsmethode);
+
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Get old data for transaction log
+    let old_booking = get_booking_by_id(id)?;
+    let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
+
+    let zahlungsmethode_string = zahlungsmethode.clone().unwrap_or_else(|| "Überweisung".to_string());
 
     if bezahlt {
         // Bezahlt markieren mit Zahlungsmethode
         let bezahlt_am = crate::time_utils::format_today_db();
-        let zahlungsmethode = zahlungsmethode.unwrap_or_else(|| "Überweisung".to_string());
         let rows_affected = conn.execute(
             "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, zahlungsmethode = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
-            rusqlite::params![bezahlt_am, zahlungsmethode, id],
+            rusqlite::params![bezahlt_am, &zahlungsmethode_string, id],
         )?;
 
         if rows_affected == 0 {
@@ -1630,7 +1766,20 @@ pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<St
         }
     }
 
-    get_booking_by_id(id)
+    let updated_booking = get_booking_by_id(id)?;
+
+    // Transaction Log: UPDATE
+    let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
+    let user_action = if bezahlt {
+        format!("Buchung {} als bezahlt markiert ({})", updated_booking.reservierungsnummer, zahlungsmethode_string)
+    } else {
+        format!("Buchung {} Zahlungsstatus zurückgesetzt", updated_booking.reservierungsnummer)
+    };
+    if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
+        eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    Ok(updated_booking)
 }
 
 /// Gibt eine Buchung anhand der ID zurück

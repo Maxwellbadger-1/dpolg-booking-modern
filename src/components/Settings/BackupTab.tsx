@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Save, RefreshCw, FolderOpen, RotateCcw, Trash2, CheckCircle, AlertCircle, HardDrive, AlertTriangle } from 'lucide-react';
+import { Save, RefreshCw, FolderOpen, RotateCcw, Trash2, CheckCircle, AlertCircle, HardDrive, AlertTriangle, Undo, Clock, Database, FileText, UserCircle } from 'lucide-react';
 
 interface BackupInfo {
   filename: string;
@@ -17,6 +17,18 @@ interface BackupSettings {
   last_backup_at: string | null;
 }
 
+interface TransactionLog {
+  id: number;
+  operation_type: string;
+  table_name: string;
+  record_id: number;
+  old_data: string | null;
+  new_data: string | null;
+  user_action: string;
+  created_at: string;
+  can_undo: boolean;
+}
+
 export default function BackupTab() {
   const [settings, setSettings] = useState<BackupSettings>({
     auto_backup_enabled: true,
@@ -25,7 +37,9 @@ export default function BackupTab() {
     last_backup_at: null,
   });
   const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [transactions, setTransactions] = useState<TransactionLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -33,11 +47,13 @@ export default function BackupTab() {
   const [restoreDialog, setRestoreDialog] = useState<{ show: boolean; backup: BackupInfo | null }>({ show: false, backup: null });
   const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; backup: BackupInfo | null }>({ show: false, backup: null });
   const [restoring, setRestoring] = useState(false);
+  const [undoingId, setUndoingId] = useState<number | null>(null);
 
   // Load settings and backups
   useEffect(() => {
     loadSettings();
     loadBackups();
+    loadTransactions();
   }, []);
 
   const loadSettings = async () => {
@@ -57,6 +73,18 @@ export default function BackupTab() {
       setBackups(result);
     } catch (err) {
       console.error('Fehler beim Laden der Backups:', err);
+    }
+  };
+
+  const loadTransactions = async () => {
+    setLoadingTransactions(true);
+    try {
+      const result = await invoke<TransactionLog[]>('get_recent_transactions_command', { limit: 20 });
+      setTransactions(result);
+    } catch (err) {
+      console.error('Fehler beim Laden der Transaktionen:', err);
+    } finally {
+      setLoadingTransactions(false);
     }
   };
 
@@ -133,6 +161,62 @@ export default function BackupTab() {
       await invoke('open_backup_folder_command');
     } catch (err) {
       setError(`Fehler beim Öffnen des Ordners: ${err}`);
+    }
+  };
+
+  const handleUndoTransaction = async (logId: number) => {
+    setUndoingId(logId);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const result = await invoke<string>('undo_transaction_command', { logId });
+      setSuccess(result);
+      loadTransactions(); // Refresh transaction list
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err) {
+      setError(`Fehler beim Rückgängig machen: ${err}`);
+    } finally {
+      setUndoingId(null);
+    }
+  };
+
+  const getOperationIcon = (operationType: string) => {
+    switch (operationType) {
+      case 'CREATE':
+        return <FileText className="w-4 h-4 text-emerald-400" />;
+      case 'UPDATE':
+        return <RefreshCw className="w-4 h-4 text-blue-400" />;
+      case 'DELETE':
+        return <Trash2 className="w-4 h-4 text-red-400" />;
+      default:
+        return <Database className="w-4 h-4 text-slate-400" />;
+    }
+  };
+
+  const getTableIcon = (tableName: string) => {
+    switch (tableName) {
+      case 'bookings':
+        return <Database className="w-3 h-3" />;
+      case 'guests':
+        return <UserCircle className="w-3 h-3" />;
+      case 'rooms':
+        return <HardDrive className="w-3 h-3" />;
+      default:
+        return <FileText className="w-3 h-3" />;
+    }
+  };
+
+  const getTableDisplayName = (tableName: string) => {
+    switch (tableName) {
+      case 'bookings':
+        return 'Buchung';
+      case 'guests':
+        return 'Gast';
+      case 'rooms':
+        return 'Zimmer';
+      default:
+        return tableName;
     }
   };
 
@@ -351,6 +435,98 @@ export default function BackupTab() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Undo/Redo (Transaction Log) */}
+      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-purple-500/10 rounded-lg">
+              <Undo className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Rückgängig machen</h2>
+              <p className="text-sm text-slate-400">Letzte Änderungen an der Datenbank</p>
+            </div>
+          </div>
+          <button
+            onClick={loadTransactions}
+            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            title="Liste aktualisieren"
+          >
+            <RefreshCw className={`w-4 h-4 text-slate-300 ${loadingTransactions ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {loadingTransactions ? (
+          <div className="flex items-center justify-center py-8">
+            <RefreshCw className="w-5 h-5 text-purple-500 animate-spin" />
+            <span className="ml-2 text-slate-300">Lade Transaktionen...</span>
+          </div>
+        ) : transactions.length === 0 ? (
+          <div className="text-center py-8">
+            <Clock className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+            <p className="text-slate-400">Keine Transaktionen vorhanden</p>
+            <p className="text-sm text-slate-500 mt-1">
+              Änderungen werden automatisch aufgezeichnet
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {transactions.map((transaction) => (
+              <div
+                key={transaction.id}
+                className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg hover:bg-slate-700/50 transition-colors"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-3">
+                    {getOperationIcon(transaction.operation_type)}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-white">
+                          {transaction.user_action}
+                        </span>
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-slate-600 text-xs text-slate-300 rounded">
+                          {getTableIcon(transaction.table_name)}
+                          {getTableDisplayName(transaction.table_name)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        <p className="text-xs text-slate-400">{transaction.created_at}</p>
+                        <span className="text-xs text-slate-500">•</span>
+                        <span className="text-xs text-slate-400">ID: {transaction.record_id}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleUndoTransaction(transaction.id)}
+                  disabled={!transaction.can_undo || undoingId === transaction.id}
+                  className={`p-2 rounded-lg transition-colors flex items-center gap-2 ${
+                    transaction.can_undo
+                      ? 'hover:bg-purple-600 text-slate-300 hover:text-white'
+                      : 'opacity-50 cursor-not-allowed text-slate-500'
+                  }`}
+                  title={transaction.can_undo ? 'Rückgängig machen' : 'Kann nicht rückgängig gemacht werden'}
+                >
+                  {undoingId === transaction.id ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Undo className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-4 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+          <p className="text-xs text-purple-300">
+            ℹ️ Nur die letzten 20 Transaktionen werden angezeigt. Bereits rückgängig gemachte Aktionen können nicht erneut rückgängig gemacht werden.
+          </p>
+        </div>
       </div>
 
       {/* Info Box */}

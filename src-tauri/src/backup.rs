@@ -65,8 +65,18 @@ pub fn get_backup_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 /// Erstellt ein Backup der Datenbank
 pub fn create_backup(app: &tauri::AppHandle) -> Result<BackupInfo, String> {
+    create_backup_internal(app, "manual")
+}
+
+/// Erstellt ein Auto-Backup vor kritischen Operationen
+pub fn create_auto_backup(app: &tauri::AppHandle, reason: &str) -> Result<BackupInfo, String> {
+    create_backup_internal(app, reason)
+}
+
+/// Interne Backup-Erstellung (gemeinsame Logik)
+fn create_backup_internal(app: &tauri::AppHandle, backup_type: &str) -> Result<BackupInfo, String> {
     println!("┌─────────────────────────────────────────────────────┐");
-    println!("│  BACKUP CREATION                                    │");
+    println!("│  BACKUP CREATION ({})                           │", backup_type.to_uppercase());
     println!("└─────────────────────────────────────────────────────┘");
 
     // 1. Backup-Ordner ermitteln
@@ -81,9 +91,13 @@ pub fn create_backup(app: &tauri::AppHandle) -> Result<BackupInfo, String> {
         return Err("Datenbank-Datei nicht gefunden".to_string());
     }
 
-    // 3. Backup-Dateinamen mit Timestamp generieren
+    // 3. Backup-Dateinamen mit Timestamp und Typ generieren
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
-    let backup_filename = format!("booking_system_backup_{}.db", timestamp);
+    let backup_filename = if backup_type == "manual" {
+        format!("booking_system_backup_{}.db", timestamp)
+    } else {
+        format!("booking_system_auto_{}_{}.db", backup_type, timestamp)
+    };
     let backup_path = backup_dir.join(&backup_filename);
 
     println!("🔄 Erstelle Backup: {}", backup_filename);
@@ -109,7 +123,7 @@ pub fn create_backup(app: &tauri::AppHandle) -> Result<BackupInfo, String> {
 
     println!("✅ Backup erfolgreich erstellt: {} ({})", backup_info.filename, backup_info.size_formatted);
 
-    // 6. Alte Backups aufräumen
+    // 6. Alte Backups aufräumen (max 20 für Auto-Backups)
     cleanup_old_backups(app)?;
 
     // 7. Letztes Backup-Datum speichern

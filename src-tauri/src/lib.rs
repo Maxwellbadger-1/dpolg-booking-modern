@@ -10,6 +10,7 @@ mod pdf_generator_html;
 mod time_utils;
 mod email_scheduler;
 mod backup;
+mod transaction_log;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -666,6 +667,11 @@ fn update_booking_payment_command(
     bezahlt: bool,
     zahlungsmethode: Option<String>,
 ) -> Result<database::Booking, String> {
+    println!("🔍 [update_booking_payment_command] Called:");
+    println!("   booking_id: {}", booking_id);
+    println!("   bezahlt: {}", bezahlt);
+    println!("   zahlungsmethode: {:?}", zahlungsmethode);
+
     database::update_booking_payment(booking_id, bezahlt, zahlungsmethode)
         .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))
 }
@@ -814,6 +820,25 @@ fn open_backup_folder_command(app: tauri::AppHandle) -> Result<String, String> {
     Ok(backup_dir.to_string_lossy().to_string())
 }
 
+// ============================================================================
+// TRANSACTION LOG & UNDO/REDO COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn get_recent_transactions_command(limit: i64) -> Result<Vec<transaction_log::TransactionLog>, String> {
+    transaction_log::get_recent_transactions(limit)
+}
+
+#[tauri::command]
+fn undo_transaction_command(log_id: i64) -> Result<String, String> {
+    transaction_log::undo_transaction(log_id)
+}
+
+#[tauri::command]
+fn cleanup_old_logs_command(days: i64) -> Result<usize, String> {
+    transaction_log::cleanup_old_logs(days)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database
@@ -824,6 +849,15 @@ pub fn run() {
             eprintln!("Failed to initialize database: {}", e);
             eprintln!("Error details: {:?}", e);
             // Don't return, let the app start anyway for debugging
+        }
+    }
+
+    // Initialize transaction log table
+    println!("Initializing transaction log...");
+    match transaction_log::init_transaction_log_table() {
+        Ok(_) => println!("Transaction log initialized successfully!"),
+        Err(e) => {
+            eprintln!("Failed to initialize transaction log: {}", e);
         }
     }
 
@@ -933,6 +967,10 @@ pub fn run() {
             get_backup_settings_command,
             save_backup_settings_command,
             open_backup_folder_command,
+            // Transaction Log & Undo/Redo
+            get_recent_transactions_command,
+            undo_transaction_command,
+            cleanup_old_logs_command,
         ])
         .setup(|app| {
             // Starte Email-Scheduler im Hintergrund

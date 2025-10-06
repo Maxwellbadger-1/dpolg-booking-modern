@@ -15,6 +15,7 @@ import EmailSelectionDialog from './components/BookingManagement/EmailSelectionD
 import CancellationConfirmDialog from './components/BookingManagement/CancellationConfirmDialog';
 import QuickBookingFAB from './components/QuickBookingFAB';
 import StatisticsView from './components/Statistics/StatisticsView';
+import UndoRedoButtons from './components/UndoRedoButtons';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp } from 'lucide-react';
 
 interface Room {
@@ -169,20 +170,20 @@ function AppContent() {
       <header className="bg-gradient-to-r from-slate-800 to-slate-900 shadow-2xl border-b border-slate-700">
         <div className="px-6 py-3 flex items-center justify-between">
           {/* Left: Logo + Title + Stats */}
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
               <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-2 rounded-xl shadow-lg">
-                <Hotel className="w-6 h-6 text-white" />
+                <Hotel className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-white tracking-tight">
-                  DPolG Stiftung Buchungssystem
+                <h1 className="text-lg font-bold text-white tracking-tight">
+                  DPolG Buchungssystem
                 </h1>
               </div>
             </div>
 
             {/* Stats Inline - Clickable */}
-            <div className="flex items-center gap-6 border-l border-slate-600 pl-6">
+            <div className="flex items-center gap-4 border-l border-slate-600 pl-4">
               <button
                 onClick={() => setActiveTab('statistics')}
                 className="flex items-center gap-2 hover:bg-slate-700/50 rounded-lg px-2 py-1 transition-colors group"
@@ -233,8 +234,11 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Right: Actions + Date */}
+          {/* Right: Undo/Redo + Actions + Date */}
           <div className="flex items-center gap-3">
+            {/* Undo/Redo Buttons */}
+            <UndoRedoButtons />
+
             <button
               onClick={() => setShowSettingsDialog(true)}
               className="flex items-center gap-2 p-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"

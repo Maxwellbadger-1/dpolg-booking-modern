@@ -9,6 +9,167 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
+## ⚡ Optimistic Updates - KRITISCHE REGEL!
+
+**WICHTIG:** ALLE Datenänderungen MÜSSEN Optimistic Updates verwenden - NIEMALS `refreshBookings()`, `refreshGuests()` oder `refreshRooms()` nach erfolgreichen Operationen aufrufen!
+
+### Warum Optimistic Updates?
+- ✅ **Instant UI Response** - User sieht Änderung SOFORT (< 10ms statt 100ms+ mit Backend-Roundtrip)
+- ✅ **Keine sichtbaren Reloads** - Kein Flackern, kein "Loading..." Zustand
+- ✅ **Bessere UX** - App fühlt sich nativ und responsive an
+- ❌ **OHNE Optimistic Update:** Jede Änderung = sichtbarer Page Reload = schlechte UX!
+
+### Pattern für ALLE CRUD-Operationen:
+
+```typescript
+// ✅ RICHTIG - Optimistic Update Pattern
+const updateEntity = useCallback(async (id: number, newData: any): Promise<Entity> => {
+  // 1. Backup für Rollback
+  const oldEntity = entities.find(e => e.id === id);
+
+  // 2. SOFORT im UI ändern (KEIN await, KEIN refresh!)
+  setEntities(prev => prev.map(e =>
+    e.id === id ? { ...e, ...newData } : e
+  ));
+
+  try {
+    // 3. Backend Update
+    const result = await invoke('update_entity_command', { id, ...newData });
+
+    // 4. NUR refresh-data Event triggern (für Undo-Button)
+    window.dispatchEvent(new CustomEvent('refresh-data'));
+
+    return result;
+  } catch (error) {
+    // 5. Rollback bei Fehler
+    if (oldEntity) {
+      setEntities(prev => prev.map(e =>
+        e.id === id ? oldEntity : e
+      ));
+    }
+    throw error;
+  }
+}, [entities]); // WICHTIG: Keine refresh-Funktionen in Dependencies!
+
+// ❌ FALSCH - Mit refresh (verursacht Page Reload!)
+const updateEntityBad = useCallback(async (id: number, newData: any) => {
+  const result = await invoke('update_entity_command', { id, ...newData });
+  await refreshEntities(); // ❌ VERBOTEN! Verursacht sichtbaren Reload!
+  return result;
+}, [refreshEntities]);
+```
+
+### Optimistic Update für CREATE:
+
+```typescript
+const createEntity = useCallback(async (data: any): Promise<Entity> => {
+  try {
+    // 1. Backend Create
+    const newEntity = await invoke<Entity>('create_entity_command', data);
+
+    // 2. SOFORT zum State hinzufügen (KEIN refresh!)
+    setEntities(prev => [...prev, newEntity]);
+
+    // 3. Event für Undo-Button
+    window.dispatchEvent(new CustomEvent('refresh-data'));
+
+    return newEntity;
+  } catch (error) {
+    // Kein Rollback nötig - Entity wurde noch nicht hinzugefügt
+    throw error;
+  }
+}, []);
+```
+
+### Optimistic Update für DELETE:
+
+```typescript
+const deleteEntity = useCallback(async (id: number): Promise<void> => {
+  // 1. Backup für Rollback
+  const deletedEntity = entities.find(e => e.id === id);
+
+  // 2. SOFORT aus UI entfernen (KEIN refresh!)
+  setEntities(prev => prev.filter(e => e.id !== id));
+
+  try {
+    // 3. Backend Delete
+    await invoke('delete_entity_command', { id });
+
+    // 4. Event für Undo-Button
+    window.dispatchEvent(new CustomEvent('refresh-data'));
+  } catch (error) {
+    // 5. Rollback - Entity wiederherstellen
+    if (deletedEntity) {
+      setEntities(prev => [...prev, deletedEntity]);
+    }
+    throw error;
+  }
+}, [entities]);
+```
+
+### Wann refresh() erlaubt ist:
+
+**NUR in diesen Fällen:**
+1. ✅ Initial Load (`useEffect` beim Mount)
+2. ✅ User klickt explizit auf "Refresh" Button
+3. ✅ Nach Undo-Operation (globaler Refresh via `refresh-data` Event)
+4. ✅ Bei Fehlern die inkonsistenten State verursachen könnten
+
+**NIEMALS:**
+- ❌ Nach erfolgreichen CREATE/UPDATE/DELETE Operationen
+- ❌ Nach Status-Änderungen
+- ❌ Nach Zahlungs-Updates
+- ❌ Nach irgendeiner User-Aktion die funktioniert hat
+
+### Event System:
+
+**KRITISCH:** Zwei verschiedene Events für unterschiedliche Zwecke!
+
+```typescript
+// 1️⃣ 'refresh-data' Event - Nach normalen CRUD-Operationen
+// Wird NUR von UndoRedoButtons gehört (um Transaction-Liste zu aktualisieren)
+// Löst KEIN globales refresh aus! (damit Optimistic Updates erhalten bleiben)
+window.dispatchEvent(new CustomEvent('refresh-data'));
+
+// UndoRedoButtons Component:
+useEffect(() => {
+  const handleRefresh = () => {
+    loadTransactions(); // NUR Transaction-Liste neu laden!
+  };
+  window.addEventListener('refresh-data', handleRefresh);
+  return () => window.removeEventListener('refresh-data', handleRefresh);
+}, []);
+
+// 2️⃣ 'undo-executed' Event - Nach UNDO-Operation
+// Wird von DataContext gehört (löst VOLLSTÄNDIGEN refresh aus)
+// Nötig weil Backend-State nach Undo komplett neu geladen werden muss
+window.dispatchEvent(new CustomEvent('undo-executed'));
+
+// DataContext:
+useEffect(() => {
+  const handleUndoRefresh = () => {
+    refreshAll(); // Vollständiger Reload nach Undo
+  };
+  window.addEventListener('undo-executed', handleUndoRefresh);
+  return () => window.removeEventListener('undo-executed', handleUndoRefresh);
+}, [refreshAll]);
+```
+
+**Warum zwei Events?**
+- ❌ Problem: `refresh-data` → `refreshAll()` überschreibt Optimistic Updates!
+- ✅ Lösung: `refresh-data` nur für Transaction-Liste, `undo-executed` für echten Reload
+
+### Checkliste für jede CRUD-Operation:
+
+- [ ] State-Update SOFORT (BEVOR Backend-Call oder SOFORT danach bei CREATE)
+- [ ] Backend-Call mit try/catch
+- [ ] Bei Erfolg: NUR `refresh-data` Event dispatchen, NIEMALS refresh() aufrufen!
+- [ ] Bei Fehler: Rollback zum alten State
+- [ ] Dependencies: KEINE refresh-Funktionen (nur entities array)!
+- [ ] ACHTUNG: `refresh-data` löst KEIN globales refresh aus (nur Transaction-Liste wird aktualisiert)
+
+---
+
 ## 🐛 Debugging-Workflow (KRITISCH!)
 
 **WICHTIG:** Bei React White Screen, TypeError oder unerklärlichen Fehlern IMMER dieser Workflow:

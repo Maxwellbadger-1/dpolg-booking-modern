@@ -49,6 +49,10 @@ export default function EmailHistoryView() {
   const [resendSuccess, setResendSuccess] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
 
+  // Delete Dialog State
+  const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; log: EmailLog | null }>({ show: false, log: null });
+  const [deleting, setDeleting] = useState(false);
+
   // Initial load: Load both lists
   useEffect(() => {
     loadAllEmailLogs();
@@ -207,14 +211,18 @@ export default function EmailHistoryView() {
     }
   };
 
-  const handleDelete = async (log: EmailLog) => {
-    if (!confirm(`Email-Log wirklich löschen?\n\nEmpfänger: ${log.recipient_email}\nBetreff: ${log.subject}`)) return;
+  const handleDelete = async () => {
+    if (!deleteDialog.log) return;
 
+    setDeleting(true);
     try {
-      await invoke('delete_email_log_command', { logId: log.id });
+      await invoke('delete_email_log_command', { logId: deleteDialog.log.id });
       loadAllEmailLogs();
+      setDeleteDialog({ show: false, log: null });
     } catch (err) {
       alert(`Fehler beim Löschen: ${err}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -477,7 +485,7 @@ export default function EmailHistoryView() {
                               Erneut senden
                             </button>
                             <button
-                              onClick={() => handleDelete(log)}
+                              onClick={() => setDeleteDialog({ show: true, log })}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors"
                               title="Löschen"
                             >
@@ -644,6 +652,79 @@ export default function EmailHistoryView() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteDialog.show && deleteDialog.log && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full border border-slate-700">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-red-500/20 rounded-xl">
+                <Trash2 className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Email-Log löschen</h3>
+                <p className="text-sm text-slate-400">Diese Aktion kann nicht rückgängig gemacht werden</p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-3 mb-6 p-4 bg-slate-700/30 rounded-xl border border-slate-600/50">
+              <div className="flex items-start gap-2">
+                <Mail className="w-4 h-4 text-slate-400 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs text-slate-400">Empfänger</p>
+                  <p className="text-sm text-white font-medium">{deleteDialog.log.recipient_email}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <FileText className="w-4 h-4 text-slate-400 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs text-slate-400">Betreff</p>
+                  <p className="text-sm text-white font-medium">{deleteDialog.log.subject}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Clock className="w-4 h-4 text-slate-400 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs text-slate-400">Gesendet am</p>
+                  <p className="text-sm text-white font-medium">
+                    {new Date(deleteDialog.log.sent_at).toLocaleString('de-DE')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteDialog({ show: false, log: null })}
+                disabled={deleting}
+                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Löschen...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Löschen
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
