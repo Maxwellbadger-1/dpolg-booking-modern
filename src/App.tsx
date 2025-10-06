@@ -234,11 +234,8 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Right: Undo/Redo + Actions + Date */}
+          {/* Right: Actions + Date */}
           <div className="flex items-center gap-3">
-            {/* Undo/Redo Buttons */}
-            <UndoRedoButtons />
-
             <button
               onClick={() => setShowSettingsDialog(true)}
               className="flex items-center gap-2 p-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
@@ -269,27 +266,32 @@ function AppContent() {
 
         {/* Tab Navigation */}
         <div className="px-6 pt-3">
-          <div className="flex items-center gap-2">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`
-                    flex items-center gap-2 px-4 py-2 rounded-t-lg font-semibold transition-all
-                    ${isActive
-                      ? 'bg-gradient-to-br from-slate-50 to-slate-100 text-slate-800 shadow-lg'
-                      : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
-                    }
-                  `}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span className="text-sm">{tab.label}</span>
-                </button>
-              );
-            })}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`
+                      flex items-center gap-2 px-4 py-2 rounded-t-lg font-semibold transition-all
+                      ${isActive
+                        ? 'bg-gradient-to-br from-slate-50 to-slate-100 text-slate-800 shadow-lg'
+                        : 'text-slate-400 hover:text-slate-300 hover:bg-slate-700/50'
+                      }
+                    `}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span className="text-sm">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Undo/Redo Buttons - Ganz rechts in Tab-Zeile */}
+            <UndoRedoButtons />
           </div>
         </div>
       </header>

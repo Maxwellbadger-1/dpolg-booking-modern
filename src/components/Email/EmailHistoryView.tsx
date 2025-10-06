@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock, Trash2 } from 'lucide-react';
 import { SELECT_SMALL_STYLES, SELECT_SMALL_BACKGROUND_STYLE } from '../../lib/selectStyles';
@@ -70,7 +70,7 @@ export default function EmailHistoryView() {
 
   useEffect(() => {
     filterLogs();
-  }, [searchQuery, filterStatus, emailLogs]);
+  }, [filterLogs]);
 
   const loadAllEmailLogs = async () => {
     setLoading(true);
@@ -98,7 +98,7 @@ export default function EmailHistoryView() {
     }
   };
 
-  const filterLogs = () => {
+  const filterLogs = useCallback(() => {
     let filtered = emailLogs;
 
     // Status-Filter
@@ -118,7 +118,7 @@ export default function EmailHistoryView() {
     }
 
     setFilteredLogs(filtered);
-  };
+  }, [emailLogs, filterStatus, searchQuery]);
 
   const getTemplateDisplayName = (name: string) => {
     const names: { [key: string]: string } = {

@@ -10,8 +10,9 @@ interface Room {
   name: string;
   gebaeude_typ: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
+  nebensaison_preis: number;
+  hauptsaison_preis: number;
+  endreinigung: number;
   ort: string;
   schluesselcode?: string;
 }
@@ -194,17 +195,24 @@ export default function RoomList() {
                   {/* Pricing */}
                   <div className="pt-4 border-t border-slate-200 space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-600">Mitglieder</span>
-                      <span className="font-semibold text-emerald-600 flex items-center gap-1">
+                      <span className="text-slate-600">Nebensaison</span>
+                      <span className="font-semibold text-blue-600 flex items-center gap-1">
                         <Euro className="w-3.5 h-3.5" />
-                        {room.price_member.toFixed(2)}
+                        {room.nebensaison_preis.toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-600">Nicht-Mitglieder</span>
+                      <span className="text-slate-600">Hauptsaison</span>
                       <span className="font-semibold text-slate-900 flex items-center gap-1">
                         <Euro className="w-3.5 h-3.5" />
-                        {room.price_non_member.toFixed(2)}
+                        {room.hauptsaison_preis.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Endreinigung</span>
+                      <span className="font-semibold text-purple-600 flex items-center gap-1">
+                        <Euro className="w-3.5 h-3.5" />
+                        {room.endreinigung.toFixed(2)}
                       </span>
                     </div>
                   </div>

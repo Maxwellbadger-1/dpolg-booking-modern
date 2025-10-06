@@ -180,6 +180,19 @@ pub struct NotificationSettings {
     pub updated_at: String,
 }
 
+// Pricing Settings (Saisonzeiten & Mitgliederrabatt)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PricingSettings {
+    pub id: i64,
+    pub hauptsaison_aktiv: bool,
+    pub hauptsaison_start: String,  // Format: MM-DD (z.B. "06-01")
+    pub hauptsaison_ende: String,   // Format: MM-DD (z.B. "08-31")
+    pub mitglieder_rabatt_aktiv: bool,
+    pub mitglieder_rabatt_prozent: f64,  // z.B. 15.0 für 15%
+    pub rabatt_basis: String,  // 'zimmerpreis' oder 'gesamtpreis'
+    pub updated_at: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EmailTemplate {
     pub id: i64,
@@ -565,6 +578,28 @@ fn create_indexes(conn: &Connection) -> Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO notification_settings (id, checkin_reminders_enabled, payment_reminders_enabled, payment_reminder_after_days, payment_reminder_repeat_days, scheduler_interval_hours)
          VALUES (1, 1, 1, 14, 14, 1)",
+        [],
+    )?;
+
+    // Pricing Settings Table (Saisonzeiten & Mitgliederrabatt)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS pricing_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            hauptsaison_aktiv BOOLEAN NOT NULL DEFAULT 1,
+            hauptsaison_start TEXT NOT NULL DEFAULT '06-01',
+            hauptsaison_ende TEXT NOT NULL DEFAULT '08-31',
+            mitglieder_rabatt_aktiv BOOLEAN NOT NULL DEFAULT 1,
+            mitglieder_rabatt_prozent REAL NOT NULL DEFAULT 15.0,
+            rabatt_basis TEXT NOT NULL DEFAULT 'zimmerpreis' CHECK(rabatt_basis IN ('zimmerpreis', 'gesamtpreis')),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Standard Pricing Settings einfügen (falls noch nicht vorhanden)
+    conn.execute(
+        "INSERT OR IGNORE INTO pricing_settings (id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende, mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis)
+         VALUES (1, 1, '06-01', '08-31', 1, 15.0, 'zimmerpreis')",
         [],
     )?;
 
@@ -2481,6 +2516,61 @@ pub fn save_notification_settings(settings: NotificationSettings) -> Result<Noti
 
     // Return updated settings
     get_notification_settings()
+}
+
+// ============================================================================
+// PRICING SETTINGS
+// ============================================================================
+
+/// Gibt die Preiseinstellungen zurück (id ist immer 1)
+pub fn get_pricing_settings() -> Result<PricingSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.query_row(
+        "SELECT id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende,
+         mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis, updated_at
+         FROM pricing_settings WHERE id = 1",
+        [],
+        |row| {
+            Ok(PricingSettings {
+                id: row.get(0)?,
+                hauptsaison_aktiv: row.get(1)?,
+                hauptsaison_start: row.get(2)?,
+                hauptsaison_ende: row.get(3)?,
+                mitglieder_rabatt_aktiv: row.get(4)?,
+                mitglieder_rabatt_prozent: row.get(5)?,
+                rabatt_basis: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        },
+    )
+}
+
+/// Speichert/Aktualisiert die Preiseinstellungen (id ist immer 1)
+pub fn save_pricing_settings(settings: PricingSettings) -> Result<PricingSettings> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // UPSERT Pattern: INSERT OR REPLACE
+    conn.execute(
+        "INSERT OR REPLACE INTO pricing_settings (
+            id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende,
+            mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis,
+            updated_at
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
+        rusqlite::params![
+            settings.hauptsaison_aktiv,
+            settings.hauptsaison_start,
+            settings.hauptsaison_ende,
+            settings.mitglieder_rabatt_aktiv,
+            settings.mitglieder_rabatt_prozent,
+            settings.rabatt_basis,
+        ],
+    )?;
+
+    // Aktualisierte Daten zurückgeben
+    get_pricing_settings()
 }
 
 /// Speichert/Aktualisiert die Zahlungseinstellungen (id ist immer 1)

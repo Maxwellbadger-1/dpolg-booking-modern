@@ -199,8 +199,8 @@ export default function BookingList() {
     let filtered = bookings.filter(booking => {
       const matchesSearch =
         booking.reservierungsnummer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        `${booking.guest.vorname} ${booking.guest.nachname}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        booking.room.name.toLowerCase().includes(searchQuery.toLowerCase());
+        (booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}`.toLowerCase().includes(searchQuery.toLowerCase()) : false) ||
+        (booking.room ? booking.room.name.toLowerCase().includes(searchQuery.toLowerCase()) : false);
 
       const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
       const matchesRoom = roomFilter === 'all' || booking.room_id.toString() === roomFilter;
@@ -482,13 +482,13 @@ export default function BookingList() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-slate-900">
-                          {booking.guest.vorname} {booking.guest.nachname}
+                          {booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}` : 'Unbekannt'}
                         </div>
-                        <div className="text-xs text-slate-500">{booking.guest.email}</div>
+                        <div className="text-xs text-slate-500">{booking.guest?.email || '-'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">{booking.room.name}</div>
-                        <div className="text-xs text-slate-500">{booking.room.ort}</div>
+                        <div className="text-sm font-medium text-slate-900">{booking.room?.name || 'Unbekannt'}</div>
+                        <div className="text-xs text-slate-500">{booking.room?.ort || '-'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-slate-900">

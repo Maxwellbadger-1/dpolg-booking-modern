@@ -491,22 +491,28 @@ fn calculate_booking_price_command(
     checkin: String,
     checkout: String,
     is_member: bool,
+    services: Option<Vec<(String, f64)>>,
+    discounts: Option<Vec<(String, String, f64)>>,
 ) -> Result<serde_json::Value, String> {
     let conn = Connection::open(database::get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
 
-    let services: Vec<(String, f64)> = vec![];
-    let discounts: Vec<(String, String, f64)> = vec![];
+    let services = services.unwrap_or_default();
+    let discounts = discounts.unwrap_or_default();
 
     let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) =
         pricing::calculate_booking_total(room_id, &checkin, &checkout, is_member, &services, &discounts, &conn)?;
+
+    // Prüfe Saison für UI-Anzeige
+    let is_hauptsaison = pricing::is_hauptsaison(&checkin).unwrap_or(false);
 
     Ok(serde_json::json!({
         "grundpreis": grundpreis,
         "servicesPreis": services_preis,
         "rabattPreis": rabatt_preis,
         "gesamtpreis": gesamtpreis,
-        "anzahlNaechte": anzahl_naechte
+        "anzahlNaechte": anzahl_naechte,
+        "istHauptsaison": is_hauptsaison
     }))
 }
 
@@ -718,6 +724,22 @@ fn get_notification_settings_command() -> Result<database::NotificationSettings,
 fn save_notification_settings_command(settings: database::NotificationSettings) -> Result<database::NotificationSettings, String> {
     database::save_notification_settings(settings)
         .map_err(|e| format!("Fehler beim Speichern der Benachrichtigungseinstellungen: {}", e))
+}
+
+// ============================================================================
+// PRICING SETTINGS COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn get_pricing_settings_command() -> Result<database::PricingSettings, String> {
+    database::get_pricing_settings()
+        .map_err(|e| format!("Fehler beim Laden der Preiseinstellungen: {}", e))
+}
+
+#[tauri::command]
+fn save_pricing_settings_command(settings: database::PricingSettings) -> Result<database::PricingSettings, String> {
+    database::save_pricing_settings(settings)
+        .map_err(|e| format!("Fehler beim Speichern der Preiseinstellungen: {}", e))
 }
 
 #[tauri::command]
@@ -941,6 +963,9 @@ pub fn run() {
             save_payment_settings_command,
             get_notification_settings_command,
             save_notification_settings_command,
+            // Pricing Settings
+            get_pricing_settings_command,
+            save_pricing_settings_command,
             // PDF Generation
             pdf_generator::generate_invoice_pdf_command,
             pdf_generator::get_invoice_pdfs_for_booking_command,

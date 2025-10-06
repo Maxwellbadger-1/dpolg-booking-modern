@@ -309,10 +309,11 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
       // Use backend command for price calculation (supports seasonal pricing + auto DPolG discount + Endreinigung)
       const priceResult = await invoke<{
         grundpreis: number;
-        services_preis: number;
-        rabatt_preis: number;
+        servicesPreis: number;
+        rabattPreis: number;
         gesamtpreis: number;
-        anzahl_naechte: number;
+        anzahlNaechte: number;
+        istHauptsaison: boolean;
       }>('calculate_booking_price_command', {
         roomId: formData.room_id,
         checkin: formData.checkin_date,
@@ -323,24 +324,18 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
       });
 
       console.log('✅ [calculatePrice] Backend result:', priceResult);
-      console.log('📊 [calculatePrice] Backend values:', {
-        anzahl_naechte: priceResult.anzahl_naechte,
-        anzahlNaechte: priceResult.anzahlNaechte,
-        grundpreis: priceResult.grundpreis,
-        services_preis: priceResult.services_preis,
-        servicesPreis: priceResult.servicesPreis,
-      });
 
-      const pricePerNight = priceResult.grundpreis / (priceResult.anzahlNaechte || priceResult.anzahl_naechte || 1);
+      const pricePerNight = priceResult.grundpreis / (priceResult.anzahlNaechte || 1);
 
       const newPriceInfo = {
-        nights: priceResult.anzahlNaechte || priceResult.anzahl_naechte || 0,
+        nights: priceResult.anzahlNaechte || 0,
         pricePerNight,
         basePrice: priceResult.grundpreis || 0,
-        servicesTotal: priceResult.servicesPreis || priceResult.services_preis || 0,
-        discountsTotal: priceResult.rabattPreis || priceResult.rabatt_preis || 0,
+        servicesTotal: priceResult.servicesPreis || 0,
+        discountsTotal: priceResult.rabattPreis || 0,
         totalPrice: priceResult.gesamtpreis || 0,
         memberPrice: guest.dpolg_mitglied,
+        istHauptsaison: priceResult.istHauptsaison,
       };
 
       console.log('📦 [calculatePrice] Setting priceInfo to:', newPriceInfo);
@@ -928,7 +923,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                     <span className="font-semibold text-blue-900">{priceInfo.nights ?? 0}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-blue-700">Preis pro Nacht {priceInfo.memberPrice && '(Mitglied)'}:</span>
+                    <span className="text-blue-700">
+                      Preis pro Nacht {priceInfo.istHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
+                    </span>
                     <span className="font-semibold text-blue-900">{(priceInfo.pricePerNight ?? 0).toFixed(2)} €</span>
                   </div>
                   <div className="flex justify-between">
@@ -943,7 +940,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                   )}
                   {(priceInfo.discountsTotal ?? 0) > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-orange-700">- Rabatte:</span>
+                      <span className="text-orange-700">
+                        - Rabatte {priceInfo.memberPrice && '(inkl. 15% DPolG-Rabatt)'}:
+                      </span>
                       <span className="font-semibold text-orange-700">{(priceInfo.discountsTotal ?? 0).toFixed(2)} €</span>
                     </div>
                   )}

@@ -131,34 +131,95 @@ pub fn calculate_services_total(services: &[(String, f64)]) -> f64 {
     services.iter().map(|(_, price)| price).sum()
 }
 
-/// Prüft ob ein Datum in der Hauptsaison liegt.
+/// Prüft ob ein Datum in der Hauptsaison liegt (basierend auf pricing_settings).
 ///
-/// Hauptsaison: 01.06-15.09.2025 und 22.12-28.02.2026
+/// Lädt die Hauptsaison-Zeiträume dynamisch aus pricing_settings Tabelle.
+/// Wenn hauptsaison_aktiv=false, gibt immer false zurück (=> Nebensaison).
 ///
 /// # Arguments
 /// * `date` - Datum im Format YYYY-MM-DD
+/// * `conn` - Datenbankverbindung
 ///
 /// # Returns
 /// * `Ok(true)` - Hauptsaison
-/// * `Ok(false)` - Nebensaison
-/// * `Err(String)` - Ungültiges Datum
+/// * `Ok(false)` - Nebensaison oder Hauptsaison deaktiviert
+/// * `Err(String)` - Ungültiges Datum oder DB-Fehler
+pub fn is_hauptsaison_with_settings(date: &str, conn: &Connection) -> Result<bool, String> {
+    // Lade Pricing Settings
+    let (hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende): (bool, String, String) = conn
+        .query_row(
+            "SELECT hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende FROM pricing_settings WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| format!("Fehler beim Laden der Preiseinstellungen: {}", e))?;
+
+    // Wenn Hauptsaison deaktiviert, immer Nebensaison
+    if !hauptsaison_aktiv {
+        return Ok(false);
+    }
+
+    let date_parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|_| format!("Ungültiges Datum: {}. Erwartetes Format: YYYY-MM-DD", date))?;
+
+    // Parse Saison-Start/Ende (Format: MM-DD)
+    let (start_month, start_day) = parse_mmdd(&hauptsaison_start)?;
+    let (end_month, end_day) = parse_mmdd(&hauptsaison_ende)?;
+
+    // Prüfe ob Datum in der Hauptsaison liegt
+    let is_in_season = is_date_in_season(date_parsed, start_month, start_day, end_month, end_day);
+
+    Ok(is_in_season)
+}
+
+/// Fallback für is_hauptsaison ohne DB-Zugriff (für alte Tests)
+/// DEPRECATED: Verwende is_hauptsaison_with_settings stattdessen
 pub fn is_hauptsaison(date: &str) -> Result<bool, String> {
     let date_parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|_| format!("Ungültiges Datum: {}. Erwartetes Format: YYYY-MM-DD", date))?;
 
-    // Hauptsaison 1: 01.06.2025 - 15.09.2025
-    let hs1_start = NaiveDate::from_ymd_opt(2025, 6, 1).unwrap();
-    let hs1_end = NaiveDate::from_ymd_opt(2025, 9, 15).unwrap();
+    // Standard-Hauptsaison: 01.06 - 31.08 (Sommersaison)
+    let is_in_season = is_date_in_season(date_parsed, 6, 1, 8, 31);
 
-    // Hauptsaison 2: 22.12.2025 - 28.02.2026
-    let hs2_start = NaiveDate::from_ymd_opt(2025, 12, 22).unwrap();
-    let hs2_end = NaiveDate::from_ymd_opt(2026, 2, 28).unwrap();
+    Ok(is_in_season)
+}
 
-    // Prüfe ob Datum in einer der Hauptsaison-Perioden liegt
-    let is_in_hs = (date_parsed >= hs1_start && date_parsed <= hs1_end)
-        || (date_parsed >= hs2_start && date_parsed <= hs2_end);
+/// Hilfsfunktion: Parst MM-DD Format zu (Monat, Tag)
+fn parse_mmdd(mmdd: &str) -> Result<(u32, u32), String> {
+    let parts: Vec<&str> = mmdd.split('-').collect();
+    if parts.len() != 2 {
+        return Err(format!("Ungültiges MM-DD Format: {}", mmdd));
+    }
 
-    Ok(is_in_hs)
+    let month = parts[0].parse::<u32>()
+        .map_err(|_| format!("Ungültiger Monat: {}", parts[0]))?;
+    let day = parts[1].parse::<u32>()
+        .map_err(|_| format!("Ungültiger Tag: {}", parts[1]))?;
+
+    Ok((month, day))
+}
+
+/// Hilfsfunktion: Prüft ob ein Datum in einer Saison (Monat/Tag-Range) liegt
+fn is_date_in_season(date: NaiveDate, start_month: u32, start_day: u32, end_month: u32, end_day: u32) -> bool {
+    let year = date.year();
+
+    // Erstelle Start- und End-Datum für das Jahr des Datums
+    let season_start = NaiveDate::from_ymd_opt(year, start_month, start_day);
+    let season_end = NaiveDate::from_ymd_opt(year, end_month, end_day);
+
+    if let (Some(start), Some(end)) = (season_start, season_end) {
+        if start <= end {
+            // Normale Saison (z.B. Juni-August)
+            date >= start && date <= end
+        } else {
+            // Über Jahreswechsel (z.B. Dezember-Februar)
+            // Prüfe ob in aktuellem Jahr (nach Start) oder nächstem Jahr (vor Ende)
+            let next_year_end = NaiveDate::from_ymd_opt(year + 1, end_month, end_day);
+            date >= start || (next_year_end.is_some() && date <= next_year_end.unwrap())
+        }
+    } else {
+        false
+    }
 }
 
 /// Berechnet alle Preiskomponenten einer Buchung basierend auf Datenbank und Parametern.
@@ -178,9 +239,10 @@ pub fn is_hauptsaison(date: &str) -> Result<bool, String> {
 /// * `Ok((grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte))`
 /// * `Err(String)` - Fehlermeldung
 ///
-/// # Neue Preisberechnung (Preisliste 2025):
-/// - Saisonpreise: Hauptsaison (01.06-15.09 + 22.12-28.02) vs. Nebensaison
-/// - DPolG-Rabatt: 15% automatisch für Mitglieder (aus payment_settings)
+/// # Neue Preisberechnung (Preisliste 2025 - Dynamisch konfigurierbar):
+/// - Saisonpreise: Hauptsaison vs. Nebensaison (konfigurierbar in pricing_settings)
+/// - DPolG-Rabatt: Prozentsatz und Aktivierung konfigurierbar (aus pricing_settings)
+/// - Rabatt-Basis: Wählbar zwischen "zimmerpreis" (nur Zimmer) oder "gesamtpreis" (Zimmer + Services)
 /// - Endreinigung: Automatisch pro Zimmer hinzugefügt
 ///
 /// # Discount Types
@@ -205,8 +267,8 @@ pub fn calculate_booking_total(
                 let hauptsaison: f64 = row.get(1)?;
                 let endreinigung: f64 = row.get(2)?;
 
-                // Saisonerkennung basierend auf Check-in Datum
-                let is_hs = is_hauptsaison(checkin).unwrap_or(false);
+                // Saisonerkennung basierend auf pricing_settings
+                let is_hs = is_hauptsaison_with_settings(checkin, conn).unwrap_or(false);
                 let price = if is_hs { hauptsaison } else { nebensaison };
 
                 Ok((price, endreinigung))
@@ -227,18 +289,27 @@ pub fn calculate_booking_total(
     // 5. Berechne Zwischensumme (vor Rabatten)
     let subtotal = grundpreis + services_preis;
 
-    // 6. DPolG-Rabatt automatisch für Mitglieder laden
+    // 6. DPolG-Rabatt automatisch für Mitglieder laden (aus pricing_settings)
     let mut rabatt_preis = 0.0;
     if is_member {
-        let dpolg_rabatt: f64 = conn
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
             .query_row(
-                "SELECT dpolg_rabatt FROM payment_settings LIMIT 1",
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
-            .unwrap_or(15.0); // Fallback: 15% wenn nicht in DB
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string())); // Fallback
 
-        rabatt_preis += apply_discount_percentage(subtotal, dpolg_rabatt);
+        // Nur Rabatt anwenden wenn aktiv
+        if rabatt_aktiv {
+            let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                "zimmerpreis" => grundpreis,  // Nur Zimmerpreis (ohne Services)
+                "gesamtpreis" => subtotal,    // Zimmerpreis + Services
+                _ => grundpreis,              // Fallback: nur Zimmerpreis
+            };
+
+            rabatt_preis += apply_discount_percentage(rabatt_basis_betrag, rabatt_prozent);
+        }
     }
 
     // 7. Berechne zusätzliche Rabatte
@@ -669,6 +740,20 @@ mod tests {
         )
         .unwrap();
 
+        conn.execute(
+            "CREATE TABLE pricing_settings (
+                id INTEGER PRIMARY KEY,
+                hauptsaison_aktiv INTEGER NOT NULL DEFAULT 1,
+                hauptsaison_start TEXT NOT NULL DEFAULT '06-01',
+                hauptsaison_ende TEXT NOT NULL DEFAULT '08-31',
+                mitglieder_rabatt_aktiv INTEGER NOT NULL DEFAULT 1,
+                mitglieder_rabatt_prozent REAL NOT NULL DEFAULT 15.0,
+                rabatt_basis TEXT NOT NULL DEFAULT 'zimmerpreis'
+            )",
+            [],
+        )
+        .unwrap();
+
         // Füge Testdaten ein (Zimmer mit Nebensaison/Hauptsaison Preisen)
         conn.execute(
             "INSERT INTO rooms (id, name, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung)
@@ -687,6 +772,14 @@ mod tests {
         // Payment Settings mit DPolG-Rabatt 15%
         conn.execute(
             "INSERT INTO payment_settings (id, dpolg_rabatt) VALUES (1, 15.0)",
+            [],
+        )
+        .unwrap();
+
+        // Pricing Settings mit Standard-Konfiguration
+        conn.execute(
+            "INSERT INTO pricing_settings (id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende, mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis)
+             VALUES (1, 1, '06-01', '08-31', 1, 15.0, 'zimmerpreis')",
             [],
         )
         .unwrap();
