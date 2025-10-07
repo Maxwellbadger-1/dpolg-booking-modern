@@ -3242,3 +3242,106 @@ pub fn update_template(
     )
     .map_err(|e| format!("Fehler beim Laden: {}", e))
 }
+
+// ============================================================================
+// Cleaning Plan / Putzplan Functions
+// ============================================================================
+
+/// Gibt alle Buchungen zurück, die an einem bestimmten Datum auschecken
+pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetails>> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let mut stmt = conn.prepare(
+        "SELECT
+            b.id, b.room_id, b.guest_id, b.reservierungsnummer,
+            b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.status,
+            b.gesamtpreis, b.bemerkungen, b.created_at,
+            b.anzahl_begleitpersonen, b.grundpreis, b.services_preis,
+            b.rabatt_preis, b.anzahl_naechte, b.updated_at,
+            b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
+            r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
+            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
+            g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
+            g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf,
+            g.bundesland, g.dienststelle, g.created_at
+         FROM bookings b
+         INNER JOIN rooms r ON b.room_id = r.id
+         INNER JOIN guests g ON b.guest_id = g.id
+         WHERE b.checkout_date = ?1
+         ORDER BY r.name",
+    )?;
+
+    let bookings_iter = stmt.query_map([date], |row| {
+        Ok(BookingWithDetails {
+            id: row.get(0)?,
+            room_id: row.get(1)?,
+            guest_id: row.get(2)?,
+            reservierungsnummer: row.get(3)?,
+            checkin_date: row.get(4)?,
+            checkout_date: row.get(5)?,
+            anzahl_gaeste: row.get(6)?,
+            status: row.get(7)?,
+            gesamtpreis: row.get(8)?,
+            bemerkungen: row.get(9)?,
+            // created_at: row.get(10)?, // Skip - not in BookingWithDetails
+            anzahl_begleitpersonen: row.get(11)?,
+            grundpreis: row.get(12)?,
+            services_preis: row.get(13)?,
+            rabatt_preis: row.get(14)?,
+            anzahl_naechte: row.get(15)?,
+            // updated_at: row.get(16)?, // Skip - not in BookingWithDetails
+            bezahlt: row.get(17)?,
+            bezahlt_am: row.get(18)?,
+            zahlungsmethode: row.get(19)?,
+            mahnung_gesendet_am: row.get(20)?,
+            room: Room {
+                id: row.get(21)?,
+                name: row.get(22)?,
+                gebaeude_typ: row.get(23)?,
+                capacity: row.get(24)?,
+                price_member: row.get(25)?,
+                price_non_member: row.get(26)?,
+                nebensaison_preis: row.get(27)?,
+                hauptsaison_preis: row.get(28)?,
+                endreinigung: row.get(29)?,
+                ort: row.get(30)?,
+                schluesselcode: row.get(31)?,
+            },
+            guest: Guest {
+                id: row.get(32)?,
+                vorname: row.get(33)?,
+                nachname: row.get(34)?,
+                email: row.get(35)?,
+                telefon: row.get(36)?,
+                dpolg_mitglied: row.get(37)?,
+                strasse: row.get(38)?,
+                plz: row.get(39)?,
+                ort: row.get(40)?,
+                mitgliedsnummer: row.get(41)?,
+                notizen: row.get(42)?,
+                beruf: row.get(43)?,
+                bundesland: row.get(44)?,
+                dienststelle: row.get(45)?,
+                created_at: row.get(46)?,
+            },
+        })
+    })?;
+
+    bookings_iter.collect()
+}
+
+/// Prüft ob für ein Zimmer am selben Tag ein Check-in stattfindet
+pub fn check_same_day_checkin(room_id: i64, date: &str) -> Result<bool> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM bookings
+         WHERE room_id = ?1 AND checkin_date = ?2 AND status != 'storniert'",
+        rusqlite::params![room_id, date],
+        |row| row.get(0),
+    )?;
+
+    Ok(count > 0)
+}

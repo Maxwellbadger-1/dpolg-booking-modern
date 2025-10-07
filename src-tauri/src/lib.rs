@@ -11,6 +11,7 @@ mod time_utils;
 mod email_scheduler;
 mod backup;
 mod transaction_log;
+mod supabase;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -1115,6 +1116,9 @@ pub fn run() {
             list_backups_command,
             restore_backup_command,
             delete_backup_command,
+            // Supabase / Cleaning Plan Sync
+            supabase::sync_cleaning_tasks,
+            supabase::sync_week_ahead,
             get_backup_settings_command,
             save_backup_settings_command,
             open_backup_folder_command,
