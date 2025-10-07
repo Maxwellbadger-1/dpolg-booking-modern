@@ -16,7 +16,8 @@ import CancellationConfirmDialog from './components/BookingManagement/Cancellati
 import QuickBookingFAB from './components/QuickBookingFAB';
 import StatisticsView from './components/Statistics/StatisticsView';
 import UndoRedoButtons from './components/UndoRedoButtons';
-import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp } from 'lucide-react';
+import CleaningSync from './components/CleaningSync';
+import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -53,7 +54,7 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics';
+type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics' | 'cleaning';
 
 function AppContent() {
   const { rooms, bookings, loading, refreshAll, updateBookingStatus } = useData(); // Use Context directly!
@@ -162,6 +163,7 @@ function AppContent() {
     { id: 'templates' as Tab, label: 'Services & Rabatte', icon: Briefcase },
     { id: 'emails' as Tab, label: 'Email-Verlauf', icon: Mail },
     { id: 'statistics' as Tab, label: 'Statistiken', icon: TrendingUp },
+    { id: 'cleaning' as Tab, label: 'Putzplan Sync', icon: Cloud },
   ];
 
   return (
@@ -336,6 +338,7 @@ function AppContent() {
         {activeTab === 'rooms' && <RoomList />}
         {activeTab === 'templates' && <TemplatesManagement />}
         {activeTab === 'emails' && <EmailHistoryView />}
+        {activeTab === 'cleaning' && <CleaningSync />}
       </main>
 
       {/* Floating Action Button - Always Visible */}

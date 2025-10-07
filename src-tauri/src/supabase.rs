@@ -2,18 +2,16 @@ use serde::{Deserialize, Serialize};
 use reqwest::Client;
 
 // TODO: In Config auslagern oder Umgebungsvariablen
-const SUPABASE_URL: &str = "https://your-project.supabase.co";
-const SUPABASE_KEY: &str = "your-anon-key-here";
+const TURSO_URL: &str = "https://dpolg-cleaning-maxwellbadger-1.aws-eu-west-1.turso.io";
+const TURSO_TOKEN: &str = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTk4NDI1MzcsImlkIjoiZjY1ZWY2YzMtYWNhMS00NjZiLWExYjgtODU0MTlmYjlmNDNiIiwicmlkIjoiMTRjNDc4YjAtYTAwMy00ZmZmLThiYTUtYTZhOWIwYjZiODdmIn0.JSyu72rlp3pQ_vFxozglKoV-XMHW12j_hVfhTKjbEGwSyWnWBq2kziJNx2WwvvwD09NU-TMoLLszq2Mm9OlLDw";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CleaningTask {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<i64>,
     pub date: String,
     pub room_name: String,
-    pub room_id: Option<i64>,
-    pub guest_name: Option<String>,
-    pub checkout_time: Option<String>,
+    pub room_id: i64,
+    pub guest_name: String,
+    pub checkout_time: String,
     pub checkin_time: Option<String>,
     pub priority: String, // "high", "normal", "low"
     pub notes: Option<String>,
@@ -21,40 +19,80 @@ pub struct CleaningTask {
     pub has_dog: bool,
     pub needs_bedding: bool,
     pub guest_count: i32,
-    pub extras: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
+    pub extras: String, // JSON als String
 }
 
-/// Synchronisiert Cleaning Tasks für ein bestimmtes Datum zu Supabase
+#[derive(Debug, Serialize)]
+struct TursoRequest {
+    statements: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TursoResponse {
+    results: Vec<TursoResult>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct TursoResult {
+    success: bool,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Führt SQL-Statement auf Turso aus
+async fn execute_turso_sql(sql: String) -> Result<(), String> {
+    let client = Client::new();
+
+    let request_body = TursoRequest {
+        statements: vec![sql],
+    };
+
+    let response = client
+        .post(format!("{}/v2/pipeline", TURSO_URL))
+        .header("Authorization", format!("Bearer {}", TURSO_TOKEN))
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP Request fehlgeschlagen: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_else(|_| "Unbekannter Fehler".to_string());
+        return Err(format!("Turso Fehler {}: {}", status, error_text));
+    }
+
+    let turso_response: TursoResponse = response.json().await
+        .map_err(|e| format!("JSON Parse Error: {}", e))?;
+
+    for result in turso_response.results {
+        if !result.success {
+            if let Some(error) = result.error {
+                return Err(format!("SQL Error: {}", error));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Synchronisiert Cleaning Tasks für ein bestimmtes Datum zu Turso
 #[tauri::command]
 pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
     // Hole Buchungen für dieses Datum
     let checkouts = crate::database::get_bookings_by_checkout_date(&date)
         .map_err(|e| format!("Fehler beim Laden der Checkouts: {}", e))?;
 
-    let client = Client::new();
-
     // Lösche alte Tasks für dieses Datum
-    let delete_url = format!("{}/rest/v1/cleaning_tasks?date=eq.{}", SUPABASE_URL, date);
-    let _ = client
-        .delete(&delete_url)
-        .header("apikey", SUPABASE_KEY)
-        .header("Authorization", format!("Bearer {}", SUPABASE_KEY))
-        .send()
-        .await
-        .map_err(|e| format!("Löschen fehlgeschlagen: {}", e))?;
+    let delete_sql = format!("DELETE FROM cleaning_tasks WHERE date = '{}'", date);
+    execute_turso_sql(delete_sql).await?;
 
     if checkouts.is_empty() {
         return Ok("Keine Aufgaben für dieses Datum".to_string());
     }
 
     // Erstelle Tasks aus Checkouts
-    let mut tasks = Vec::new();
-
-    for booking in checkouts {
+    for booking in &checkouts {
         // Hole Services für diese Buchung
         let services = crate::database::get_booking_services(booking.id)
             .unwrap_or_default();
@@ -69,56 +107,51 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
         let priority = if same_day_checkin { "high" } else { "normal" };
 
         // Baue extras JSON
-        let mut extras_map = serde_json::Map::new();
-        extras_map.insert("has_dog".to_string(), serde_json::json!(has_dog));
-        extras_map.insert("needs_bedding".to_string(), serde_json::json!(needs_bedding));
-        extras_map.insert("guest_count".to_string(), serde_json::json!(booking.anzahl_gaeste));
-
         let service_names: Vec<String> = services.iter().map(|s| s.service_name.clone()).collect();
-        extras_map.insert("services".to_string(), serde_json::json!(service_names));
+        let extras = serde_json::json!({
+            "has_dog": has_dog,
+            "needs_bedding": needs_bedding,
+            "guest_count": booking.anzahl_gaeste,
+            "services": service_names
+        }).to_string();
 
-        let task = CleaningTask {
-            id: None,
-            date: date.clone(),
-            room_name: booking.room.name.clone(),
-            room_id: Some(booking.room_id),
-            guest_name: Some(format!("{} {}", booking.guest.vorname, booking.guest.nachname)),
-            checkout_time: Some(booking.checkout_date.clone()),
-            checkin_time: if same_day_checkin { Some(date.clone()) } else { None },
-            priority: priority.to_string(),
-            notes: booking.bemerkungen.clone(),
-            status: "pending".to_string(),
-            has_dog,
-            needs_bedding,
-            guest_count: booking.anzahl_gaeste,
-            extras: serde_json::Value::Object(extras_map),
-            completed_at: None,
-            created_at: None,
+        // SQL-Escape für Strings
+        let room_name = booking.room.name.replace("'", "''");
+        let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname).replace("'", "''");
+        let checkout_time = booking.checkout_date.replace("'", "''");
+        let checkin_time_str = if same_day_checkin {
+            format!("'{}'", date.replace("'", "''"))
+        } else {
+            "NULL".to_string()
         };
+        let notes_str = if let Some(ref notes) = booking.bemerkungen {
+            format!("'{}'", notes.replace("'", "''"))
+        } else {
+            "NULL".to_string()
+        };
+        let extras_escaped = extras.replace("'", "''");
 
-        tasks.push(task);
+        // INSERT Statement
+        let insert_sql = format!(
+            "INSERT INTO cleaning_tasks (date, room_name, room_id, guest_name, checkout_time, checkin_time, priority, notes, status, has_dog, needs_bedding, guest_count, extras) VALUES ('{}', '{}', {}, '{}', '{}', {}, '{}', {}, 'pending', {}, {}, {}, '{}')",
+            date,
+            room_name,
+            booking.room_id,
+            guest_name,
+            checkout_time,
+            checkin_time_str,
+            priority,
+            notes_str,
+            if has_dog { 1 } else { 0 },
+            if needs_bedding { 1 } else { 0 },
+            booking.anzahl_gaeste,
+            extras_escaped
+        );
+
+        execute_turso_sql(insert_sql).await?;
     }
 
-    // Sende an Supabase
-    let create_url = format!("{}/rest/v1/cleaning_tasks", SUPABASE_URL);
-    let response = client
-        .post(&create_url)
-        .header("apikey", SUPABASE_KEY)
-        .header("Authorization", format!("Bearer {}", SUPABASE_KEY))
-        .header("Content-Type", "application/json")
-        .header("Prefer", "return=minimal")
-        .json(&tasks)
-        .send()
-        .await
-        .map_err(|e| format!("Upload fehlgeschlagen: {}", e))?;
-
-    if response.status().is_success() {
-        Ok(format!("✅ {} Aufgaben synchronisiert", tasks.len()))
-    } else {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unbekannter Fehler".to_string());
-        Err(format!("Fehler {}: {}", status, error_text))
-    }
+    Ok(format!("✅ {} Aufgaben synchronisiert", checkouts.len()))
 }
 
 /// Synchronisiert automatisch alle Buchungen der nächsten 7 Tage
@@ -135,8 +168,10 @@ pub async fn sync_week_ahead() -> Result<String, String> {
             Ok(msg) => {
                 results.push(format!("{}: {}", date_str, msg));
                 // Parse die Anzahl aus der Nachricht
-                if let Some(count) = msg.split_whitespace().next().and_then(|s| s.parse::<i32>().ok()) {
-                    total_synced += count;
+                if let Some(count_str) = msg.split_whitespace().nth(1) {
+                    if let Ok(count) = count_str.parse::<i32>() {
+                        total_synced += count;
+                    }
                 }
             }
             Err(e) => {
