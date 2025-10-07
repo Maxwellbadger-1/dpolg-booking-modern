@@ -966,6 +966,88 @@ shadow-2xl                    /* Elevated Elements (Modals) */
 </div>
 ```
 
+##### Filter Section (Search + Dropdowns):
+```tsx
+{/* Filter Container - mit Hintergrund und Border */}
+<div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+  <div className="grid grid-cols-4 gap-3">
+    {/* Search Input */}
+    <div className="col-span-4 sm:col-span-1 relative">
+      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+      <input
+        type="text"
+        placeholder="Suche..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full pl-10 pr-3 py-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:shadow-md transition-all"
+      />
+    </div>
+
+    {/* Dropdown Filter */}
+    <select
+      value={filter}
+      onChange={(e) => setFilter(e.target.value)}
+      className="px-4 py-3 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:shadow-md transition-all cursor-pointer hover:border-slate-400 hover:shadow"
+    >
+      <option value="all">Alle</option>
+      <option value="option1">Option 1</option>
+      <option value="option2">Option 2</option>
+    </select>
+  </div>
+</div>
+```
+
+**Filter Design-Regeln:**
+- **Container:** `p-3 bg-slate-50 rounded-lg border border-slate-200` (oder `bg-blue-50/50 border-blue-200` für blaue Variante)
+- **Grid Layout:** `grid grid-cols-4 gap-3`
+- **Search Input:** Icon links (`left-4`, `w-5 h-5`), `pl-12 py-3.5 rounded-xl text-base`, `shadow-sm`, Focus: `shadow-md`
+- **Dropdowns:** `px-5 py-3.5 rounded-xl text-base`, `shadow-sm`, Hover: `hover:shadow-md`
+- **Konsistenz:** Alle Filter-Sections im Projekt müssen diesem Pattern folgen!
+- **Höhe:** Search Input und Dropdowns haben IDENTISCHE Höhe (`py-3.5`)
+
+##### Standard Dropdown (Unified Design):
+```tsx
+{/* Universal Dropdown Pattern - Gilt für ALLE Dropdowns im Projekt */}
+<select
+  value={selectedValue}
+  onChange={(e) => setSelectedValue(e.target.value)}
+  className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+  style={{
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 0.75rem center',
+    backgroundSize: '1.5rem',
+    paddingRight: '3rem'
+  }}
+>
+  <option value="">Alle Status</option>
+  <option value="option1">Option 1</option>
+  <option value="option2">Option 2</option>
+</select>
+```
+
+**Dropdown Design-Regeln (VERBINDLICH):**
+- ✅ **Padding:** `px-5 py-3.5` (horizontal 1.25rem, vertikal 0.875rem)
+- ✅ **Schriftgröße:** `text-base` (16px) für bessere Lesbarkeit
+- ✅ **Font-Weight:** `font-normal` (nicht bold, außer aktiv)
+- ✅ **Border-Radius:** `rounded-xl` (12px) für moderne Optik
+- ✅ **Hintergrund:** `bg-white` mit `border-slate-300`
+- ✅ **Schatten:** `shadow-sm` standard, `hover:shadow-md` on hover
+- ✅ **Custom Dropdown-Pfeil:** Via `backgroundImage` (SVG), rechts positioniert
+- ✅ **Padding-Right:** `3rem` (48px) damit Text nicht unter Pfeil gerät
+- ✅ **Appearance:** `appearance-none` (entfernt Browser-Standard-Pfeil)
+- ✅ **Hover:** `hover:border-slate-400` für subtiles Feedback
+- ✅ **Focus:** `focus:ring-2 focus:ring-blue-500`
+- ✅ **Transitions:** `transition-all` für smooth animations
+
+**WICHTIG:** Dieses Pattern gilt für ALLE Dropdowns:
+- Buchungsstatus-Filter
+- Zimmer-Auswahl
+- Gast-Auswahl
+- Jahr/Ort-Filter
+- Settings-Dropdowns
+- Alle zukünftigen Dropdowns
+
 ##### Modal/Dialog:
 ```tsx
 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">

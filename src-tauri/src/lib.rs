@@ -404,8 +404,9 @@ fn add_accompanying_guest_command(
     vorname: String,
     nachname: String,
     geburtsdatum: Option<String>,
+    companion_id: Option<i64>,
 ) -> Result<database::AccompanyingGuest, String> {
-    database::add_accompanying_guest(booking_id, vorname, nachname, geburtsdatum)
+    database::add_accompanying_guest(booking_id, vorname, nachname, geburtsdatum, companion_id)
         .map_err(|e| format!("Fehler beim Hinzufügen der Begleitperson: {}", e))
 }
 
@@ -419,6 +420,48 @@ fn delete_accompanying_guest_command(guest_id: i64) -> Result<(), String> {
 fn get_booking_accompanying_guests_command(booking_id: i64) -> Result<Vec<database::AccompanyingGuest>, String> {
     database::get_booking_accompanying_guests(booking_id)
         .map_err(|e| format!("Fehler beim Abrufen der Begleitpersonen: {}", e))
+}
+
+// ============================================================================
+// GUEST COMPANIONS - Permanent Pool (Phase 1.1)
+// ============================================================================
+
+#[tauri::command]
+fn create_guest_companion_command(
+    guest_id: i64,
+    vorname: String,
+    nachname: String,
+    geburtsdatum: Option<String>,
+    beziehung: Option<String>,
+    notizen: Option<String>,
+) -> Result<database::GuestCompanion, String> {
+    database::create_guest_companion(guest_id, vorname, nachname, geburtsdatum, beziehung, notizen)
+        .map_err(|e| format!("Fehler beim Erstellen der Begleitperson: {}", e))
+}
+
+#[tauri::command]
+fn get_guest_companions_command(guest_id: i64) -> Result<Vec<database::GuestCompanion>, String> {
+    database::get_guest_companions(guest_id)
+        .map_err(|e| format!("Fehler beim Abrufen der Begleitpersonen: {}", e))
+}
+
+#[tauri::command]
+fn update_guest_companion_command(
+    id: i64,
+    vorname: String,
+    nachname: String,
+    geburtsdatum: Option<String>,
+    beziehung: Option<String>,
+    notizen: Option<String>,
+) -> Result<database::GuestCompanion, String> {
+    database::update_guest_companion(id, vorname, nachname, geburtsdatum, beziehung, notizen)
+        .map_err(|e| format!("Fehler beim Aktualisieren der Begleitperson: {}", e))
+}
+
+#[tauri::command]
+fn delete_guest_companion_command(id: i64) -> Result<(), String> {
+    database::delete_guest_companion(id)
+        .map_err(|e| format!("Fehler beim Löschen der Begleitperson: {}", e))
 }
 
 // ============================================================================
@@ -504,7 +547,83 @@ fn calculate_booking_price_command(
         pricing::calculate_booking_total(room_id, &checkin, &checkout, is_member, &services, &discounts, &conn)?;
 
     // Prüfe Saison für UI-Anzeige
-    let is_hauptsaison = pricing::is_hauptsaison(&checkin).unwrap_or(false);
+    let is_hauptsaison = pricing::is_hauptsaison_with_settings(&checkin, &conn)?;
+
+    // Lade Endreinigung aus Zimmer-Daten
+    let endreinigung: f64 = conn
+        .query_row(
+            "SELECT endreinigung FROM rooms WHERE id = ?1",
+            rusqlite::params![room_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0.0);
+
+    // Konvertiere Services zu Array mit Namen und Preisen
+    let mut services_list: Vec<serde_json::Value> = Vec::new();
+
+    // Endreinigung als ersten Service hinzufügen (wenn > 0)
+    if endreinigung > 0.0 {
+        services_list.push(serde_json::json!({
+            "name": "Endreinigung",
+            "price": endreinigung
+        }));
+    }
+
+    // Weitere Services hinzufügen
+    for (name, price) in services.iter() {
+        services_list.push(serde_json::json!({
+            "name": name,
+            "price": price
+        }));
+    }
+
+    // Berechne Zwischensumme für Rabatt-Berechnung
+    let subtotal_for_discounts = grundpreis + services_preis;
+
+    // Erstelle Discounts-Liste
+    let mut discounts_list: Vec<serde_json::Value> = Vec::new();
+
+    // Füge DPolG-Rabatt hinzu wenn Mitglied
+    if is_member {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv {
+            let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                "zimmerpreis" => grundpreis,
+                "gesamtpreis" => subtotal_for_discounts,
+                _ => grundpreis,
+            };
+            let dpolg_rabatt_betrag = rabatt_basis_betrag * (rabatt_prozent / 100.0);
+
+            discounts_list.push(serde_json::json!({
+                "name": "DPolG-Mitgliederrabatt",
+                "type": "percent",
+                "value": rabatt_prozent,
+                "amount": dpolg_rabatt_betrag
+            }));
+        }
+    }
+
+    // Konvertiere zusätzliche Discounts zu Array
+    for (name, discount_type, value) in discounts.iter() {
+        let calculated_amount = match discount_type.as_str() {
+            "percent" => subtotal_for_discounts * (value / 100.0),
+            "fixed" => *value,
+            _ => 0.0,
+        };
+        discounts_list.push(serde_json::json!({
+            "name": name,
+            "type": discount_type,
+            "value": value,
+            "amount": calculated_amount
+        }));
+    }
 
     Ok(serde_json::json!({
         "grundpreis": grundpreis,
@@ -512,7 +631,9 @@ fn calculate_booking_price_command(
         "rabattPreis": rabatt_preis,
         "gesamtpreis": gesamtpreis,
         "anzahlNaechte": anzahl_naechte,
-        "istHauptsaison": is_hauptsaison
+        "istHauptsaison": is_hauptsaison,
+        "servicesList": services_list,
+        "discountsList": discounts_list
     }))
 }
 
@@ -918,6 +1039,11 @@ pub fn run() {
             add_accompanying_guest_command,
             delete_accompanying_guest_command,
             get_booking_accompanying_guests_command,
+            // Guest Companions (Permanent Pool)
+            create_guest_companion_command,
+            get_guest_companions_command,
+            update_guest_companion_command,
+            delete_guest_companion_command,
             // Discounts
             add_discount_command,
             delete_discount_command,

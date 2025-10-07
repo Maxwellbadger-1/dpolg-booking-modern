@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   X, User, Mail, Phone, MapPin, Calendar, CreditCard,
   FileText, Edit2, TrendingUp, Clock, Euro, ChevronDown, ChevronUp,
-  Users as UsersIcon, ShoppingBag, Tag, CheckCircle, AlertCircle
+  Users as UsersIcon, ShoppingBag, Tag, CheckCircle, AlertCircle, Search
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -91,6 +91,12 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       discounts: Discount[];
     };
   }>({});
+
+  // Filter States
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('all');
+  const [locationFilter, setLocationFilter] = useState('all');
 
   useEffect(() => {
     if (isOpen && guestId) {
@@ -371,6 +377,88 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                 <h3 className="text-lg font-bold text-slate-800 mb-4">
                   Buchungshistorie ({bookings.length})
                 </h3>
+
+                {/* Filter Section */}
+                {bookings.length > 0 && (
+                  <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-4 gap-3">
+                      {/* Suche */}
+                      <div className="col-span-4 sm:col-span-1 relative">
+                        <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Suche..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-12 pr-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:shadow-md transition-all"
+                        />
+                      </div>
+
+                      {/* Status Filter */}
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                        style={{
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 0.75rem center',
+                          backgroundSize: '1.5rem',
+                          paddingRight: '3rem'
+                        }}
+                      >
+                        <option value="all">Alle Status</option>
+                        <option value="bestaetigt">Bestätigt</option>
+                        <option value="eingecheckt">Eingecheckt</option>
+                        <option value="ausgecheckt">Ausgecheckt</option>
+                        <option value="storniert">Storniert</option>
+                      </select>
+
+                      {/* Jahr Filter */}
+                      <select
+                        value={yearFilter}
+                        onChange={(e) => setYearFilter(e.target.value)}
+                        className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                        style={{
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 0.75rem center',
+                          backgroundSize: '1.5rem',
+                          paddingRight: '3rem'
+                        }}
+                      >
+                        <option value="all">Alle Jahre</option>
+                        {Array.from(new Set(bookings.map((b) => new Date(b.checkin_date).getFullYear())))
+                          .sort((a, b) => b - a)
+                          .map((year) => (
+                            <option key={year} value={year}>
+                              {year}
+                            </option>
+                          ))}
+                      </select>
+
+                      {/* Ort Filter */}
+                      <select
+                        value={locationFilter}
+                        onChange={(e) => setLocationFilter(e.target.value)}
+                        className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                        style={{
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 0.75rem center',
+                          backgroundSize: '1.5rem',
+                          paddingRight: '3rem'
+                        }}
+                      >
+                        <option value="all">Alle Orte</option>
+                        <option value="Fall">Fall</option>
+                        <option value="Lenggries">Lenggries</option>
+                        <option value="Brauneckblick">Brauneckblick</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
                 {bookings.length === 0 ? (
                   <div className="text-center py-8 text-slate-600">
                     <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -380,6 +468,26 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {bookings
                       .sort((a, b) => new Date(b.checkin_date).getTime() - new Date(a.checkin_date).getTime())
+                      .filter((booking) => {
+                        // Search Filter
+                        const matchesSearch =
+                          searchQuery === '' ||
+                          booking.reservierungsnummer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          new Date(booking.checkin_date).toLocaleDateString('de-DE').includes(searchQuery) ||
+                          new Date(booking.checkout_date).toLocaleDateString('de-DE').includes(searchQuery);
+
+                        // Status Filter
+                        const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
+
+                        // Year Filter
+                        const bookingYear = new Date(booking.checkin_date).getFullYear().toString();
+                        const matchesYear = yearFilter === 'all' || bookingYear === yearFilter;
+
+                        // Location Filter
+                        const matchesLocation = locationFilter === 'all' || booking.room?.ort === locationFilter;
+
+                        return matchesSearch && matchesStatus && matchesYear && matchesLocation;
+                      })
                       .map((booking) => {
                         const isExpanded = expandedBookings.has(booking.id);
                         const details = bookingDetails[booking.id];

@@ -332,11 +332,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         userSelect: 'none', // Prevent text selection
         WebkitUserSelect: 'none', // Safari
       }}
-      title={`${booking.guest.vorname} ${booking.guest.nachname}\n${booking.reservierungsnummer}\n${booking.checkin_date} - ${booking.checkout_date}`}
+      title={`${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}\n${booking.reservierungsnummer}\n${booking.checkin_date} - ${booking.checkout_date}`}
     >
       <div className="flex-1 overflow-hidden">
         <div className="text-sm font-bold truncate drop-shadow-sm">
-          {booking.guest.vorname} {booking.guest.nachname}
+          {booking.guest?.vorname || 'Unbekannt'} {booking.guest?.nachname || ''}
         </div>
         <div className="text-xs truncate opacity-90 font-medium flex items-center gap-1">
           {booking.reservierungsnummer}
@@ -789,8 +789,8 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           const changeData = {
             bookingId: booking.id,
             reservierungsnummer: booking.reservierungsnummer,
-            guestName: `${booking.guest.vorname} ${booking.guest.nachname}`,
-            roomName: booking.room.name,
+            guestName: `${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}`,
+            roomName: booking.room?.name || 'Unbekannt',
             oldData: prevChange?.oldData || {
               checkin_date: currentBooking.checkin_date,
               checkout_date: currentBooking.checkout_date,

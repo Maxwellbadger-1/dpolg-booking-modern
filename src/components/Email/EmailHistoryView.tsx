@@ -68,10 +68,6 @@ export default function EmailHistoryView() {
     }
   }, [activeTab]);
 
-  useEffect(() => {
-    filterLogs();
-  }, [filterLogs]);
-
   const loadAllEmailLogs = async () => {
     setLoading(true);
     setError(null);
@@ -98,7 +94,8 @@ export default function EmailHistoryView() {
     }
   };
 
-  const filterLogs = useCallback(() => {
+  // Filter logs whenever emailLogs, filterStatus, or searchQuery changes
+  useEffect(() => {
     let filtered = emailLogs;
 
     // Status-Filter

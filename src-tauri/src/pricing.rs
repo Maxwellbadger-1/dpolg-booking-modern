@@ -13,7 +13,7 @@
 // - Gesamtpreis = Grundpreis + Services - Rabatte
 // ============================================================================
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Datelike};
 use rusqlite::Connection;
 
 /// Berechnet die Anzahl der Nächte zwischen zwei Daten.

@@ -70,6 +70,20 @@ pub struct AccompanyingGuest {
     pub vorname: String,
     pub nachname: String,
     pub geburtsdatum: Option<String>, // Format: YYYY-MM-DD
+    pub companion_id: Option<i64>, // Referenz zu guest_companions (wenn aus Pool)
+}
+
+// Neue Tabelle: Permanenter Pool von Begleitpersonen pro Gast
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GuestCompanion {
+    pub id: i64,
+    pub guest_id: i64, // Hauptgast
+    pub vorname: String,
+    pub nachname: String,
+    pub geburtsdatum: Option<String>, // Format: YYYY-MM-DD
+    pub beziehung: Option<String>, // "Ehepartner", "Kind", "Freund", etc.
+    pub notizen: Option<String>,
+    pub created_at: String,
 }
 
 // Neue Tabelle: Zusätzliche Services für eine Buchung
@@ -349,6 +363,26 @@ pub fn init_database() -> Result<()> {
             nachname TEXT NOT NULL,
             geburtsdatum TEXT,
             FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Erweitere accompanying_guests um companion_id Referenz (Migration)
+    add_column_if_not_exists(&conn, "accompanying_guests", "companion_id", "INTEGER")?;
+
+    // Neue Tabelle: Permanenter Pool von Begleitpersonen pro Gast
+    // CASCADE DELETE: Wenn Hauptgast gelöscht wird, werden auch seine Begleitpersonen gelöscht
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS guest_companions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guest_id INTEGER NOT NULL,
+            vorname TEXT NOT NULL,
+            nachname TEXT NOT NULL,
+            geburtsdatum TEXT,
+            beziehung TEXT,
+            notizen TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE
         )",
         [],
     )?;
@@ -2022,20 +2056,21 @@ pub fn add_accompanying_guest(
     vorname: String,
     nachname: String,
     geburtsdatum: Option<String>,
+    companion_id: Option<i64>,
 ) -> Result<AccompanyingGuest> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
-        "INSERT INTO accompanying_guests (booking_id, vorname, nachname, geburtsdatum)
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![booking_id, vorname, nachname, geburtsdatum],
+        "INSERT INTO accompanying_guests (booking_id, vorname, nachname, geburtsdatum, companion_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![booking_id, vorname, nachname, geburtsdatum, companion_id],
     )?;
 
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, booking_id, vorname, nachname, geburtsdatum
+        "SELECT id, booking_id, vorname, nachname, geburtsdatum, companion_id
          FROM accompanying_guests WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -2045,6 +2080,7 @@ pub fn add_accompanying_guest(
                 vorname: row.get(2)?,
                 nachname: row.get(3)?,
                 geburtsdatum: row.get(4)?,
+                companion_id: row.get(5)?,
             })
         },
     )
@@ -2073,7 +2109,7 @@ pub fn get_booking_accompanying_guests(booking_id: i64) -> Result<Vec<Accompanyi
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, booking_id, vorname, nachname, geburtsdatum
+        "SELECT id, booking_id, vorname, nachname, geburtsdatum, companion_id
          FROM accompanying_guests
          WHERE booking_id = ?1
          ORDER BY nachname, vorname",
@@ -2086,10 +2122,151 @@ pub fn get_booking_accompanying_guests(booking_id: i64) -> Result<Vec<Accompanyi
             vorname: row.get(2)?,
             nachname: row.get(3)?,
             geburtsdatum: row.get(4)?,
+            companion_id: row.get(5)?,
         })
     })?;
 
     guests.collect()
+}
+
+// ============================================================================
+// GUEST COMPANIONS - Permanent Pool (Phase 1.1)
+// ============================================================================
+
+/// Erstellt eine neue Begleitperson im Pool des Gastes
+pub fn create_guest_companion(
+    guest_id: i64,
+    vorname: String,
+    nachname: String,
+    geburtsdatum: Option<String>,
+    beziehung: Option<String>,
+    notizen: Option<String>,
+) -> Result<GuestCompanion> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Validierung
+    if vorname.trim().is_empty() || nachname.trim().is_empty() {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+
+    conn.execute(
+        "INSERT INTO guest_companions (guest_id, vorname, nachname, geburtsdatum, beziehung, notizen)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![guest_id, vorname.trim(), nachname.trim(), geburtsdatum, beziehung, notizen],
+    )?;
+
+    let id = conn.last_insert_rowid();
+
+    conn.query_row(
+        "SELECT id, guest_id, vorname, nachname, geburtsdatum, beziehung, notizen, created_at
+         FROM guest_companions WHERE id = ?1",
+        rusqlite::params![id],
+        |row| {
+            Ok(GuestCompanion {
+                id: row.get(0)?,
+                guest_id: row.get(1)?,
+                vorname: row.get(2)?,
+                nachname: row.get(3)?,
+                geburtsdatum: row.get(4)?,
+                beziehung: row.get(5)?,
+                notizen: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        },
+    )
+}
+
+/// Lädt alle Begleitpersonen eines Gastes aus dem Pool
+pub fn get_guest_companions(guest_id: i64) -> Result<Vec<GuestCompanion>> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, guest_id, vorname, nachname, geburtsdatum, beziehung, notizen, created_at
+         FROM guest_companions
+         WHERE guest_id = ?1
+         ORDER BY nachname, vorname",
+    )?;
+
+    let companions = stmt.query_map(rusqlite::params![guest_id], |row| {
+        Ok(GuestCompanion {
+            id: row.get(0)?,
+            guest_id: row.get(1)?,
+            vorname: row.get(2)?,
+            nachname: row.get(3)?,
+            geburtsdatum: row.get(4)?,
+            beziehung: row.get(5)?,
+            notizen: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    })?;
+
+    companions.collect()
+}
+
+/// Aktualisiert eine Begleitperson im Pool
+pub fn update_guest_companion(
+    id: i64,
+    vorname: String,
+    nachname: String,
+    geburtsdatum: Option<String>,
+    beziehung: Option<String>,
+    notizen: Option<String>,
+) -> Result<GuestCompanion> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Validierung
+    if vorname.trim().is_empty() || nachname.trim().is_empty() {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+
+    let rows_affected = conn.execute(
+        "UPDATE guest_companions
+         SET vorname = ?1, nachname = ?2, geburtsdatum = ?3, beziehung = ?4, notizen = ?5
+         WHERE id = ?6",
+        rusqlite::params![vorname.trim(), nachname.trim(), geburtsdatum, beziehung, notizen, id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    conn.query_row(
+        "SELECT id, guest_id, vorname, nachname, geburtsdatum, beziehung, notizen, created_at
+         FROM guest_companions WHERE id = ?1",
+        rusqlite::params![id],
+        |row| {
+            Ok(GuestCompanion {
+                id: row.get(0)?,
+                guest_id: row.get(1)?,
+                vorname: row.get(2)?,
+                nachname: row.get(3)?,
+                geburtsdatum: row.get(4)?,
+                beziehung: row.get(5)?,
+                notizen: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        },
+    )
+}
+
+/// Löscht eine Begleitperson aus dem Pool
+pub fn delete_guest_companion(id: i64) -> Result<()> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    let rows_affected = conn.execute(
+        "DELETE FROM guest_companions WHERE id = ?1",
+        rusqlite::params![id],
+    )?;
+
+    if rows_affected == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    Ok(())
 }
 
 // ============================================================================

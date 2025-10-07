@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent, Bookmark } from 'lucide-react';
+import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent, Bookmark, AlertTriangle, Info, MapPin, Briefcase, ChevronDown, ChevronUp, Search, History } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import SearchableGuestPicker from './SearchableGuestPicker';
 import SearchableRoomPicker from './SearchableRoomPicker';
 import EmailSelectionDialog from './EmailSelectionDialog';
+import CompanionSelector from './CompanionSelector';
 
 interface Guest {
   id: number;
@@ -13,6 +14,15 @@ interface Guest {
   email: string;
   telefon: string;
   dpolg_mitglied: boolean;
+  strasse?: string;
+  plz?: string;
+  ort?: string;
+  mitgliedsnummer?: string;
+  notizen?: string;
+  beruf?: string;
+  bundesland?: string;
+  dienststelle?: string;
+  created_at?: string;
 }
 
 interface Room {
@@ -97,11 +107,6 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   }>({ checking: false, available: null });
 
   const [accompanyingGuests, setAccompanyingGuests] = useState<AccompanyingGuest[]>([]);
-  const [newAccompanyingGuest, setNewAccompanyingGuest] = useState<AccompanyingGuest>({
-    vorname: '',
-    nachname: '',
-    geburtsdatum: '',
-  });
 
   const [additionalServices, setAdditionalServices] = useState<AdditionalService[]>([]);
   const [newService, setNewService] = useState<AdditionalService>({
@@ -124,6 +129,14 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<number | null>(null);
   const [createdGuestEmail, setCreatedGuestEmail] = useState<string>('');
+
+  // Buchungshistorie States
+  const [guestBookings, setGuestBookings] = useState<any[]>([]);
+  const [showBookingHistory, setShowBookingHistory] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+  const [historyYearFilter, setHistoryYearFilter] = useState('all');
+  const [historyLocationFilter, setHistoryLocationFilter] = useState('all');
 
   useEffect(() => {
     if (isOpen) {
@@ -175,7 +188,6 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
     setError(null);
     setPriceInfo(null);
     setAvailabilityStatus({ checking: false, available: null });
-    setNewAccompanyingGuest({ vorname: '', nachname: '', geburtsdatum: '' });
     setNewService({ service_name: '', service_price: 0 });
     setNewDiscount({ discount_name: '', discount_type: 'percent', discount_value: 0 });
   }, [booking, prefillData, isOpen]);
@@ -336,6 +348,8 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         totalPrice: priceResult.gesamtpreis || 0,
         memberPrice: guest.dpolg_mitglied,
         istHauptsaison: priceResult.istHauptsaison,
+        servicesList: priceResult.servicesList || [],
+        discountsList: priceResult.discountsList || [],
       };
 
       console.log('📦 [calculatePrice] Setting priceInfo to:', newPriceInfo);
@@ -384,57 +398,17 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
     }
   };
 
-  const handleAddAccompanyingGuest = () => {
-    if (!newAccompanyingGuest.vorname || !newAccompanyingGuest.nachname) {
-      setError('Bitte Vorname und Nachname für die Begleitperson eingeben');
-      return;
-    }
-
-    // If editing existing booking, save to database immediately
-    if (booking?.id) {
-      saveAccompanyingGuest();
-    } else {
-      // If creating new booking, just add to temporary list
-      setAccompanyingGuests([...accompanyingGuests, { ...newAccompanyingGuest }]);
-      setNewAccompanyingGuest({ vorname: '', nachname: '', geburtsdatum: '' });
-      setError(null);
-    }
-  };
-
-  const saveAccompanyingGuest = async () => {
-    if (!booking?.id) return;
-
+  const loadGuestBookings = async (guestId: number) => {
     try {
-      await invoke('add_accompanying_guest_command', {
-        bookingId: booking.id,
-        vorname: newAccompanyingGuest.vorname,
-        nachname: newAccompanyingGuest.nachname,
-        geburtsdatum: newAccompanyingGuest.geburtsdatum || null,
-      });
-      await loadAccompanyingGuests(booking.id);
-      setNewAccompanyingGuest({ vorname: '', nachname: '', geburtsdatum: '' });
-      setError(null);
+      const bookings = await invoke<any[]>('get_all_bookings');
+      // Filter für Buchungen des ausgewählten Gastes (außer aktuelle Buchung wenn Edit-Mode)
+      const guestFilteredBookings = bookings
+        .filter((b) => b.guest_id === guestId && b.id !== booking?.id)
+        .sort((a, b) => new Date(b.checkin_date).getTime() - new Date(a.checkin_date).getTime());
+      setGuestBookings(guestFilteredBookings);
     } catch (err) {
-      console.error('Fehler beim Hinzufügen der Begleitperson:', err);
-      setError('Fehler beim Hinzufügen der Begleitperson');
-    }
-  };
-
-  const handleRemoveAccompanyingGuest = async (index: number, guestId?: number) => {
-    if (guestId && booking?.id) {
-      // Delete from database
-      try {
-        await invoke('delete_accompanying_guest_command', {
-          guestId,
-        });
-        await loadAccompanyingGuests(booking.id);
-      } catch (err) {
-        console.error('Fehler beim Löschen der Begleitperson:', err);
-        setError('Fehler beim Löschen der Begleitperson');
-      }
-    } else {
-      // Remove from temporary list
-      setAccompanyingGuests(accompanyingGuests.filter((_, i) => i !== index));
+      console.error('Fehler beim Laden der Buchungshistorie:', err);
+      setGuestBookings([]);
     }
   };
 
@@ -703,6 +677,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
               vorname: guest.vorname,
               nachname: guest.nachname,
               geburtsdatum: guest.geburtsdatum || null,
+              companionId: guest.companion_id || null,
             });
           }
         }
@@ -798,6 +773,277 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                 onSelectRoom={(roomId) => setFormData({ ...formData, room_id: roomId })}
               />
             </div>
+
+            {/* Gast-Info-Panel (wird angezeigt wenn Gast ausgewählt) */}
+            {formData.guest_id > 0 && (() => {
+              const selectedGuest = guests.find(g => g.id === formData.guest_id);
+              if (!selectedGuest) return null;
+
+              return (
+                <div className="space-y-3">
+                  {/* Gast-Details Karte */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Info className="w-5 h-5 text-blue-500" />
+                      <h3 className="font-semibold text-slate-700">Gast-Informationen</h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                      <div>
+                        <span className="text-slate-500">Name:</span>
+                        <span className="ml-2 font-medium text-slate-700">
+                          {selectedGuest.vorname} {selectedGuest.nachname}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">E-Mail:</span>
+                        <span className="ml-2 font-medium text-slate-700">{selectedGuest.email}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Telefon:</span>
+                        <span className="ml-2 font-medium text-slate-700">{selectedGuest.telefon}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">DPolG-Mitglied:</span>
+                        <span className={`ml-2 font-semibold ${selectedGuest.dpolg_mitglied ? 'text-emerald-600' : 'text-slate-600'}`}>
+                          {selectedGuest.dpolg_mitglied ? '✓ Ja' : '✗ Nein'}
+                        </span>
+                      </div>
+                      {selectedGuest.ort && (
+                        <div>
+                          <span className="text-slate-500">Ort:</span>
+                          <span className="ml-2 font-medium text-slate-700">
+                            {selectedGuest.plz ? `${selectedGuest.plz} ` : ''}{selectedGuest.ort}
+                          </span>
+                        </div>
+                      )}
+                      {selectedGuest.mitgliedsnummer && (
+                        <div>
+                          <span className="text-slate-500">Mitgl.-Nr.:</span>
+                          <span className="ml-2 font-medium text-slate-700">{selectedGuest.mitgliedsnummer}</span>
+                        </div>
+                      )}
+                      {selectedGuest.beruf && (
+                        <div>
+                          <span className="text-slate-500">Beruf:</span>
+                          <span className="ml-2 font-medium text-slate-700">{selectedGuest.beruf}</span>
+                        </div>
+                      )}
+                      {selectedGuest.bundesland && (
+                        <div>
+                          <span className="text-slate-500">Bundesland:</span>
+                          <span className="ml-2 font-medium text-slate-700">{selectedGuest.bundesland}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Notizen-Alert (prominent wenn vorhanden) */}
+                  {selectedGuest.notizen && selectedGuest.notizen.trim() !== '' && (
+                    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 rounded-lg p-4 shadow-lg animate-pulse-slow">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0">
+                          <AlertTriangle className="w-6 h-6 text-amber-600 animate-bounce-slow" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-bold text-amber-900 text-lg mb-2 flex items-center gap-2">
+                            ⚠️ WICHTIGE GAST-NOTIZEN
+                          </h3>
+                          <div className="bg-white border border-amber-200 rounded-lg p-3">
+                            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                              {selectedGuest.notizen}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Buchungshistorie */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!showBookingHistory) {
+                          loadGuestBookings(selectedGuest.id);
+                        }
+                        setShowBookingHistory(!showBookingHistory);
+                      }}
+                      className="w-full flex items-center justify-between text-left hover:bg-blue-100 rounded-lg p-2 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <History className="w-5 h-5 text-blue-600" />
+                        <h3 className="font-semibold text-blue-900">
+                          Buchungshistorie {guestBookings.length > 0 && `(${guestBookings.length})`}
+                        </h3>
+                      </div>
+                      {showBookingHistory ? (
+                        <ChevronUp className="w-5 h-5 text-blue-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-blue-600" />
+                      )}
+                    </button>
+
+                    {showBookingHistory && (
+                      <div className="mt-4 space-y-3">
+                        {/* Suchfilter - IMMER anzeigen */}
+                        <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200">
+                          <div className="grid grid-cols-4 gap-3">
+                            {/* Suche */}
+                            <div className="col-span-4 sm:col-span-1 relative">
+                              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                              <input
+                                type="text"
+                                placeholder="Suche..."
+                                value={historySearch}
+                                onChange={(e) => setHistorySearch(e.target.value)}
+                                className="w-full pl-12 pr-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 placeholder-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:shadow-md transition-all"
+                              />
+                            </div>
+
+                            {/* Status Filter */}
+                            <select
+                              value={historyStatusFilter}
+                              onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                              className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                              style={{
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 0.75rem center',
+                                backgroundSize: '1.5rem',
+                                paddingRight: '3rem'
+                              }}
+                            >
+                              <option value="all">Alle Status</option>
+                              <option value="bestaetigt">Bestätigt</option>
+                              <option value="eingecheckt">Eingecheckt</option>
+                              <option value="ausgecheckt">Ausgecheckt</option>
+                              <option value="storniert">Storniert</option>
+                            </select>
+
+                            {/* Jahr Filter */}
+                            <select
+                              value={historyYearFilter}
+                              onChange={(e) => setHistoryYearFilter(e.target.value)}
+                              className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                              style={{
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 0.75rem center',
+                                backgroundSize: '1.5rem',
+                                paddingRight: '3rem'
+                              }}
+                            >
+                              <option value="all">Alle Jahre</option>
+                              {Array.from(new Set(guestBookings.map((b) => new Date(b.checkin_date).getFullYear())))
+                                .sort((a, b) => b - a)
+                                .map((year) => (
+                                  <option key={year} value={year}>
+                                    {year}
+                                  </option>
+                                ))}
+                            </select>
+
+                            {/* Ort Filter */}
+                            <select
+                              value={historyLocationFilter}
+                              onChange={(e) => setHistoryLocationFilter(e.target.value)}
+                              className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                              style={{
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 0.75rem center',
+                                backgroundSize: '1.5rem',
+                                paddingRight: '3rem'
+                              }}
+                            >
+                              <option value="all">Alle Orte</option>
+                              <option value="Fall">Fall</option>
+                              <option value="Lenggries">Lenggries</option>
+                              <option value="Brauneckblick">Brauneckblick</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Buchungsliste */}
+                        {guestBookings.length === 0 ? (
+                          <div className="text-center py-6 text-slate-500">
+                            Keine vorherigen Buchungen gefunden
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {guestBookings
+                              .filter((b) => {
+                                const matchesSearch =
+                                  historySearch === '' ||
+                                  b.reservierungsnummer.toLowerCase().includes(historySearch.toLowerCase()) ||
+                                  new Date(b.checkin_date).toLocaleDateString('de-DE').includes(historySearch) ||
+                                  new Date(b.checkout_date).toLocaleDateString('de-DE').includes(historySearch);
+
+                                const matchesStatus =
+                                  historyStatusFilter === 'all' || b.status === historyStatusFilter;
+
+                                const bookingYear = new Date(b.checkin_date).getFullYear().toString();
+                                const matchesYear = historyYearFilter === 'all' || bookingYear === historyYearFilter;
+
+                                const matchesLocation =
+                                  historyLocationFilter === 'all' || b.room?.ort === historyLocationFilter;
+
+                                return matchesSearch && matchesStatus && matchesYear && matchesLocation;
+                              })
+                              .map((booking) => {
+                                const statusColors = {
+                                  bestaetigt: 'bg-emerald-100 text-emerald-700',
+                                  eingecheckt: 'bg-blue-100 text-blue-700',
+                                  ausgecheckt: 'bg-slate-100 text-slate-700',
+                                  storniert: 'bg-red-100 text-red-700',
+                                };
+
+                                return (
+                                  <div
+                                    key={booking.id}
+                                    className="bg-white border border-slate-200 rounded-lg p-3 hover:shadow-md transition-shadow"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="font-semibold text-slate-700">
+                                            {booking.reservierungsnummer}
+                                          </span>
+                                          <span
+                                            className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                              statusColors[booking.status as keyof typeof statusColors] ||
+                                              'bg-slate-100 text-slate-700'
+                                            }`}
+                                          >
+                                            {booking.status}
+                                          </span>
+                                        </div>
+                                        <div className="text-sm text-slate-600 space-y-0.5">
+                                          <div>
+                                            📅 {new Date(booking.checkin_date).toLocaleDateString('de-DE')} -{' '}
+                                            {new Date(booking.checkout_date).toLocaleDateString('de-DE')} ({booking.anzahl_naechte}{' '}
+                                            Nächte)
+                                          </div>
+                                          <div>
+                                            🏠 {booking.room?.name} ({booking.room?.ort})
+                                          </div>
+                                          <div className="font-semibold text-slate-700">
+                                            💰 {booking.gesamtpreis.toFixed(2)} €
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Check-in & Check-out */}
             <div className="grid grid-cols-2 gap-4">
@@ -932,19 +1178,33 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                     <span className="text-blue-700">Grundpreis:</span>
                     <span className="font-semibold text-blue-900">{(priceInfo.basePrice ?? 0).toFixed(2)} €</span>
                   </div>
-                  {(priceInfo.servicesTotal ?? 0) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-emerald-700">+ Services:</span>
-                      <span className="font-semibold text-emerald-700">{(priceInfo.servicesTotal ?? 0).toFixed(2)} €</span>
-                    </div>
+
+                  {/* Einzelne Services auflisten */}
+                  {priceInfo.servicesList && priceInfo.servicesList.length > 0 && (
+                    <>
+                      {priceInfo.servicesList.map((service: any, index: number) => (
+                        <div key={index} className="flex justify-between">
+                          <span className="text-emerald-700">+ {service.name}:</span>
+                          <span className="font-semibold text-emerald-700">{service.price.toFixed(2)} €</span>
+                        </div>
+                      ))}
+                    </>
                   )}
-                  {(priceInfo.discountsTotal ?? 0) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-orange-700">
-                        - Rabatte {priceInfo.memberPrice && '(inkl. 15% DPolG-Rabatt)'}:
-                      </span>
-                      <span className="font-semibold text-orange-700">{(priceInfo.discountsTotal ?? 0).toFixed(2)} €</span>
-                    </div>
+
+                  {/* Einzelne Rabatte auflisten */}
+                  {priceInfo.discountsList && priceInfo.discountsList.length > 0 && (
+                    <>
+                      {priceInfo.discountsList.map((discount: any, index: number) => (
+                        <div key={index} className="flex justify-between">
+                          <span className="text-orange-700">
+                            - {discount.name} {discount.type === 'percent' && `(${discount.value}%)`}:
+                          </span>
+                          <span className="font-semibold text-orange-700">
+                            {discount.amount.toFixed(2)} €
+                          </span>
+                        </div>
+                      ))}
+                    </>
                   )}
                   <div className="border-t border-blue-300 pt-2 mt-2 flex justify-between">
                     <span className="font-bold text-blue-900">Gesamtpreis:</span>
@@ -969,80 +1229,23 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
               />
             </div>
 
-            {/* Accompanying Guests - nur anzeigen wenn mehr als 1 Gast */}
-            {formData.anzahl_gaeste > 1 && (
-              <div className="border border-slate-200 rounded-lg p-4">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-4">
-                  <UserCheck className="w-4 h-4" />
-                  Begleitpersonen ({formData.anzahl_gaeste - 1} möglich)
-                </h3>
+            {/* Companion Selector - Neues System mit Pool */}
+            {formData.guest_id && (() => {
+              const selectedGuest = guests.find(g => g.id === formData.guest_id);
+              if (!selectedGuest) return null;
 
-              {/* List of Accompanying Guests */}
-              {accompanyingGuests.length > 0 && (
-                <div className="mb-4 space-y-2">
-                  {accompanyingGuests.map((guest, index) => (
-                    <div
-                      key={guest.id || index}
-                      className="flex items-center justify-between bg-slate-50 px-4 py-2 rounded-lg border border-slate-200"
-                    >
-                      <div>
-                        <span className="text-sm font-semibold text-slate-900">
-                          {guest.vorname} {guest.nachname}
-                        </span>
-                        {guest.geburtsdatum && (
-                          <span className="text-xs text-slate-500 ml-2">
-                            (Geburtsdatum: {guest.geburtsdatum})
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAccompanyingGuest(index, guest.id)}
-                        className="text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add New Accompanying Guest */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Vorname *"
-                    value={newAccompanyingGuest.vorname}
-                    onChange={(e) => setNewAccompanyingGuest({ ...newAccompanyingGuest, vorname: e.target.value })}
-                    className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Nachname *"
-                    value={newAccompanyingGuest.nachname}
-                    onChange={(e) => setNewAccompanyingGuest({ ...newAccompanyingGuest, nachname: e.target.value })}
-                    className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                  <input
-                    type="date"
-                    placeholder="Geburtsdatum"
-                    value={newAccompanyingGuest.geburtsdatum}
-                    onChange={(e) => setNewAccompanyingGuest({ ...newAccompanyingGuest, geburtsdatum: e.target.value })}
-                    className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              return (
+                <div className="border border-slate-200 rounded-lg p-4">
+                  <CompanionSelector
+                    guestId={selectedGuest.id}
+                    bookingId={booking?.id}
+                    onCompanionsChange={(companions) => {
+                      setAccompanyingGuests(companions);
+                    }}
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddAccompanyingGuest}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-semibold"
-                >
-                  <Plus className="w-4 h-4" />
-                  Begleitperson hinzufügen
-                </button>
-              </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Additional Services */}
             <div className="border border-slate-200 rounded-lg p-4">

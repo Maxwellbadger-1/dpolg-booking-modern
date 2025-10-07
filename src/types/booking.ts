@@ -76,3 +76,25 @@ export interface DiscountTemplate {
   created_at: string;
   updated_at: string;
 }
+
+// Begleitpersonen (Booking-spezifisch)
+export interface AccompanyingGuest {
+  id: number;
+  booking_id: number;
+  vorname: string;
+  nachname: string;
+  geburtsdatum?: string;
+  companion_id?: number; // Referenz zu GuestCompanion (wenn aus Pool)
+}
+
+// Permanenter Pool von Begleitpersonen pro Gast
+export interface GuestCompanion {
+  id: number;
+  guest_id: number;
+  vorname: string;
+  nachname: string;
+  geburtsdatum?: string;
+  beziehung?: string; // "Ehepartner", "Kind", "Freund", etc.
+  notizen?: string;
+  created_at: string;
+}
