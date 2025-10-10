@@ -273,6 +273,115 @@ interface Booking {
 
 ---
 
+## 🛡️ Regression Prevention - KRITISCHE REGELN
+
+**WICHTIG:** Diese Regeln verhindern dass funktionierende Features kaputt gehen!
+
+### 1. **Minimal-Change-Prinzip**
+```
+✅ RICHTIG: Nur die notwendigen Änderungen machen
+❌ FALSCH: "Gleich auch das andere refactoren..."
+
+Beispiel:
+- Aufgabe: "Invoice Status im TapeChart anzeigen"
+- NUR ändern: TapeChart.tsx (Booking interface + JSX)
+- NICHT ändern: DataContext.tsx, BookingList.tsx (wenn nicht absolut nötig!)
+```
+
+### 2. **Defensive Coding** (KRITISCH!)
+```typescript
+// ✅ IMMER prüfen ob Daten existieren
+if (booking.guest && booking.room) {
+  const name = booking.guest.vorname;
+}
+
+// ✅ Optional Chaining verwenden
+const guestName = booking.guest?.vorname || 'Unbekannt';
+const roomName = booking.room?.name || 'Unbekannt';
+
+// ✅ Type Guards für sicherheit
+if (!booking.guest) {
+  console.error('Guest data missing!', booking);
+  return null; // oder default value
+}
+
+// ❌ NIEMALS direkter Zugriff ohne Prüfung
+const name = booking.guest.vorname; // TypeError wenn guest undefined!
+```
+
+### 3. **Read-Before-Write** (Verstärkt!)
+```typescript
+// ✅ IMMER zuerst KOMPLETTE Datei lesen
+await Read('/path/to/file.tsx');
+
+// ✅ Verstehen WAS die Datei macht
+// ✅ Prüfen: Wird diese Änderung andere Features brechen?
+// ✅ Nur dann: Minimale Änderung vornehmen
+
+// ❌ NIEMALS: Blind Funktionen ändern ohne Kontext
+```
+
+### 4. **Small Focused Commits**
+```bash
+# ✅ Kleine, fokussierte Commits (Ein Feature = Ein Commit)
+git commit -m "feat: Add invoice status to TapeChart only"
+
+# ❌ Große Mixed Commits
+git commit -m "fix various things and add features"
+
+Vorteil: Bei Bugs kann man EXAKT den Commit finden der es kaputt gemacht hat
+```
+
+### 5. **TypeScript als Schutz-Netz**
+```typescript
+// ✅ Nutze TypeScript strict mode
+interface Booking {
+  guest: Guest;    // Required! TypeScript warnt wenn fehlt
+  room: Room;      // Required!
+  rechnung_versendet_am?: string; // Optional
+}
+
+// ✅ Explicit Return Types
+function getBooking(id: number): Booking | null {
+  // TypeScript zwingt zur Behandlung von null-Fall
+}
+
+// ❌ NIEMALS 'any' verwenden - umgeht alle Checks!
+const data: any = await invoke('get_booking'); // VERBOTEN!
+```
+
+### 6. **Smoke Tests nach App-Rebuild** (KRITISCH!)
+```
+Nach JEDER größeren Änderung + App-Neustart:
+
+□ App startet ohne Crash
+□ Hauptfeatures laden (Buchungen, Gäste, Zimmer)
+□ NEUES Feature funktioniert
+□ Ein ALTES Feature stichprobenartig testen (z.B. Buchung anlegen)
+□ Keine TypeScript Errors
+```
+
+### 7. **Error Boundaries als Sicherheitsnetz**
+```typescript
+// ✅ Error Boundaries um komplexe Komponenten
+<ErrorBoundary>
+  <BookingList />
+</ErrorBoundary>
+
+// Zeigt exakte Fehlermeldung statt White Screen
+// User kann anderen Features weiter nutzen
+```
+
+### Regression Test Checklist (Nach JEDEM Feature):
+- [ ] Neues Feature funktioniert
+- [ ] Alte Features funktionieren noch
+- [ ] Nur minimal nötige Änderungen gemacht
+- [ ] Keine TypeScript Errors
+- [ ] App läuft ohne Crashes
+- [ ] Defensive Checks eingebaut (null/undefined)
+
+---
+
 ## 🧪 Test-Driven Development (TDD)
 
 **KRITISCH:** Alle Features MÜSSEN nach TDD-Prinzipien entwickelt werden!

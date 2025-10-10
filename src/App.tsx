@@ -148,7 +148,7 @@ function AppContent() {
           <div className="text-red-500 mb-4">⚠️ Fehler beim Laden</div>
           <p className="text-sm text-gray-600">{error}</p>
           <button
-            onClick={loadData}
+            onClick={refreshAll}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
             Erneut versuchen

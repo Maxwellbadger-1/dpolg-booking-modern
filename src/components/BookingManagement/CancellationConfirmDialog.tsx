@@ -3,14 +3,14 @@ import { X, Mail, AlertTriangle } from 'lucide-react';
 
 interface CancellationConfirmDialogProps {
   isOpen: boolean;
-  bookingNumber: string;
+  reservierungsnummer: string;
   onConfirm: (sendEmail: boolean) => void;
   onCancel: () => void;
 }
 
 export default function CancellationConfirmDialog({
   isOpen,
-  bookingNumber,
+  reservierungsnummer,
   onConfirm,
   onCancel,
 }: CancellationConfirmDialogProps) {
@@ -29,7 +29,7 @@ export default function CancellationConfirmDialog({
             </div>
             <div>
               <h2 className="text-xl font-bold text-white">Buchung stornieren</h2>
-              <p className="text-sm text-slate-400 mt-1">Reservierung {bookingNumber}</p>
+              <p className="text-sm text-slate-400 mt-1">Reservierung {reservierungsnummer}</p>
             </div>
           </div>
           <button

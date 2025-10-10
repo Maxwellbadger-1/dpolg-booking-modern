@@ -722,7 +722,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                           <div>
                             <p className="font-semibold text-slate-900">{pdf.filename}</p>
                             <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
-                              <span>{formatFileSize(pdf.size)}</span>
+                              <span>{formatFileSize(pdf.size_bytes)}</span>
                             </div>
                           </div>
                         </div>
