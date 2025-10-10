@@ -38,6 +38,8 @@ export interface Booking {
   bezahlt: boolean;
   bezahlt_am?: string | null;
   zahlungsmethode?: string | null;
+  rechnung_versendet_am?: string | null;
+  rechnung_versendet_an?: string | null;
   created_at: string;
 }
 

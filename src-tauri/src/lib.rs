@@ -784,6 +784,15 @@ fn mark_booking_as_paid_command(
 }
 
 #[tauri::command]
+fn mark_invoice_sent_command(
+    booking_id: i64,
+    email_address: String,
+) -> Result<database::Booking, String> {
+    database::mark_invoice_sent(booking_id, email_address)
+        .map_err(|e| format!("Fehler beim Markieren der Rechnung als versendet: {}", e))
+}
+
+#[tauri::command]
 fn update_booking_statuses_command() -> Result<usize, String> {
     database::update_booking_statuses_by_date()
         .map_err(|e| format!("Fehler beim Status-Update: {}", e))
@@ -1086,6 +1095,7 @@ pub fn run() {
             send_payment_reminder_email_command,
             send_cancellation_email_command,
             mark_booking_as_paid_command,
+            mark_invoice_sent_command,
             update_booking_statuses_command,
             update_booking_status_command,
             update_booking_payment_command,

@@ -574,7 +574,7 @@ pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
 
 /// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
 pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
-    use crate::database::get_booking_with_details_by_id;
+    use crate::database::{get_booking_with_details_by_id, mark_invoice_sent};
 
     let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
@@ -586,7 +586,8 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_with_attachment_internal(
+    // Email versenden
+    let result = send_email_with_attachment_internal(
         &config,
         &booking_details.guest.email,
         &subject,
@@ -595,7 +596,15 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
         booking_id,
         booking_details.guest.id,
         "invoice"
-    ).await
+    ).await;
+
+    // Bei Erfolg: Rechnung als versendet markieren
+    if result.is_ok() {
+        let _ = mark_invoice_sent(booking_id, booking_details.guest.email.clone())
+            .map_err(|e| eprintln!("⚠️  Konnte Rechnung-Versendet-Status nicht setzen: {}", e));
+    }
+
+    result
 }
 
 /// Zahlungserinnerungs-Email senden
