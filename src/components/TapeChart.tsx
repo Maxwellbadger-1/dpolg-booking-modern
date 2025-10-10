@@ -48,6 +48,7 @@ interface Booking {
   checkout_date: string;
   status: string;
   bezahlt: boolean;
+  rechnung_versendet_am?: string | null;
   room: Room;
   guest: Guest;
 }
@@ -345,6 +346,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
           {booking.bezahlt && (
             <div className="inline-flex items-center justify-center w-4 h-4 bg-emerald-500 rounded-full" title="Bezahlt">
               <span className="text-[10px] font-bold text-white">€</span>
+            </div>
+          )}
+          {booking.rechnung_versendet_am && (
+            <div className="inline-flex items-center justify-center w-4 h-4 bg-blue-500 rounded-full" title="Rechnung versendet">
+              <Mail className="w-3 h-3 text-white" />
             </div>
           )}
         </div>
