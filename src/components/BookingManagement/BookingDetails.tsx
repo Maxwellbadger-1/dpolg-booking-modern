@@ -62,6 +62,8 @@ interface Booking {
   bezahlt: boolean;
   bezahlt_am?: string | null;
   zahlungsmethode?: string | null;
+  rechnung_versendet_am?: string | null;
+  rechnung_versendet_an?: string | null;
   mahnung_gesendet_am?: string | null;
   room: Room;
   guest: Guest;
@@ -96,7 +98,7 @@ interface InvoicePdfInfo {
 }
 
 export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: BookingDetailsProps) {
-  const { updateBookingPayment } = useData();
+  const { updateBookingPayment, markInvoiceSent } = useData();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [accompanyingGuests, setAccompanyingGuests] = useState<AccompanyingGuest[]>([]);
   const [services, setServices] = useState<AdditionalService[]>([]);
@@ -216,6 +218,12 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       // damit PDF automatisch generiert und angehängt wird
       const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
       setShowSuccessDialog({ show: true, message: result });
+
+      // Update global state (Optimistic Update for BookingList)
+      await markInvoiceSent(bookingId, booking.guest.email);
+
+      // Reload booking details to show updated invoice status and new PDF
+      await loadBookingDetails();
     } catch (error) {
       setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
     } finally {
