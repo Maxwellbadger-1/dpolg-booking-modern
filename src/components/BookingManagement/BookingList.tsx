@@ -55,6 +55,7 @@ export default function BookingList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
+  const [paymentFilter, setPaymentFilter] = useState<string>('all'); // NEW: Filter für Bezahlt/Offen
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -160,9 +161,9 @@ export default function BookingList() {
     setBookingToCancel(null);
   };
 
-  const handlePaymentChange = async (bookingId: number, isPaid: boolean, zahlungsmethode?: string) => {
+  const handlePaymentChange = async (bookingId: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => {
     try {
-      await updateBookingPayment(bookingId, isPaid, zahlungsmethode);
+      await updateBookingPayment(bookingId, isPaid, zahlungsmethode, paymentDate);
     } catch (error) {
       console.error('Fehler beim Ändern des Bezahlt-Status:', error);
       alert('Fehler beim Ändern des Bezahlt-Status: ' + (error instanceof Error ? error.message : String(error)));
@@ -204,6 +205,9 @@ export default function BookingList() {
 
       const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
       const matchesRoom = roomFilter === 'all' || booking.room_id.toString() === roomFilter;
+      const matchesPayment = paymentFilter === 'all' ||
+        (paymentFilter === 'bezahlt' && booking.bezahlt) ||
+        (paymentFilter === 'offen' && !booking.bezahlt);
 
       // Date range filter
       let matchesDateRange = true;
@@ -226,7 +230,7 @@ export default function BookingList() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesRoom && matchesDateRange;
+      return matchesSearch && matchesStatus && matchesRoom && matchesPayment && matchesDateRange;
     });
 
     // Sort
@@ -348,6 +352,16 @@ export default function BookingList() {
                 <option key={room.id} value={room.id.toString()}>{room.name}</option>
               ))}
             </select>
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value)}
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
+            >
+              <option value="all">Alle Zahlungen</option>
+              <option value="bezahlt">Bezahlt</option>
+              <option value="offen">Offen</option>
+            </select>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -389,7 +403,7 @@ export default function BookingList() {
               <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-slate-800 mb-2">Keine Buchungen gefunden</h3>
               <p className="text-slate-600">
-                {searchQuery || statusFilter !== 'all' || roomFilter !== 'all' || dateFrom || dateTo
+                {searchQuery || statusFilter !== 'all' || roomFilter !== 'all' || paymentFilter !== 'all' || dateFrom || dateTo
                   ? 'Versuche andere Suchkriterien oder Filter.'
                   : 'Erstelle deine erste Buchung mit dem Button oben.'
                 }
@@ -517,7 +531,7 @@ export default function BookingList() {
                           <PaymentDropdown
                             isPaid={booking.bezahlt}
                             bookingId={booking.id}
-                            onPaymentChange={(isPaid, zahlungsmethode) => handlePaymentChange(booking.id, isPaid, zahlungsmethode)}
+                            onPaymentChange={(isPaid, zahlungsmethode, paymentDate) => handlePaymentChange(booking.id, isPaid, zahlungsmethode, paymentDate)}
                           />
                           {booking.bezahlt && booking.bezahlt_am && (
                             <span className="text-xs text-slate-500 mt-1">

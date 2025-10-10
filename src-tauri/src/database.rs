@@ -1694,25 +1694,60 @@ pub fn update_booking_dates_and_room(
     checkin_date: String,
     checkout_date: String,
 ) -> Result<Booking> {
-    let conn = Connection::open(get_db_path())?;
+    println!("═══════════════════════════════════════");
+    println!("🔄 [update_booking_dates_and_room] START");
+    println!("📤 Parameters: id={}, room_id={}, checkin={}, checkout={}", id, room_id, checkin_date, checkout_date);
+
+    let db_path = get_db_path();
+    println!("📁 [update_booking_dates_and_room] Database path: {:?}", db_path);
+
+    let conn = Connection::open(&db_path)?;
+    println!("✅ [update_booking_dates_and_room] Connection opened");
+
     conn.execute("PRAGMA foreign_keys = ON", [])?;
+    println!("✅ [update_booking_dates_and_room] Foreign keys enabled");
 
     // Get old data for transaction log
     let old_booking = get_booking_by_id(id)?;
+    println!("📦 [update_booking_dates_and_room] OLD booking data:");
+    println!("   - ID: {}", old_booking.id);
+    println!("   - Room ID: {}", old_booking.room_id);
+    println!("   - Check-in: {}", old_booking.checkin_date);
+    println!("   - Check-out: {}", old_booking.checkout_date);
     let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
 
+    println!("🚀 [update_booking_dates_and_room] Executing UPDATE statement...");
     let rows_affected = conn.execute(
         "UPDATE bookings SET
          room_id = ?1, checkin_date = ?2, checkout_date = ?3, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?4",
         rusqlite::params![room_id, checkin_date, checkout_date, id],
     )?;
+    println!("📊 [update_booking_dates_and_room] Rows affected: {}", rows_affected);
 
     if rows_affected == 0 {
+        println!("❌ [update_booking_dates_and_room] No rows affected! Booking not found!");
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
+    println!("🔍 [update_booking_dates_and_room] Reading updated booking from DB...");
     let updated_booking = get_booking_by_id(id)?;
+    println!("📦 [update_booking_dates_and_room] NEW booking data:");
+    println!("   - ID: {}", updated_booking.id);
+    println!("   - Room ID: {}", updated_booking.room_id);
+    println!("   - Check-in: {}", updated_booking.checkin_date);
+    println!("   - Check-out: {}", updated_booking.checkout_date);
+
+    // Verify the changes were actually written
+    if updated_booking.room_id == room_id &&
+       updated_booking.checkin_date == checkin_date &&
+       updated_booking.checkout_date == checkout_date {
+        println!("✅ [update_booking_dates_and_room] VERIFIED: Changes persisted in database!");
+    } else {
+        println!("❌ [update_booking_dates_and_room] WARNING: Data mismatch after update!");
+        println!("   Expected: room={}, checkin={}, checkout={}", room_id, checkin_date, checkout_date);
+        println!("   Got: room={}, checkin={}, checkout={}", updated_booking.room_id, updated_booking.checkin_date, updated_booking.checkout_date);
+    }
 
     // Transaction Log: UPDATE
     let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
@@ -1797,11 +1832,12 @@ pub fn update_booking_status(id: i64, new_status: String) -> Result<Booking> {
 }
 
 /// Ändert den Bezahlt-Status einer Buchung
-pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<String>) -> Result<Booking> {
+pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<String>, bezahlt_am_param: Option<String>) -> Result<Booking> {
     println!("🔍 [update_booking_payment] Called:");
     println!("   id: {}", id);
     println!("   bezahlt: {}", bezahlt);
     println!("   zahlungsmethode: {:?}", zahlungsmethode);
+    println!("   bezahlt_am_param: {:?}", bezahlt_am_param);
 
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -1813,8 +1849,10 @@ pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<St
     let zahlungsmethode_string = zahlungsmethode.clone().unwrap_or_else(|| "Überweisung".to_string());
 
     if bezahlt {
-        // Bezahlt markieren mit Zahlungsmethode
-        let bezahlt_am = crate::time_utils::format_today_db();
+        // Bezahlt markieren mit Zahlungsmethode und Datum
+        // Verwende das übergebene Datum, oder falls nicht vorhanden, heutiges Datum
+        let bezahlt_am = bezahlt_am_param.unwrap_or_else(|| crate::time_utils::format_today_db());
+        println!("   Using bezahlt_am: {}", bezahlt_am);
         let rows_affected = conn.execute(
             "UPDATE bookings SET bezahlt = 1, bezahlt_am = ?1, zahlungsmethode = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = ?3",
             rusqlite::params![bezahlt_am, &zahlungsmethode_string, id],

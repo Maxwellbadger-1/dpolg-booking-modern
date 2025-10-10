@@ -1125,6 +1125,11 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                     Max. Kapazität: {rooms.find(r => r.id === formData.room_id)?.capacity} Personen
                   </p>
                 )}
+                {accompanyingGuests.length > 0 && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    ℹ️ Wird automatisch berechnet: 1 Hauptgast + {accompanyingGuests.length} Begleitperson{accompanyingGuests.length > 1 ? 'en' : ''}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1232,6 +1237,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
             {/* Companion Selector - Neues System mit Pool */}
             {formData.guest_id && (() => {
               const selectedGuest = guests.find(g => g.id === formData.guest_id);
+              const selectedRoom = rooms.find(r => r.id === formData.room_id);
               if (!selectedGuest) return null;
 
               return (
@@ -1239,8 +1245,11 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                   <CompanionSelector
                     guestId={selectedGuest.id}
                     bookingId={booking?.id}
+                    roomCapacity={selectedRoom?.capacity}
                     onCompanionsChange={(companions) => {
                       setAccompanyingGuests(companions);
+                      // Auto-update anzahl_gaeste: 1 Hauptgast + Begleitpersonen
+                      setFormData({ ...formData, anzahl_gaeste: 1 + companions.length });
                     }}
                   />
                 </div>

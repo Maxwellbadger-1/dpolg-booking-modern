@@ -6,15 +6,20 @@ import type { GuestCompanion, AccompanyingGuest } from '../../types/booking';
 interface CompanionSelectorProps {
   guestId: number; // Hauptgast
   bookingId?: number; // Optional: Wenn Buchung bereits existiert
+  roomCapacity?: number; // Zimmerkapazität (für Validierung)
   onCompanionsChange: (companions: AccompanyingGuest[]) => void;
 }
 
-export default function CompanionSelector({ guestId, bookingId, onCompanionsChange }: CompanionSelectorProps) {
+export default function CompanionSelector({ guestId, bookingId, roomCapacity, onCompanionsChange }: CompanionSelectorProps) {
   const [companions, setCompanions] = useState<GuestCompanion[]>([]);
   const [selectedCompanionIds, setSelectedCompanionIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Berechne maximale Anzahl Begleitpersonen (Zimmerkapazität - 1 Hauptgast)
+  const maxCompanions = roomCapacity ? roomCapacity - 1 : undefined;
+  const isAtCapacity = maxCompanions !== undefined && selectedCompanionIds.size >= maxCompanions;
 
   // Neue Begleitperson Formular
   const [newCompanion, setNewCompanion] = useState({
@@ -69,6 +74,12 @@ export default function CompanionSelector({ guestId, bookingId, onCompanionsChan
       return;
     }
 
+    // Kapazitätsprüfung
+    if (isAtCapacity) {
+      setError(`Maximale Kapazität erreicht! Das Zimmer bietet Platz für maximal ${roomCapacity} Personen (1 Hauptgast + ${maxCompanions} Begleitpersonen).`);
+      return;
+    }
+
     try {
       setError(null);
       const created = await invoke<GuestCompanion>('create_guest_companion_command', {
@@ -120,10 +131,17 @@ export default function CompanionSelector({ guestId, bookingId, onCompanionsChan
   const handleToggleCompanion = (companionId: number) => {
     const newSelected = new Set(selectedCompanionIds);
     if (newSelected.has(companionId)) {
+      // Abwählen ist immer erlaubt
       newSelected.delete(companionId);
     } else {
+      // Hinzufügen nur erlaubt wenn Kapazität nicht erreicht
+      if (isAtCapacity) {
+        setError(`Maximale Kapazität erreicht! Das Zimmer bietet Platz für maximal ${roomCapacity} Personen (1 Hauptgast + ${maxCompanions} Begleitpersonen).`);
+        return;
+      }
       newSelected.add(companionId);
     }
+    setError(null); // Clear error on successful action
     setSelectedCompanionIds(newSelected);
     updateParent(newSelected);
   };
@@ -163,11 +181,24 @@ export default function CompanionSelector({ guestId, bookingId, onCompanionsChan
               {selectedCompanionIds.size} ausgewählt
             </span>
           )}
+          {roomCapacity && (
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+              isAtCapacity
+                ? 'bg-red-100 text-red-700'
+                : selectedCompanionIds.size > 0
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-slate-100 text-slate-600'
+            }`}>
+              {selectedCompanionIds.size} / {maxCompanions} Plätze
+            </span>
+          )}
         </div>
         <button
           type="button"
           onClick={() => setShowAddForm(!showAddForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors"
+          disabled={isAtCapacity}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+          title={isAtCapacity ? 'Maximale Kapazität erreicht' : 'Neue Begleitperson hinzufügen'}
         >
           <Plus className="w-4 h-4" />
           Neue Person
@@ -300,16 +331,23 @@ export default function CompanionSelector({ guestId, bookingId, onCompanionsChan
         </div>
       ) : (
         <div className="grid gap-3">
-          {companions.map((companion) => (
-            <div
-              key={companion.id}
-              className={`p-4 rounded-lg border-2 transition-all cursor-pointer ${
-                selectedCompanionIds.has(companion.id)
-                  ? 'bg-blue-50 border-blue-300'
-                  : 'bg-white border-slate-200 hover:border-slate-300'
-              }`}
-              onClick={() => handleToggleCompanion(companion.id)}
-            >
+          {companions.map((companion) => {
+            const isSelected = selectedCompanionIds.has(companion.id);
+            const isDisabled = !isSelected && isAtCapacity;
+
+            return (
+              <div
+                key={companion.id}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  isDisabled
+                    ? 'bg-slate-50 border-slate-200 opacity-50 cursor-not-allowed'
+                    : isSelected
+                    ? 'bg-blue-50 border-blue-300 cursor-pointer'
+                    : 'bg-white border-slate-200 hover:border-slate-300 cursor-pointer'
+                }`}
+                onClick={() => !isDisabled && handleToggleCompanion(companion.id)}
+                title={isDisabled ? 'Maximale Kapazität erreicht' : undefined}
+              >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3 flex-1">
                   {/* Checkbox */}
@@ -362,7 +400,8 @@ export default function CompanionSelector({ guestId, bookingId, onCompanionsChan
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -246,13 +246,23 @@ export default function ChangeConfirmationDialog({
         {/* Actions */}
         <div className="flex gap-3">
           <button
-            onClick={onDiscard}
+            onClick={() => {
+              console.log('🗑️ [ChangeConfirmationDialog] Verwerfen clicked!');
+              onDiscard();
+            }}
             className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
           >
             Verwerfen
           </button>
           <button
-            onClick={() => onConfirm(sendEmail, createInvoice)}
+            onClick={() => {
+              console.log('═══════════════════════════════════════');
+              console.log('💾 [ChangeConfirmationDialog] SAVE BUTTON CLICKED!');
+              console.log('📤 Calling onConfirm with:', { sendEmail, createInvoice });
+              console.log('📦 change object:', JSON.stringify(change, null, 2));
+              console.log('═══════════════════════════════════════');
+              onConfirm(sendEmail, createInvoice);
+            }}
             className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
           >
             Änderungen speichern

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { DataProvider, useData } from './context/DataContext';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
@@ -17,6 +19,7 @@ import QuickBookingFAB from './components/QuickBookingFAB';
 import StatisticsView from './components/Statistics/StatisticsView';
 import UndoRedoButtons from './components/UndoRedoButtons';
 import CleaningSync from './components/CleaningSync';
+import ErrorBoundary from './components/ErrorBoundary';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud } from 'lucide-react';
 
 interface Room {
@@ -118,7 +121,7 @@ function AppContent() {
       setBookingToCancel(undefined);
     } catch (error) {
       console.error('Fehler beim Stornieren:', error);
-      alert('Fehler beim Stornieren: ' + error);
+      toast.error('Fehler beim Stornieren: ' + error);
     }
   };
 
@@ -301,36 +304,38 @@ function AppContent() {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         {activeTab === 'dashboard' && (
-          <TapeChart
-            onBookingClick={(bookingId) => {
-              setSelectedBookingId(bookingId);
-              setPrefillData(undefined);
-              setShowBookingDialog(true);
-            }}
-            onCreateBooking={(roomId, startDate, endDate) => {
-              console.log('🎨 Create Booking:', { roomId, startDate, endDate });
-              setSelectedBookingId(undefined);
-              setPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
-              setShowBookingDialog(true);
-            }}
-            onBookingEdit={(bookingId) => {
-              setSelectedBookingId(bookingId);
-              setPrefillData(undefined);
-              setShowBookingDialog(true);
-            }}
-            onBookingCancel={(bookingId) => {
-              const booking = bookings.find(b => b.id === bookingId);
-              if (!booking) return;
+          <ErrorBoundary>
+            <TapeChart
+              onBookingClick={(bookingId) => {
+                setSelectedBookingId(bookingId);
+                setPrefillData(undefined);
+                setShowBookingDialog(true);
+              }}
+              onCreateBooking={(roomId, startDate, endDate) => {
+                console.log('🎨 Create Booking:', { roomId, startDate, endDate });
+                setSelectedBookingId(undefined);
+                setPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
+                setShowBookingDialog(true);
+              }}
+              onBookingEdit={(bookingId) => {
+                setSelectedBookingId(bookingId);
+                setPrefillData(undefined);
+                setShowBookingDialog(true);
+              }}
+              onBookingCancel={(bookingId) => {
+                const booking = bookings.find(b => b.id === bookingId);
+                if (!booking) return;
 
-              // Zeige CancellationConfirmDialog
-              setBookingToCancel({ id: booking.id, reservierungsnummer: booking.reservierungsnummer });
-              setShowCancellationConfirm(true);
-            }}
-            onSendEmail={(bookingId) => {
-              setEmailBookingId(bookingId);
-              setShowEmailDialog(true);
-            }}
-          />
+                // Zeige CancellationConfirmDialog
+                setBookingToCancel({ id: booking.id, reservierungsnummer: booking.reservierungsnummer });
+                setShowCancellationConfirm(true);
+              }}
+              onSendEmail={(bookingId) => {
+                setEmailBookingId(bookingId);
+                setShowEmailDialog(true);
+              }}
+            />
+          </ErrorBoundary>
         )}
         {activeTab === 'statistics' && <StatisticsView />}
         {activeTab === 'bookings' && <BookingList />}
@@ -415,6 +420,43 @@ function App() {
   return (
     <DataProvider>
       <AppContent />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+          },
+          loading: {
+            duration: Infinity, // Loading-Toast bleibt sichtbar bis explizit ersetzt
+            style: {
+              background: '#1e293b',
+              color: '#fff',
+              borderRadius: '0.75rem',
+              padding: '1rem',
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+            },
+          },
+          success: {
+            duration: 4000,
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            duration: 5000, // Errors länger sichtbar
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
     </DataProvider>
   );
 }

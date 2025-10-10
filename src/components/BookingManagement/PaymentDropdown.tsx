@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, ChevronDown, CreditCard, Banknote, Wallet } from 'lucide-react';
+import PaymentDateDialog from './PaymentDateDialog';
 
 interface PaymentDropdownProps {
   isPaid: boolean;
   bookingId: number;
-  onPaymentChange: (isPaid: boolean, zahlungsmethode?: string) => void;
+  onPaymentChange: (isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => void;
 }
 
 const ZAHLUNGSMETHODEN = [
@@ -18,6 +19,8 @@ const ZAHLUNGSMETHODEN = [
 export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: PaymentDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showPaymentMethods, setShowPaymentMethods] = useState(false);
+  const [showDateDialog, setShowDateDialog] = useState(false);
+  const [selectedZahlungsmethode, setSelectedZahlungsmethode] = useState<string>('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,7 +48,19 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
   const handleSelectPaymentMethod = (zahlungsmethode: string) => {
     setIsOpen(false);
     setShowPaymentMethods(false);
-    onPaymentChange(true, zahlungsmethode);
+    setSelectedZahlungsmethode(zahlungsmethode);
+    setShowDateDialog(true); // Zeige Datums-Dialog
+  };
+
+  const handleDateConfirm = (paymentDate: string) => {
+    setShowDateDialog(false);
+    onPaymentChange(true, selectedZahlungsmethode, paymentDate);
+    setSelectedZahlungsmethode('');
+  };
+
+  const handleDateCancel = () => {
+    setShowDateDialog(false);
+    setSelectedZahlungsmethode('');
   };
 
   const handleSelectUnpaid = () => {
@@ -132,6 +147,14 @@ export default function PaymentDropdown({ isPaid, bookingId, onPaymentChange }: 
           })}
         </div>
       )}
+
+      {/* Payment Date Dialog */}
+      <PaymentDateDialog
+        isOpen={showDateDialog}
+        zahlungsmethode={selectedZahlungsmethode}
+        onConfirm={handleDateConfirm}
+        onCancel={handleDateCancel}
+      />
     </div>
   );
 }
