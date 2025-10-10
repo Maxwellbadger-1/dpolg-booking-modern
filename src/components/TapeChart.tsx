@@ -2,9 +2,11 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 import { cn } from '../lib/utils';
 import { useData } from '../context/DataContext';
 import { commandManager, UpdateBookingDatesCommand } from '../lib/commandManager';
+import { invokeWithRetry } from '../lib/retry';
 import {
   DndContext,
   DragEndEvent,
@@ -129,8 +131,8 @@ interface DraggableBookingProps {
   rowHeight: number;
   cellWidth: number; // KRITISCH: cellWidth übergeben für korrekte Resize-Berechnung bei Skalierung
   onResize?: (bookingId: number, direction: 'start' | 'end', daysDelta: number) => void;
-  onClick?: (bookingId: number) => void; // NEW: Click handler
-  onContextMenu?: (bookingId: number, x: number, y: number) => void; // NEW: Context menu
+  onClick?: (bookingId: number) => void;
+  onContextMenu?: (bookingId: number, x: number, y: number) => void;
   hasOverlap?: boolean; // Red overlay when drag has overlap
   isPending?: boolean; // NEW: Shows save/discard buttons
   onManualSave?: () => void; // NEW: Manual save handler
@@ -347,8 +349,6 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
           )}
         </div>
       </div>
-      {/* Quick Actions entfernt - nur Context Menu (Rechtsklick) verwenden */}
-
       {/* Manual Save/Discard Buttons (wenn Pending) */}
       {isPending && onManualSave && onManualDiscard && (
         <div className="absolute -top-10 right-0 flex gap-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -440,13 +440,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
 
 export default function TapeChart({ startDate, endDate, onBookingClick, onCreateBooking, onBookingEdit, onBookingCancel, onSendEmail }: TapeChartProps) {
   // Get data from global context
-  const { rooms, bookings, updateBooking } = useData();
-
-  console.log('🎨 [TapeChart] Render:', {
-    roomsCount: rooms.length,
-    bookingsCount: bookings.length,
-    bookings: bookings.map(b => ({ id: b.id, reservierungsnummer: b.reservierungsnummer }))
-  });
+  const { rooms, bookings, updateBooking, refreshBookings } = useData();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
@@ -480,10 +474,6 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
-    console.log('🔄 [TapeChart] useEffect: bookings changed', {
-      bookingsLength: bookings.length,
-      localBookingsLength: localBookings.length
-    });
     setLocalBookings(bookings);
   }, [bookings]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -586,8 +576,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    console.log('DRAG START with dnd-kit!', event.active.data.current);
-    setActiveBooking(event.active.data.current as Booking);
+    const booking = event.active.data.current as Booking;
+    console.log('═══════════════════════════════════════');
+    console.log('🎯 [DRAG START] Existierende Buchung wird gezogen!');
+    console.log('📦 Booking:', { id: booking.id, reservierungsnummer: booking.reservierungsnummer, room: booking.room_id });
+    console.log('═══════════════════════════════════════');
+    setActiveBooking(booking);
   };
 
   // Helper function to check if two bookings overlap
@@ -598,9 +592,14 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    console.log('DRAG END!', event);
+    console.log('═══════════════════════════════════════');
+    console.log('🏁 [DRAG END] Buchung wurde losgelassen!');
+    console.log('📦 Event over:', event.over?.id);
+    console.log('📦 Active booking:', activeBooking ? { id: activeBooking.id, reservierungsnummer: activeBooking.reservierungsnummer } : null);
+    console.log('═══════════════════════════════════════');
 
     if (!event.over || !activeBooking) {
+      console.log('❌ [DRAG END] Abgebrochen - kein Drop-Target oder keine Buchung');
       setActiveBooking(null);
       setDragHasOverlap(false);
       setOverlapDropZone(null);
@@ -710,6 +709,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     };
 
     // Set pending state (zeigt Save-Button am Balken)
+    console.log('✅ [DRAG END] Pending State gesetzt!');
+    console.log('📦 pendingBookingId:', activeBooking.id);
+    console.log('📦 changeData:', JSON.stringify(changeData, null, 2));
+    console.log('💡 Der grüne SPEICHERN Button sollte jetzt über dem Balken erscheinen!');
     setPendingBookingId(activeBooking.id);
     setPendingChange(changeData);
   };
@@ -816,93 +819,176 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   }, [updateBooking]);
 
   // Manual Confirmation Handlers
-  const handleManualSave = () => {
-    // User clicked save button → Show dialog
+  const handleManualSave = useCallback(() => {
+    console.log('═══════════════════════════════════════');
+    console.log('💾 [TapeChart] GRÜNER SPEICHERN BUTTON GEKLICKT!');
+    console.log('📦 pendingChange:', JSON.stringify(pendingChange, null, 2));
+    console.log('🎬 Öffne jetzt Bestätigungsdialog...');
+    console.log('═══════════════════════════════════════');
     setShowChangeConfirmation(true);
-  };
+  }, [pendingChange]);
 
-  const handleManualDiscard = () => {
-    // User clicked discard button → Reset to original data
-    console.log('Änderungen verwerfen');
-    // Reset local state to original bookings (undo visual changes)
+  const handleManualDiscard = useCallback(() => {
+    console.log('🗑️ [TapeChart] Manual Discard clicked, reverting changes');
+    // Reset to original bookings
     setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
-  };
+  }, [bookings]);
 
-  // Confirmation Dialog Handlers (Command Pattern - NO REFRESH!)
-  const handleConfirmChange = async (sendEmail: boolean, sendInvoice: boolean) => {
-    if (!pendingChange) return;
+  const handleConfirmChange = useCallback(async (sendEmail: boolean, sendInvoice: boolean) => {
+    console.log('═══════════════════════════════════════');
+    console.log('🔥 [TapeChart] handleConfirmChange CALLED!');
+    console.log('📦 Parameters:', { sendEmail, sendInvoice });
+    console.log('📦 pendingChange:', JSON.stringify(pendingChange, null, 2));
+    console.log('═══════════════════════════════════════');
 
-    const oldBooking = bookings.find(b => b.id === pendingChange.bookingId);
-    if (!oldBooking) return;
+    if (!pendingChange) {
+      console.error('❌ [TapeChart] No pending change to confirm!');
+      return;
+    }
 
-    // Create command for undo/redo support
-    const command = new UpdateBookingDatesCommand(
-      pendingChange.bookingId,
-      oldBooking.checkin_date,
-      pendingChange.newData.checkin_date,
-      oldBooking.checkout_date,
-      pendingChange.newData.checkout_date,
-      oldBooking.room_id,
-      pendingChange.newData.room_id,
-      setLocalBookings as any // Type workaround for BookingWithDetails
-    );
-
-    // Execute command (already done via localBookings, but register for undo)
-    commandManager.executeCommand(command);
+    console.log('✅ [TapeChart] Confirming change:', { pendingChange, sendEmail, sendInvoice });
 
     try {
-      // Backend sync (fire-and-forget)
-      await invoke('update_booking_dates_and_room_command', {
+      console.log('🚀 [TapeChart] CALLING Backend Command: update_booking_dates_and_room_command');
+      console.log('📤 Command Parameters:', {
         id: pendingChange.bookingId,
         roomId: pendingChange.newData.room_id,
         checkinDate: pendingChange.newData.checkin_date,
         checkoutDate: pendingChange.newData.checkout_date,
       });
 
-      // Send email if requested
-      if (sendEmail) {
-        try {
-          await invoke('send_confirmation_email_command', { bookingId: pendingChange.bookingId });
-          console.log('✅ Buchungsbestätigung erfolgreich versendet');
-        } catch (err) {
-          console.error('❌ Fehler beim Versenden der Buchungsbestätigung:', err);
-          alert('Buchung gespeichert, aber Email konnte nicht versendet werden: ' + err);
-        }
-      }
+      // Persist to database with Retry Logic (max 3 attempts with exponential backoff)
+      await invokeWithRetry('update_booking_dates_and_room_command', {
+        id: pendingChange.bookingId,
+        roomId: pendingChange.newData.room_id,
+        checkinDate: pendingChange.newData.checkin_date,
+        checkoutDate: pendingChange.newData.checkout_date,
+      });
 
-      // Send invoice if requested
-      if (sendInvoice) {
-        try {
-          await invoke('send_invoice_email_command', { bookingId: pendingChange.bookingId });
-          console.log('✅ Rechnung erfolgreich versendet');
-        } catch (err) {
-          console.error('❌ Fehler beim Versenden der Rechnung:', err);
-          alert('Buchung gespeichert, aber Rechnung konnte nicht versendet werden: ' + err);
-        }
-      }
+      console.log('✅ [TapeChart] Change saved to DB successfully');
 
-      // NO refreshAll()! Command Pattern keeps UI in sync
+      // Execute command for undo/redo support
+      const command = new UpdateBookingDatesCommand(
+        pendingChange.bookingId,
+        pendingChange.oldData.checkin_date,
+        pendingChange.newData.checkin_date,
+        pendingChange.oldData.checkout_date,
+        pendingChange.newData.checkout_date,
+        pendingChange.oldData.room_id,
+        pendingChange.newData.room_id,
+        setLocalBookings
+      );
+      commandManager.executeCommand(command);
+
+      // Booking ID und Daten speichern bevor pendingChange auf null gesetzt wird
+      const savedBookingId = pendingChange.bookingId;
+      const oldCheckoutDate = pendingChange.oldData.checkout_date;
+      const newCheckoutDate = pendingChange.newData.checkout_date;
+
+      // Reset pending state (Dialog schließt SOFORT)
       setPendingBookingId(null);
       setPendingChange(null);
       setShowChangeConfirmation(false);
-    } catch (err) {
-      // On error: Undo the command (instant rollback!)
-      commandManager.undo();
-      console.error('Fehler beim Speichern der Buchung:', err);
-      alert('Fehler beim Speichern der Buchungsänderung');
-    }
-  };
 
-  const handleDiscardChange = () => {
-    console.log('Änderungen im Dialog verwerfen');
-    // Reset local state to original bookings (undo visual changes)
+      // Refresh bookings from database to sync UI with DB
+      console.log('🔄 [TapeChart] Refreshing bookings from database...');
+      await refreshBookings();
+      console.log('✅ [TapeChart] Bookings refreshed from database!');
+
+      // AUTO-SYNC zu Turso (falls checkout_date geändert wurde)
+      if (oldCheckoutDate !== newCheckoutDate) {
+        console.log('🔄 [TapeChart] Checkout-Datum geändert - Auto-Sync zu Turso');
+        console.log('   Alt:', oldCheckoutDate, '→ Neu:', newCheckoutDate);
+
+        // Loading Toast
+        console.log('📢 [TapeChart] Zeige AUTO-SYNC Loading Toast...');
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
+        });
+        console.log('📢 [TapeChart] AUTO-SYNC Loading Toast ID:', syncToast);
+
+        // Fire-and-forget: Sync läuft im Hintergrund
+        invoke('sync_affected_dates', {
+          oldCheckout: oldCheckoutDate,
+          newCheckout: newCheckoutDate
+        }).then((result: string) => {
+          console.log('✅ [TapeChart] Auto-Sync erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        }).catch((error: any) => {
+          console.error('❌ [TapeChart] Auto-Sync Fehler:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+      } else {
+        console.log('⚠️ [TapeChart] Keine Auto-Sync - checkout_date unverändert');
+      }
+
+      // Email und Rechnung im HINTERGRUND erstellen (nicht-blockierend)
+      // Dialog ist bereits geschlossen, User sieht keine Wartezeit
+      if (sendInvoice || sendEmail) {
+        console.log('📧 [TapeChart] Starting background email/invoice processing:', { sendEmail, sendInvoice });
+
+        // Fire-and-forget: Promise läuft im Hintergrund mit Retry Logic
+        (async () => {
+          // Show loading toast
+          const toastId = toast.loading(
+            sendInvoice && sendEmail
+              ? 'Rechnung wird erstellt und per Email versendet...'
+              : sendInvoice
+              ? 'Rechnung wird erstellt...'
+              : 'Email wird versendet...'
+          );
+
+          try {
+            if (sendInvoice && sendEmail) {
+              // Rechnung erstellen UND per Email senden (mit Retry)
+              console.log('📄 [TapeChart] Creating invoice PDF and sending via email...');
+              await invokeWithRetry('send_invoice_email_command', { bookingId: savedBookingId });
+              console.log('✅ [TapeChart] Invoice created and sent via email');
+              toast.success('Rechnung erstellt und per Email versendet', { id: toastId });
+            } else if (sendInvoice) {
+              // Nur Rechnung erstellen (kein Email, mit Retry)
+              console.log('📄 [TapeChart] Creating invoice PDF...');
+              await invokeWithRetry('generate_invoice_pdf_command', { bookingId: savedBookingId });
+              console.log('✅ [TapeChart] Invoice PDF created');
+              toast.success('Rechnung erfolgreich erstellt', { id: toastId });
+            } else if (sendEmail) {
+              // Nur Info-Email senden (keine Rechnung, mit Retry)
+              console.log('📧 [TapeChart] Sending change notification email...');
+              await invokeWithRetry('send_confirmation_email_command', { bookingId: savedBookingId });
+              console.log('✅ [TapeChart] Change notification email sent');
+              toast.success('Email erfolgreich versendet', { id: toastId });
+            }
+          } catch (emailError) {
+            console.error('⚠️ [TapeChart] Email/Invoice error (non-fatal):', emailError);
+            toast.error('Fehler beim Erstellen/Versenden: ' + emailError, { id: toastId });
+          }
+        })();
+      }
+    } catch (error) {
+      console.error('❌ [TapeChart] Failed to save change:', error);
+      // Rollback UI to original state
+      setLocalBookings(bookings);
+      setPendingBookingId(null);
+      setPendingChange(null);
+      setShowChangeConfirmation(false);
+      toast.error('Fehler beim Speichern: ' + error);
+    }
+  }, [pendingChange, bookings, refreshBookings]);
+
+  const handleDiscardChange = useCallback(() => {
+    console.log('🗑️ [TapeChart] Discarding change from confirmation dialog');
     setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
     setShowChangeConfirmation(false);
-  };
+  }, [bookings]);
 
   // Context Menu Handler
   const handleContextMenu = useCallback((bookingId: number, x: number, y: number) => {
@@ -1264,7 +1350,6 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
             {/* Rows */}
             {rooms.map((room, roomIdx) => {
               const roomBookings = localBookings.filter((b) => b.room_id === room.id);
-              console.log(`🏨 [TapeChart] Zimmer ${roomIdx}: ${room.name} (ID: ${room.id}) hat ${roomBookings.length} Buchungen:`, roomBookings.map(b => ({ booking_id: b.id, room_id: b.room_id, checkin: b.checkin_date, checkout: b.checkout_date })));
 
               return (
               <div key={room.id} className="flex hover:bg-slate-50 transition-all group">

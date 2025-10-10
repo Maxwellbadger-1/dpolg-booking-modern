@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 import {
   commandManager,
   UpdateBookingStatusCommand,
@@ -87,7 +88,7 @@ interface DataContextType {
 
   // Optimistic Updates
   updateBookingStatus: (id: number, status: string) => Promise<void>;
-  updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string) => Promise<void>;
+  updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => Promise<void>;
 }
 
 // Context
@@ -285,11 +286,49 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 1. Backend Create
       const booking = await invoke<Booking>('create_booking_command', data);
       console.log('✅ [DataContext] Buchung erstellt:', booking);
+      console.log('📅 [DataContext] checkout_date:', booking.checkout_date);
 
       // 2. SOFORT zum State hinzufügen (Optimistic Update)
       setBookings(prev => [...prev, booking]);
 
-      // 3. Event für Undo-Button
+      // 3. AUTO-SYNC zu Turso (neue Buchung)
+      console.log('🔍 [DataContext] Prüfe Auto-Sync Bedingung:', {
+        hasCheckoutDate: !!booking.checkout_date,
+        checkoutDate: booking.checkout_date
+      });
+
+      if (booking.checkout_date) {
+        console.log('✅ [DataContext] Bedingung erfüllt - starte Auto-Sync!');
+        console.log('🔄 [DataContext] Neue Buchung - Auto-Sync zu Turso für', booking.checkout_date);
+
+        // Loading Toast
+        console.log('📢 [DataContext] Zeige Loading Toast...');
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
+        });
+        console.log('📢 [DataContext] Loading Toast ID:', syncToast);
+
+        // Fire-and-forget: Sync läuft im Hintergrund
+        invoke('sync_affected_dates', {
+          oldCheckout: null,
+          newCheckout: booking.checkout_date
+        }).then((result: string) => {
+          console.log('✅ [DataContext] Auto-Sync (CREATE) erfolgreich:', result);
+          toast.success('✅ Putzplan synchronisiert', { id: syncToast });
+        }).catch((error: any) => {
+          console.error('❌ [DataContext] Auto-Sync (CREATE) Fehler:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+      } else {
+        console.log('⚠️ [DataContext] Keine Auto-Sync - checkout_date fehlt!');
+      }
+
+      // 4. Event für Undo-Button
 
       return booking;
     } catch (error) {
@@ -312,11 +351,53 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Update
       const booking = await invoke<Booking>('update_booking_command', { id, ...data });
 
-      // 4. Event für Undo-Button
+      // 4. AUTO-SYNC zu Turso (falls checkout_date geändert wurde)
+      console.log('🔍 [DataContext] Prüfe UPDATE Auto-Sync:', {
+        hasOldBooking: !!oldBooking,
+        hasNewCheckoutDate: !!data.checkout_date,
+        oldCheckout: oldBooking?.checkout_date,
+        newCheckout: data.checkout_date,
+        isDifferent: oldBooking?.checkout_date !== data.checkout_date
+      });
+
+      if (oldBooking && data.checkout_date && oldBooking.checkout_date !== data.checkout_date) {
+        console.log('✅ [DataContext] UPDATE Bedingung erfüllt - starte Auto-Sync!');
+        console.log('🔄 [DataContext] Checkout-Datum geändert - Auto-Sync zu Turso');
+        console.log('   Alt:', oldBooking.checkout_date, '→ Neu:', data.checkout_date);
+
+        // Loading Toast
+        console.log('📢 [DataContext] Zeige UPDATE Loading Toast...');
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
+        });
+        console.log('📢 [DataContext] UPDATE Loading Toast ID:', syncToast);
+
+        // Fire-and-forget: Sync läuft im Hintergrund
+        invoke('sync_affected_dates', {
+          oldCheckout: oldBooking.checkout_date,
+          newCheckout: data.checkout_date
+        }).then((result: string) => {
+          console.log('✅ [DataContext] Auto-Sync (UPDATE) erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        }).catch((error: any) => {
+          console.error('❌ [DataContext] Auto-Sync (UPDATE) Fehler:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+          // Kein throw - Sync-Fehler soll Booking-Update nicht abbrechen
+        });
+      } else {
+        console.log('⚠️ [DataContext] Keine UPDATE Auto-Sync - Bedingung nicht erfüllt');
+      }
+
+      // 5. Event für Undo-Button
 
       return booking;
     } catch (error) {
-      // 5. Rollback bei Fehler
+      // 6. Rollback bei Fehler
       if (oldBooking) {
         setBookings(prev => prev.map(b =>
           b.id === id ? oldBooking : b
@@ -337,9 +418,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Delete
       await invoke('delete_booking_command', { id });
 
-      // 4. Event für Undo-Button
+      // 4. AUTO-SYNC zu Turso (falls Buchung gelöscht wurde)
+      if (deletedBooking) {
+        console.log('🔄 [DataContext] Buchung gelöscht - Auto-Sync zu Turso für', deletedBooking.checkout_date);
+
+        // Loading Toast
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
+
+        // Fire-and-forget: Sync läuft im Hintergrund
+        invoke('sync_affected_dates', {
+          oldCheckout: null,
+          newCheckout: deletedBooking.checkout_date
+        }).then((result: string) => {
+          console.log('✅ [DataContext] Auto-Sync (DELETE) erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        }).catch((error: any) => {
+          console.error('❌ [DataContext] Auto-Sync (DELETE) Fehler:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+      }
+
+      // 5. Event für Undo-Button
     } catch (error) {
-      // 5. Rollback - Booking wiederherstellen
+      // 6. Rollback - Booking wiederherstellen
       if (deletedBooking) {
         setBookings(prev => [...prev, deletedBooking]);
       }
@@ -373,11 +474,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [bookings]);
 
   // Command Pattern: Update Booking Payment (INSTANT UNDO/REDO!)
-  const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string): Promise<void> => {
+  const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string): Promise<void> => {
     const oldBooking = bookings.find(b => b.id === id);
     if (!oldBooking) return;
 
-    const newPaidAt = isPaid ? new Date().toISOString().split('T')[0] : null;
+    // Verwende das übergebene Datum, oder falls nicht vorhanden, heutiges Datum
+    const newPaidAt = isPaid ? (paymentDate || new Date().toISOString().split('T')[0]) : null;
     const newMethod = isPaid ? (zahlungsmethode || 'Überweisung') : null;
 
     // Create and execute command (INSTANT UI update!)
@@ -398,7 +500,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('update_booking_payment_command', {
         bookingId: id,
         bezahlt: isPaid,
-        zahlungsmethode: newMethod
+        zahlungsmethode: newMethod,
+        bezahltAm: newPaidAt  // NEU: Datum an Backend senden
       });
     } catch (error) {
       // On error: Undo the command (instant rollback!)

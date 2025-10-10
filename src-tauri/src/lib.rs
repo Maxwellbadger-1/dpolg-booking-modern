@@ -329,8 +329,17 @@ fn update_booking_dates_and_room_command(
     checkin_date: String,
     checkout_date: String,
 ) -> Result<database::Booking, String> {
-    database::update_booking_dates_and_room(id, room_id, checkin_date, checkout_date)
-        .map_err(|e| format!("Fehler beim Aktualisieren der Buchungsdaten: {}", e))
+    println!("🔄 [update_booking_dates_and_room_command] Called with id: {}, room: {}, checkin: {}, checkout: {}", id, room_id, checkin_date, checkout_date);
+    match database::update_booking_dates_and_room(id, room_id, checkin_date, checkout_date) {
+        Ok(booking) => {
+            println!("✅ [update_booking_dates_and_room_command] Successfully updated booking {}", booking.reservierungsnummer);
+            Ok(booking)
+        }
+        Err(e) => {
+            eprintln!("❌ [update_booking_dates_and_room_command] Error: {}", e);
+            Err(format!("Fehler beim Aktualisieren der Buchungsdaten: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -794,13 +803,15 @@ fn update_booking_payment_command(
     booking_id: i64,
     bezahlt: bool,
     zahlungsmethode: Option<String>,
+    bezahlt_am: Option<String>,  // NEU: Bezahldatum vom User
 ) -> Result<database::Booking, String> {
     println!("🔍 [update_booking_payment_command] Called:");
     println!("   booking_id: {}", booking_id);
     println!("   bezahlt: {}", bezahlt);
     println!("   zahlungsmethode: {:?}", zahlungsmethode);
+    println!("   bezahlt_am: {:?}", bezahlt_am);
 
-    database::update_booking_payment(booking_id, bezahlt, zahlungsmethode)
+    database::update_booking_payment(booking_id, bezahlt, zahlungsmethode, bezahlt_am)
         .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))
 }
 
@@ -1119,6 +1130,9 @@ pub fn run() {
             // Supabase / Cleaning Plan Sync
             supabase::sync_cleaning_tasks,
             supabase::sync_week_ahead,
+            supabase::sync_affected_dates,
+            supabase::get_cleaning_stats,
+            supabase::migrate_cleaning_tasks_schema,
             get_backup_settings_command,
             save_backup_settings_command,
             open_backup_folder_command,

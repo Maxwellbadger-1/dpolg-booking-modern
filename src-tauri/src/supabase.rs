@@ -7,6 +7,7 @@ const TURSO_TOKEN: &str = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTk4
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CleaningTask {
+    pub booking_id: i64,    // NEU: Booking ID für eindeutige Identifikation!
     pub date: String,
     pub room_name: String,
     pub room_id: i64,
@@ -146,7 +147,13 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
     // Sammle ALLE SQL Statements für Batch-Ausführung
     let mut sql_statements = Vec::new();
 
-    // DELETE Statement
+    // WICHTIG: DELETE alle existierenden Einträge für diese bookings ZUERST!
+    // Das verhindert Duplikate wenn eine Buchung von Datum A zu Datum B verschoben wird
+    for booking in &checkouts {
+        sql_statements.push(format!("DELETE FROM cleaning_tasks WHERE booking_id = {}", booking.id));
+    }
+
+    // Dann DELETE für das Datum (cleanup für alte Einträge ohne booking_id)
     sql_statements.push(format!("DELETE FROM cleaning_tasks WHERE date = '{}'", date));
 
     // Erstelle alle INSERT Statements
@@ -190,9 +197,10 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
         };
         let extras_escaped = extras.replace("'", "''");
 
-        // INSERT Statement - sammeln statt einzeln ausführen!
+        // INSERT Statement mit booking_id - sammeln statt einzeln ausführen!
         let insert_sql = format!(
-            "INSERT INTO cleaning_tasks (date, room_name, room_id, guest_name, checkout_time, checkin_time, priority, notes, status, has_dog, needs_bedding, guest_count, extras) VALUES ('{}', '{}', {}, '{}', '{}', {}, '{}', {}, 'pending', {}, {}, {}, '{}')",
+            "INSERT INTO cleaning_tasks (booking_id, date, room_name, room_id, guest_name, checkout_time, checkin_time, priority, notes, status, has_dog, needs_bedding, guest_count, extras) VALUES ({}, '{}', '{}', {}, '{}', '{}', {}, '{}', {}, 'pending', {}, {}, {}, '{}')",
+            booking.id,          // WICHTIG: booking_id für eindeutige Identifikation!
             date,
             room_name,
             booking.room_id,
@@ -251,6 +259,47 @@ pub async fn sync_week_ahead() -> Result<String, String> {
     };
 
     Ok(format!("✅ Gesamt {} Aufgaben für 90 Tage (3 Monate) synchronisiert\n\n{}", total_synced, summary))
+}
+
+/// Synchronisiert spezifische Daten (für Auto-Sync nach Buchungsänderungen)
+/// WICHTIG: Synchronisiert ALTE + NEUE Daten bei Updates!
+#[tauri::command]
+pub async fn sync_affected_dates(old_checkout: Option<String>, new_checkout: String) -> Result<String, String> {
+    println!("🔄 [sync_affected_dates] old_checkout: {:?}, new_checkout: {}", old_checkout, new_checkout);
+
+    let mut synced_dates = Vec::new();
+
+    // 1. Synchronisiere ALTES checkout_date (falls vorhanden)
+    if let Some(ref old_date) = old_checkout {
+        if old_date != &new_checkout {
+            println!("🧹 [sync_affected_dates] Synchronisiere altes Datum: {}", old_date);
+            match sync_cleaning_tasks(old_date.clone()).await {
+                Ok(msg) => {
+                    synced_dates.push(format!("{} (alt)", old_date));
+                    println!("✅ [sync_affected_dates] Alt-Sync OK: {}", msg);
+                }
+                Err(e) => {
+                    println!("❌ [sync_affected_dates] Alt-Sync Error: {}", e);
+                    // Fehler nicht abbrechen - versuche wenigstens neues Datum
+                }
+            }
+        }
+    }
+
+    // 2. Synchronisiere NEUES checkout_date
+    println!("🧹 [sync_affected_dates] Synchronisiere neues Datum: {}", new_checkout);
+    match sync_cleaning_tasks(new_checkout.clone()).await {
+        Ok(msg) => {
+            synced_dates.push(format!("{} (neu)", new_checkout));
+            println!("✅ [sync_affected_dates] Neu-Sync OK: {}", msg);
+        }
+        Err(e) => {
+            println!("❌ [sync_affected_dates] Neu-Sync Error: {}", e);
+            return Err(format!("Fehler beim Sync des neuen Datums: {}", e));
+        }
+    }
+
+    Ok(format!("✅ Synchronisiert: {}", synced_dates.join(", ")))
 }
 
 /// Struct für Cleaning Stats
@@ -374,4 +423,52 @@ pub async fn get_cleaning_stats() -> Result<CleaningStats, String> {
     }
 
     Err("Keine Stats gefunden".to_string())
+}
+
+/// Migriert die Turso cleaning_tasks Tabelle zum neuen Schema mit booking_id
+/// ACHTUNG: Löscht alle existierenden Daten!
+#[tauri::command]
+pub async fn migrate_cleaning_tasks_schema() -> Result<String, String> {
+    println!("🔄 [migrate_cleaning_tasks_schema] Starte Schema-Migration...");
+
+    let mut sql_statements = Vec::new();
+
+    // 1. DROP alte Tabelle
+    sql_statements.push("DROP TABLE IF EXISTS cleaning_tasks".to_string());
+
+    // 2. CREATE neue Tabelle mit booking_id
+    sql_statements.push(
+        "CREATE TABLE cleaning_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            room_name TEXT NOT NULL,
+            room_id INTEGER NOT NULL,
+            guest_name TEXT NOT NULL,
+            checkout_time TEXT NOT NULL,
+            checkin_time TEXT,
+            priority TEXT NOT NULL,
+            notes TEXT,
+            status TEXT NOT NULL,
+            has_dog INTEGER NOT NULL,
+            needs_bedding INTEGER NOT NULL,
+            guest_count INTEGER NOT NULL,
+            extras TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )".to_string()
+    );
+
+    // 3. Index für Performance
+    sql_statements.push("CREATE INDEX idx_cleaning_tasks_date ON cleaning_tasks(date)".to_string());
+    sql_statements.push("CREATE INDEX idx_cleaning_tasks_booking_id ON cleaning_tasks(booking_id)".to_string());
+    sql_statements.push("CREATE INDEX idx_cleaning_tasks_room_id ON cleaning_tasks(room_id)".to_string());
+
+    println!("📝 [migrate_cleaning_tasks_schema] Führe {} SQL Statements aus", sql_statements.len());
+
+    // Batch Execution
+    execute_turso_batch(sql_statements).await?;
+
+    println!("✅ [migrate_cleaning_tasks_schema] Schema erfolgreich migriert!");
+
+    Ok("✅ Schema erfolgreich migriert! Führe jetzt einen 3-Monats-Sync durch um Daten zu füllen.".to_string())
 }
