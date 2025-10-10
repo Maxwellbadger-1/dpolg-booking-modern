@@ -351,22 +351,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Update
       const booking = await invoke<Booking>('update_booking_command', { id, ...data });
 
-      // 4. AUTO-SYNC zu Turso (falls checkout_date geändert wurde)
+      // 4. AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
+      const checkoutChanged = oldBooking && data.checkout_date && oldBooking.checkout_date !== data.checkout_date;
+      const checkinChanged = oldBooking && data.checkin_date && oldBooking.checkin_date !== data.checkin_date;
+
       console.log('🔍 [DataContext] Prüfe UPDATE Auto-Sync:', {
         hasOldBooking: !!oldBooking,
-        hasNewCheckoutDate: !!data.checkout_date,
+        checkoutChanged,
+        checkinChanged,
         oldCheckout: oldBooking?.checkout_date,
         newCheckout: data.checkout_date,
-        isDifferent: oldBooking?.checkout_date !== data.checkout_date
+        oldCheckin: oldBooking?.checkin_date,
+        newCheckin: data.checkin_date
       });
 
-      if (oldBooking && data.checkout_date && oldBooking.checkout_date !== data.checkout_date) {
+      if (checkoutChanged || checkinChanged) {
         console.log('✅ [DataContext] UPDATE Bedingung erfüllt - starte Auto-Sync!');
-        console.log('🔄 [DataContext] Checkout-Datum geändert - Auto-Sync zu Turso');
-        console.log('   Alt:', oldBooking.checkout_date, '→ Neu:', data.checkout_date);
+
+        if (checkoutChanged) {
+          console.log('🔄 [DataContext] Checkout-Datum geändert:', oldBooking.checkout_date, '→', data.checkout_date);
+        }
+        if (checkinChanged) {
+          console.log('🔄 [DataContext] Checkin-Datum geändert:', oldBooking.checkin_date, '→', data.checkin_date);
+          console.log('   → Sync checkout_date um Priorität zu aktualisieren');
+        }
 
         // Loading Toast
-        console.log('📢 [DataContext] Zeige UPDATE Loading Toast...');
         const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
           style: {
             background: '#1e293b',
@@ -375,11 +385,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
             padding: '1rem',
           }
         });
-        console.log('📢 [DataContext] UPDATE Loading Toast ID:', syncToast);
 
-        // Fire-and-forget: Sync läuft im Hintergrund
+        // Sync: Bei checkout_date Änderung → alte + neue Daten
+        //       Bei checkin_date Änderung → nur checkout_date neu (Priorität-Update)
         invoke('sync_affected_dates', {
-          oldCheckout: oldBooking.checkout_date,
+          oldCheckout: checkoutChanged ? oldBooking.checkout_date : null,
           newCheckout: data.checkout_date
         }).then((result: string) => {
           console.log('✅ [DataContext] Auto-Sync (UPDATE) erfolgreich:', result);
@@ -387,7 +397,6 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }).catch((error: any) => {
           console.error('❌ [DataContext] Auto-Sync (UPDATE) Fehler:', error);
           toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-          // Kein throw - Sync-Fehler soll Booking-Update nicht abbrechen
         });
       } else {
         console.log('⚠️ [DataContext] Keine UPDATE Auto-Sync - Bedingung nicht erfüllt');
