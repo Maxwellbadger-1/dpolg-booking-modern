@@ -10,6 +10,7 @@ import ConfirmDialog from '../ConfirmDialog';
 import CancellationConfirmDialog from './CancellationConfirmDialog';
 import StatusDropdown from './StatusDropdown';
 import PaymentDropdown from './PaymentDropdown';
+import InvoiceDropdown from './InvoiceDropdown';
 import { useData } from '../../context/DataContext';
 import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
@@ -53,7 +54,7 @@ type SortField = 'reservierungsnummer' | 'guest' | 'room' | 'checkin' | 'checkou
 type SortDirection = 'asc' | 'desc' | null;
 
 export default function BookingList() {
-  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus, updateBookingPayment } = useData();
+  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus, updateBookingPayment, markInvoiceSent } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
@@ -169,6 +170,15 @@ export default function BookingList() {
     } catch (error) {
       console.error('Fehler beim Ändern des Bezahlt-Status:', error);
       alert('Fehler beim Ändern des Bezahlt-Status: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
+  const handleInvoiceStatusChange = async (bookingId: number, emailAddress: string) => {
+    try {
+      await markInvoiceSent(bookingId, emailAddress);
+    } catch (error) {
+      console.error('Fehler beim Markieren der Rechnung:', error);
+      // Toast wird bereits in DataContext angezeigt
     }
   };
 
@@ -546,24 +556,13 @@ export default function BookingList() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <div className="inline-flex flex-col items-center">
-                          {booking.rechnung_versendet_am ? (
-                            <>
-                              <div className="flex items-center gap-1.5" title={`Rechnung versendet an: ${booking.rechnung_versendet_an || 'unbekannt'}`}>
-                                <span className="text-lg">📧</span>
-                                <CheckCircle className="w-4 h-4 text-emerald-500" />
-                              </div>
-                              <span className="text-xs text-slate-500 mt-1">
-                                {format(new Date(booking.rechnung_versendet_am), 'dd.MM.yyyy', { locale: de })}
-                              </span>
-                            </>
-                          ) : (
-                            <div className="flex items-center gap-1.5" title="Rechnung noch nicht versendet">
-                              <Circle className="w-4 h-4 text-slate-300" />
-                              <span className="text-xs text-slate-400">Nicht versendet</span>
-                            </div>
-                          )}
-                        </div>
+                        <InvoiceDropdown
+                          invoiceSentAt={booking.rechnung_versendet_am}
+                          invoiceSentTo={booking.rechnung_versendet_an}
+                          bookingId={booking.id}
+                          guestEmail={booking.guest?.email || ''}
+                          onInvoiceStatusChange={handleInvoiceStatusChange}
+                        />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">

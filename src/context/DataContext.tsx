@@ -55,6 +55,8 @@ interface Booking {
   bezahlt: boolean;
   bezahlt_am?: string | null;
   zahlungsmethode?: string | null;
+  rechnung_versendet_am?: string | null;
+  rechnung_versendet_an?: string | null;
   room: Room;
   guest: Guest;
 }
@@ -89,6 +91,7 @@ interface DataContextType {
   // Optimistic Updates
   updateBookingStatus: (id: number, status: string) => Promise<void>;
   updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => Promise<void>;
+  markInvoiceSent: (id: number, emailAddress: string) => Promise<void>;
 }
 
 // Context
@@ -520,6 +523,41 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [bookings]);
 
+  // Mark Invoice as Sent (Optimistic Update)
+  const markInvoiceSent = useCallback(async (id: number, emailAddress: string): Promise<void> => {
+    const oldBooking = bookings.find(b => b.id === id);
+    if (!oldBooking) return;
+
+    const sentAt = new Date().toISOString();
+
+    // SOFORT im UI ändern (Optimistic Update)
+    setBookings(prev => prev.map(b =>
+      b.id === id ? {
+        ...b,
+        rechnung_versendet_am: sentAt,
+        rechnung_versendet_an: emailAddress
+      } : b
+    ));
+
+    try {
+      // Backend sync
+      await invoke('mark_invoice_sent_command', {
+        bookingId: id,
+        emailAddress
+      });
+
+      toast.success('✅ Rechnung als versendet markiert');
+    } catch (error) {
+      // Rollback bei Fehler
+      setBookings(prev => prev.map(b =>
+        b.id === id ? oldBooking : b
+      ));
+      console.error('Fehler beim Markieren der Rechnung:', error);
+      toast.error('❌ Fehler beim Markieren der Rechnung');
+      throw error;
+    }
+  }, [bookings]);
+
   const value: DataContextType = {
     // Data
     rooms,
@@ -547,6 +585,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Optimistic Updates
     updateBookingStatus,
     updateBookingPayment,
+    markInvoiceSent,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
