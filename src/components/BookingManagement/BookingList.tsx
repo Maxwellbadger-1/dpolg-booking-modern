@@ -43,6 +43,8 @@ interface Booking {
   bezahlt_am?: string | null;
   zahlungsmethode?: string | null;
   mahnung_gesendet_am?: string | null;
+  rechnung_versendet_am?: string | null;
+  rechnung_versendet_an?: string | null;
   room: Room;
   guest: Guest;
 }
@@ -482,6 +484,9 @@ export default function BookingList() {
                     <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Bezahlt
                     </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Rechnung
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Aktionen
                     </th>
@@ -537,6 +542,26 @@ export default function BookingList() {
                             <span className="text-xs text-slate-500 mt-1">
                               {format(new Date(booking.bezahlt_am), 'dd.MM.yyyy', { locale: de })}
                             </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <div className="inline-flex flex-col items-center">
+                          {booking.rechnung_versendet_am ? (
+                            <>
+                              <div className="flex items-center gap-1.5" title={`Rechnung versendet an: ${booking.rechnung_versendet_an || 'unbekannt'}`}>
+                                <span className="text-lg">📧</span>
+                                <CheckCircle className="w-4 h-4 text-emerald-500" />
+                              </div>
+                              <span className="text-xs text-slate-500 mt-1">
+                                {format(new Date(booking.rechnung_versendet_am), 'dd.MM.yyyy', { locale: de })}
+                              </span>
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-1.5" title="Rechnung noch nicht versendet">
+                              <Circle className="w-4 h-4 text-slate-300" />
+                              <span className="text-xs text-slate-400">Nicht versendet</span>
+                            </div>
                           )}
                         </div>
                       </td>
