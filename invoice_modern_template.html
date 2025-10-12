@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rechnung #2024-0847</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #8b5cf6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            
+            --border: #e2e8f0;
+            --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px 15px;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+        
+        .invoice-wrapper {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--bg-primary);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+        }
+        
+        /* Header Section - Kompakter */
+        .invoice-header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            padding: 18px 30px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 16px 16px 0 0;
+        }
+        
+        .invoice-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        
+        .header-content {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .company-info {
+            color: white;
+        }
+        
+        .company-name {
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 5px;
+            letter-spacing: -0.5px;
+        }
+        
+        .company-details {
+            opacity: 0.9;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+        
+        .invoice-badge {
+            text-align: right;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .invoice-number {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 12px;
+        }
+        
+        .company-logo {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+            padding: 8px;
+            overflow: hidden;
+            height: 80px;
+            max-width: 220px;
+            margin: 0 auto;
+        }
+
+        .company-logo img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .logo-placeholder {
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        
+        .invoice-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+        
+        .invoice-value {
+            font-size: 16px;
+            font-weight: 700;
+        }
+        
+        .invoice-status {
+            display: inline-block;
+            background: var(--success);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .invoice-status.pending {
+            background: var(--warning);
+        }
+        
+        /* Recipients Section - Kompakter */
+        .recipients-section {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            padding: 15px 30px;
+            background: var(--bg-secondary);
+        }
+        
+        .recipient-card {
+            background: white;
+            border-radius: 10px;
+            padding: 12px;
+            border: 2px solid var(--border);
+            position: relative;
+        }
+        
+        .recipient-label {
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-tertiary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .recipient-icon {
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+        }
+        
+        .recipient-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 5px;
+        }
+        
+        .recipient-details {
+            font-size: 10px;
+            color: var(--text-secondary);
+            line-height: 1.3;
+        }
+        
+        .external-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: var(--accent);
+            color: white;
+            font-size: 8px;
+            padding: 3px 8px;
+            border-radius: 100px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Invoice Meta Section - Kompakter */
+        .invoice-meta {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            padding: 12px 30px;
+            background: white;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .meta-item {
+            text-align: center;
+        }
+        
+        .meta-label {
+            font-size: 8px;
+            color: var(--text-tertiary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 3px;
+            font-weight: 500;
+        }
+        
+        .meta-value {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        /* Table Section - Kompakter */
+        .invoice-table-section {
+            padding: 15px 30px;
+            background: white;
+        }
+        
+        .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .section-icon {
+            width: 22px;
+            height: 22px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 3px;
+        }
+        
+        thead th {
+            text-align: left;
+            font-size: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-tertiary);
+            padding: 6px 10px;
+            background: var(--bg-secondary);
+            border: none;
+        }
+        
+        thead th:first-child {
+            border-radius: 6px 0 0 6px;
+        }
+        
+        thead th:last-child {
+            border-radius: 0 6px 6px 0;
+            text-align: right;
+        }
+        
+        tbody tr {
+            background: var(--bg-tertiary);
+        }
+        
+        tbody td {
+            padding: 8px 10px;
+            font-size: 10px;
+            color: var(--text-primary);
+            border: none;
+        }
+        
+        tbody td:first-child {
+            border-radius: 6px 0 0 6px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+        
+        tbody td:last-child {
+            border-radius: 0 6px 6px 0;
+            text-align: right;
+            font-weight: 600;
+        }
+        
+        .item-description {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .item-details {
+            font-size: 9px;
+            color: var(--text-tertiary);
+            margin-top: 2px;
+        }
+        
+        /* Totals Section - Kompakter */
+        .invoice-totals {
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-top: 2px solid var(--border);
+        }
+        
+        .totals-grid {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 20px;
+        }
+        
+        .payment-qr {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .qr-code {
+            width: 75px;
+            height: 75px;
+            background: white;
+            border-radius: 10px;
+            padding: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            color: var(--text-tertiary);
+            border: 2px solid var(--border);
+            flex-shrink: 0;
+        }
+        
+        .qr-info {
+            flex: 1;
+        }
+        
+        .qr-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+        
+        .qr-description {
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.3;
+        }
+        
+        .totals-table {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            border: 2px solid var(--border);
+        }
+        
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            font-size: 10px;
+        }
+        
+        .total-row.subtotal {
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+        
+        .total-row.tax {
+            color: var(--text-secondary);
+            font-size: 9px;
+        }
+        
+        .total-row.grand-total {
+            margin-top: 6px;
+            padding-top: 8px;
+            border-top: 2px solid var(--primary);
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        
+        .total-label {
+            color: var(--text-secondary);
+        }
+        
+        .total-row.grand-total .total-label {
+            color: var(--text-primary);
+        }
+        
+        /* Footer Section - Kompakter */
+        .invoice-footer {
+            padding: 15px 30px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+        }
+        
+        .footer-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 12px;
+        }
+        
+        .footer-section h4 {
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-tertiary);
+            margin-bottom: 8px;
+        }
+        
+        .footer-section p {
+            font-size: 9px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        
+        .bank-details {
+            background: white;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 6px;
+        }
+        
+        .bank-row {
+            display: flex;
+            font-size: 9px;
+            padding: 3px 0;
+        }
+        
+        .bank-label {
+            font-weight: 500;
+            color: var(--text-tertiary);
+            width: 70px;
+            flex-shrink: 0;
+        }
+        
+        .bank-value {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+        
+        .footer-bottom {
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            font-size: 8px;
+            color: var(--text-tertiary);
+            line-height: 1.4;
+        }
+        
+        .footer-bottom a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        /* Print Styles - Optimiert für A4 */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+            
+            .invoice-wrapper {
+                box-shadow: none;
+                border-radius: 0;
+                max-width: 100%;
+            }
+            
+            .invoice-header {
+                padding: 12mm 12mm 8mm 12mm;
+            }
+            
+            .recipients-section {
+                padding: 6mm 12mm;
+            }
+            
+            .invoice-meta {
+                padding: 5mm 12mm;
+            }
+            
+            .invoice-table-section {
+                padding: 6mm 12mm;
+            }
+            
+            .invoice-totals {
+                padding: 6mm 12mm;
+            }
+            
+            .invoice-footer {
+                padding: 6mm 12mm;
+            }
+            
+            .company-name {
+                font-size: 16px;
+            }
+            
+            .company-details {
+                font-size: 9px;
+            }
+            
+            .invoice-value {
+                font-size: 14px;
+            }
+            
+            .company-logo {
+                height: 65px;
+            }
+
+            .company-logo img {
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+            }
+
+            .section-title {
+                font-size: 12px;
+            }
+            
+            table {
+                border-spacing: 0 2px;
+            }
+            
+            tbody td {
+                padding: 6px 8px;
+                font-size: 9px;
+            }
+            
+            .item-details {
+                font-size: 8px;
+            }
+            
+            .footer-grid {
+                gap: 12px;
+                margin-bottom: 8px;
+            }
+            
+            .footer-section p {
+                font-size: 8px;
+            }
+            
+            .bank-row {
+                font-size: 8px;
+            }
+            
+            .footer-bottom {
+                font-size: 7px;
+                padding-top: 8px;
+            }
+            
+            @page {
+                margin: 8mm;
+                size: A4 portrait;
+            }
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            
+            .invoice-wrapper {
+                border-radius: 12px;
+            }
+            
+            .header-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .invoice-badge {
+                text-align: left;
+            }
+            
+            .company-logo {
+                height: 70px;
+            }
+
+            .company-logo img {
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+            }
+
+            .recipients-section {
+                grid-template-columns: 1fr;
+            }
+            
+            .invoice-meta {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .totals-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .footer-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .invoice-header,
+            .recipients-section,
+            .invoice-table-section,
+            .invoice-totals,
+            .invoice-footer {
+                padding: 20px;
+            }
+            
+            .invoice-meta {
+                padding: 15px 20px;
+            }
+            
+            thead th,
+            tbody td {
+                padding: 10px;
+                font-size: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice-wrapper">
+        <!-- Header -->
+        <div class="invoice-header">
+            <div class="header-content">
+                <div class="company-info">
+                    <div class="company-name">{{COMPANY_NAME}}</div>
+                    <div class="company-details">
+                        {{STREET_ADDRESS}}<br>
+                        {{PLZ}} {{CITY}}, {{COUNTRY}}<br>
+                        Tel: {{PHONE}}<br>
+                        {{EMAIL}}<br>
+                        Steuernummer: {{TAX_ID}}
+                    </div>
+                </div>
+                <div class="invoice-badge">
+                    <div class="invoice-number">
+                        <div class="invoice-label">Rechnungsnummer</div>
+                        <div class="invoice-value">{{INVOICE_NUMBER}}</div>
+                    </div>
+                    <div class="company-logo">
+                        {{LOGO_HTML}}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recipients -->
+        <div class="recipients-section">
+            <div class="recipient-card">
+                <div class="recipient-label">
+                    <div class="recipient-icon">👤</div>
+                    Gast
+                </div>
+                <div class="recipient-name">{{GUEST_NAME}}</div>
+                <div class="recipient-details">
+                    {{GUEST_ADDRESS}}
+                </div>
+            </div>
+            {{INVOICE_RECIPIENT_CARD}}
+
+            <div class="recipient-card">
+                <div class="recipient-label">
+                    <div class="recipient-icon">🛎️</div>
+                    Buchungsdetails
+                </div>
+                <div class="recipient-name">{{ROOM_NAME}}</div>
+                <div class="recipient-details">
+                    Check-in: {{CHECKIN_DATE}}<br>
+                    Check-out: {{CHECKOUT_DATE}}<br>
+                    {{NIGHTS_COUNT}} Übernachtungen<br>
+                    {{GUEST_COUNT}} {{GUEST_COUNT_LABEL}}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Invoice Meta -->
+        <div class="invoice-meta">
+            <div class="meta-item">
+                <div class="meta-label">Rechnungsdatum</div>
+                <div class="meta-value">{{INVOICE_DATE}}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Aufenthalt</div>
+                <div class="meta-value">{{STAY_PERIOD}}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Fälligkeit</div>
+                <div class="meta-value">{{DUE_DATE}}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Buchungsnummer</div>
+                <div class="meta-value">{{BOOKING_NUMBER}}</div>
+            </div>
+            {{MEMBERSHIP_META}}
+        </div>
+        
+        <!-- Table Section -->
+        <div class="invoice-table-section">
+            <div class="section-title">
+                <div class="section-icon">🛏️</div>
+                Leistungsübersicht
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 8%;">Pos</th>
+                        <th style="width: 42%;">Beschreibung</th>
+                        <th style="width: 15%;">Anzahl</th>
+                        <th style="width: 15%;">Einzelpreis</th>
+                        <th style="width: 20%;">Gesamtpreis</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{SERVICE_ROWS}}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Totals Section -->
+        <div class="invoice-totals">
+            <div class="totals-grid">
+                <div class="payment-qr">
+                    <div class="qr-code">
+                        [QR CODE]<br>
+                        für Zahlung
+                    </div>
+                    <div class="qr-info">
+                        <div class="qr-title">Schnellzahlung via QR</div>
+                        <div class="qr-description">
+                            Scannen Sie den QR-Code mit Ihrer Banking-App für eine direkte Überweisung mit allen Zahlungsdaten.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="totals-table">
+                    <div class="total-row subtotal">
+                        <span class="total-label">Zwischensumme</span>
+                        <span>{{SUBTOTAL}}</span>
+                    </div>
+                    {{TAX_ROWS}}
+                    {{DISCOUNT_ROWS}}
+                    <div class="total-row grand-total">
+                        <span class="total-label">Endbetrag</span>
+                        <span>{{GRAND_TOTAL}}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="invoice-footer">
+            <div class="footer-grid">
+                <div class="footer-section">
+                    <h4>Zahlungsinformationen</h4>
+                    <div class="bank-details">
+                        <div class="bank-row">
+                            <span class="bank-label">Empfänger:</span>
+                            <span class="bank-value">{{ACCOUNT_HOLDER}}</span>
+                        </div>
+                        <div class="bank-row">
+                            <span class="bank-label">Bank:</span>
+                            <span class="bank-value">{{BANK_NAME}}</span>
+                        </div>
+                        <div class="bank-row">
+                            <span class="bank-label">IBAN:</span>
+                            <span class="bank-value">{{IBAN}}</span>
+                        </div>
+                        <div class="bank-row">
+                            <span class="bank-label">BIC:</span>
+                            <span class="bank-value">{{BIC}}</span>
+                        </div>
+                        <div class="bank-row">
+                            <span class="bank-label">Verwendung:</span>
+                            <span class="bank-value">{{PAYMENT_REFERENCE}}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>Zahlungsbedingungen</h4>
+                    <p>
+                        Zahlbar innerhalb von 14 Tagen nach Rechnungserhalt. Bei dienstlicher Buchung kann die Rechnung direkt an Ihre Dienststelle weitergeleitet werden.
+                    </p>
+                    <p style="margin-top: 8px;">
+                        <strong>Mitgliedervorteile:</strong><br>
+                        DPolG-Mitglieder erhalten 10% Rabatt auf alle Leistungen.
+                    </p>
+                    <p style="margin-top: 8px; font-weight: 600; color: var(--primary);">
+                        Diese Rechnung ist als Beleg für Ihre Reisekosten­abrechnung geeignet.
+                    </p>
+                </div>
+                
+                <div class="footer-section">
+                    <h4>Kontakt & Service</h4>
+                    <p>
+                        <strong>Rezeption (24h):</strong><br>
+                        📧 rezeption@stiftung-polizei.de<br>
+                        📞 +49 9922 8020<br>
+                        📠 +49 9922 802-100
+                    </p>
+                    <p style="margin-top: 12px;">
+                        <strong>Buchhaltung:</strong><br>
+                        📧 buchhaltung@stiftung-polizei.de<br>
+                        📞 +49 9922 802-150<br>
+                        Mo-Fr 8:00 - 16:00 Uhr
+                    </p>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                Wir danken für Ihren Aufenthalt und freuen uns auf Ihren nächsten Besuch! | 
+                Stiftung der Deutschen Polizeigewerkschaft | 
+                Gemeinnützige Stiftung | Finanzamt Zwiesel St.-Nr. 123/456/78900 | 
+                <a href="https://www.stiftung-polizei.de">www.stiftung-polizei.de</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
