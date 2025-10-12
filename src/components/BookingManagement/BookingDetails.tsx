@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
+import BookingReminders from '../Reminders/BookingReminders';
 
 interface BookingDetailsProps {
   bookingId: number;
@@ -65,6 +66,7 @@ interface Booking {
   rechnung_versendet_am?: string | null;
   rechnung_versendet_an?: string | null;
   mahnung_gesendet_am?: string | null;
+  ist_stiftungsfall: boolean;
   room: Room;
   guest: Guest;
 }
@@ -405,6 +407,25 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   )}
                 </div>
               </div>
+
+              {/* Stiftungsfall Warning */}
+              {booking.ist_stiftungsfall && (
+                <div className="border-2 border-amber-300 rounded-lg p-4 bg-gradient-to-br from-amber-50 to-orange-50">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      <AlertTriangle className="w-6 h-6 text-amber-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-amber-900 text-lg mb-2">
+                        🟠 Stiftungsfall
+                      </h3>
+                      <p className="text-sm text-amber-700 leading-relaxed">
+                        Diese Buchung ist als Stiftungsfall markiert. Es wird keine automatische Rechnungs-E-Mail versendet, aber PDF-Rechnungen können erstellt und heruntergeladen werden.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Guest Information */}
               <div className="border border-slate-200 rounded-lg p-5">
@@ -749,6 +770,9 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   <p className="text-slate-700 whitespace-pre-wrap">{booking.bemerkungen}</p>
                 </div>
               )}
+
+              {/* Reminders Section */}
+              <BookingReminders bookingId={bookingId} />
           </div>
         </div>
 
@@ -757,24 +781,27 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
           <div className="flex items-center gap-2">
             <button
               onClick={handleSendConfirmationEmail}
-              disabled={sendingEmail || !booking}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors text-sm"
+              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
+              title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >
               <Send className="w-4 h-4" />
               {sendingEmail ? 'Sendet...' : 'Bestätigung'}
             </button>
             <button
               onClick={handleSendReminderEmail}
-              disabled={sendingEmail || !booking}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors text-sm"
+              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
+              title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >
               <Send className="w-4 h-4" />
               Reminder
             </button>
             <button
               onClick={handleSendInvoiceEmail}
-              disabled={sendingEmail || !booking}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors text-sm"
+              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
+              title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >
               <Send className="w-4 h-4" />
               Rechnung

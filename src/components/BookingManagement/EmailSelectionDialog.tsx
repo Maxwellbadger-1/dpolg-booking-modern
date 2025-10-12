@@ -7,6 +7,7 @@ interface EmailSelectionDialogProps {
   onClose: () => void;
   bookingId: number;
   guestEmail: string;
+  istStiftungsfall?: boolean;
 }
 
 interface EmailOption {
@@ -18,7 +19,7 @@ interface EmailOption {
   color: string;
 }
 
-export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guestEmail }: EmailSelectionDialogProps) {
+export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guestEmail, istStiftungsfall = false }: EmailSelectionDialogProps) {
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<{ id: string; success: boolean; message: string }[]>([]);
@@ -149,12 +150,12 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
                     <button
                       key={option.id}
                       onClick={() => toggleEmail(option.id)}
-                      disabled={sending}
+                      disabled={sending || (istStiftungsfall && option.id === 'invoice')}
                       className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
                         isSelected
                           ? `bg-${option.color}-500/20 border-${option.color}-500`
                           : 'bg-slate-700/30 border-slate-600 hover:border-slate-500'
-                      } ${sending ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      } ${(sending || (istStiftungsfall && option.id === 'invoice')) ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <div className="flex items-start gap-3">
                         <div className={`p-2 rounded-lg ${

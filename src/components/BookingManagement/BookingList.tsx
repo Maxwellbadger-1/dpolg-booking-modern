@@ -18,6 +18,7 @@ interface Room {
   id: number;
   name: string;
   gebaeude_typ: string;
+  capacity: number;
   ort: string;
 }
 
@@ -46,6 +47,7 @@ interface Booking {
   mahnung_gesendet_am?: string | null;
   rechnung_versendet_am?: string | null;
   rechnung_versendet_an?: string | null;
+  ist_stiftungsfall: boolean;
   room: Room;
   guest: Guest;
 }
@@ -59,6 +61,7 @@ export default function BookingList() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all'); // NEW: Filter für Bezahlt/Offen
+  const [stiftungsfallFilter, setStiftungsfallFilter] = useState<string>('all'); // NEW: Filter für Stiftungsfälle
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -220,6 +223,9 @@ export default function BookingList() {
       const matchesPayment = paymentFilter === 'all' ||
         (paymentFilter === 'bezahlt' && booking.bezahlt) ||
         (paymentFilter === 'offen' && !booking.bezahlt);
+      const matchesStiftungsfall = stiftungsfallFilter === 'all' ||
+        (stiftungsfallFilter === 'stiftungsfall' && booking.ist_stiftungsfall) ||
+        (stiftungsfallFilter === 'normal' && !booking.ist_stiftungsfall);
 
       // Date range filter
       let matchesDateRange = true;
@@ -242,7 +248,7 @@ export default function BookingList() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesRoom && matchesPayment && matchesDateRange;
+      return matchesSearch && matchesStatus && matchesRoom && matchesPayment && matchesStiftungsfall && matchesDateRange;
     });
 
     // Sort
@@ -361,7 +367,9 @@ export default function BookingList() {
             >
               <option value="all">Alle Zimmer</option>
               {rooms.map(room => (
-                <option key={room.id} value={room.id.toString()}>{room.name}</option>
+                <option key={room.id} value={room.id.toString()}>
+                  {room.name} - {room.gebaeude_typ} • {room.capacity}P • {room.ort}
+                </option>
               ))}
             </select>
             <select
@@ -373,6 +381,16 @@ export default function BookingList() {
               <option value="all">Alle Zahlungen</option>
               <option value="bezahlt">Bezahlt</option>
               <option value="offen">Offen</option>
+            </select>
+            <select
+              value={stiftungsfallFilter}
+              onChange={(e) => setStiftungsfallFilter(e.target.value)}
+              className={SELECT_STYLES}
+              style={SELECT_BACKGROUND_STYLE}
+            >
+              <option value="all">Alle Buchungen</option>
+              <option value="stiftungsfall">Nur Stiftungsfälle</option>
+              <option value="normal">Nur Normale</option>
             </select>
           </div>
           <div className="flex items-center gap-4">
@@ -415,7 +433,7 @@ export default function BookingList() {
               <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-slate-800 mb-2">Keine Buchungen gefunden</h3>
               <p className="text-slate-600">
-                {searchQuery || statusFilter !== 'all' || roomFilter !== 'all' || paymentFilter !== 'all' || dateFrom || dateTo
+                {searchQuery || statusFilter !== 'all' || roomFilter !== 'all' || paymentFilter !== 'all' || stiftungsfallFilter !== 'all' || dateFrom || dateTo
                   ? 'Versuche andere Suchkriterien oder Filter.'
                   : 'Erstelle deine erste Buchung mit dem Button oben.'
                 }
@@ -497,6 +515,9 @@ export default function BookingList() {
                     <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Rechnung
                     </th>
+                    <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                      Stiftungsfall
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
                       Aktionen
                     </th>
@@ -563,6 +584,14 @@ export default function BookingList() {
                           guestEmail={booking.guest?.email || ''}
                           onInvoiceStatusChange={handleInvoiceStatusChange}
                         />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        {booking.ist_stiftungsfall && (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 text-xs font-bold rounded-full border-2 border-amber-300 shadow-sm">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Stiftungsfall
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2">

@@ -20,7 +20,9 @@ import StatisticsView from './components/Statistics/StatisticsView';
 import UndoRedoButtons from './components/UndoRedoButtons';
 import CleaningSync from './components/CleaningSync';
 import ErrorBoundary from './components/ErrorBoundary';
-import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud } from 'lucide-react';
+import ReminderDropdown from './components/Reminders/ReminderDropdown';
+import RemindersView from './components/Reminders/RemindersView';
+import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud, Bell } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -57,7 +59,7 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics' | 'cleaning';
+type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics' | 'cleaning' | 'reminders';
 
 function AppContent() {
   const { rooms, bookings, loading, refreshAll, updateBookingStatus } = useData(); // Use Context directly!
@@ -73,6 +75,10 @@ function AppContent() {
   const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | undefined>(undefined);
 
+  // Reminder System State
+  const [urgentReminderCount, setUrgentReminderCount] = useState<number>(0);
+  const [showReminderDropdown, setShowReminderDropdown] = useState(false);
+
   useEffect(() => {
     updateBookingStatuses(); // Status-Update bei App-Start
   }, []);
@@ -85,6 +91,35 @@ function AppContent() {
 
     return () => clearInterval(interval);
   }, []);
+
+  // Lade urgent reminder count beim Mount und refresh alle 5 Minuten
+  useEffect(() => {
+    loadUrgentReminderCount();
+
+    const interval = setInterval(() => {
+      loadUrgentReminderCount();
+    }, 5 * 60 * 1000); // 5 Minuten
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Event Listener für Reminder Updates (wenn Reminder als erledigt markiert wird)
+  useEffect(() => {
+    const handleReminderUpdate = () => {
+      loadUrgentReminderCount();
+    };
+    window.addEventListener('reminder-updated', handleReminderUpdate);
+    return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
+  }, []);
+
+  const loadUrgentReminderCount = async () => {
+    try {
+      const reminders = await invoke<any[]>('get_urgent_reminders_command');
+      setUrgentReminderCount(reminders.length);
+    } catch (error) {
+      console.error('Fehler beim Laden der dringenden Erinnerungen:', error);
+    }
+  };
 
   const updateBookingStatuses = async () => {
     try {
@@ -163,6 +198,7 @@ function AppContent() {
     { id: 'bookings' as Tab, label: 'Buchungen', icon: CalendarCheck },
     { id: 'guests' as Tab, label: 'Gäste', icon: Users },
     { id: 'rooms' as Tab, label: 'Zimmer', icon: Hotel },
+    { id: 'reminders' as Tab, label: 'Erinnerungen', icon: Bell },
     { id: 'templates' as Tab, label: 'Services & Rabatte', icon: Briefcase },
     { id: 'emails' as Tab, label: 'Email-Verlauf', icon: Mail },
     { id: 'statistics' as Tab, label: 'Statistiken', icon: TrendingUp },
@@ -248,6 +284,40 @@ function AppContent() {
             >
               <Settings className="w-5 h-5" />
             </button>
+
+            {/* Reminder Bell Icon mit Badge + Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowReminderDropdown(!showReminderDropdown)}
+                className="relative flex items-center gap-2 p-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                title="Erinnerungen"
+              >
+                <Bell className="w-5 h-5" />
+                {urgentReminderCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold shadow-lg">
+                    {urgentReminderCount > 9 ? '9+' : urgentReminderCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Reminder Dropdown */}
+              <ReminderDropdown
+                isOpen={showReminderDropdown}
+                onClose={() => setShowReminderDropdown(false)}
+                onReminderClick={(bookingId) => {
+                  if (bookingId) {
+                    setSelectedBookingId(bookingId);
+                    setPrefillData(undefined);
+                    setShowBookingDialog(true);
+                    setShowReminderDropdown(false);
+                  }
+                }}
+                onViewAll={() => {
+                  setShowReminderDropdown(false);
+                  setActiveTab('reminders');
+                }}
+              />
+            </div>
 
             <button
               onClick={() => setShowGuestDialog(true)}
@@ -341,6 +411,16 @@ function AppContent() {
         {activeTab === 'bookings' && <BookingList />}
         {activeTab === 'guests' && <GuestList />}
         {activeTab === 'rooms' && <RoomList />}
+        {activeTab === 'reminders' && (
+          <RemindersView
+            onNavigateToBooking={(bookingId) => {
+              setActiveTab('dashboard');
+              setSelectedBookingId(bookingId);
+              setPrefillData(undefined);
+              setShowBookingDialog(true);
+            }}
+          />
+        )}
         {activeTab === 'templates' && <TemplatesManagement />}
         {activeTab === 'emails' && <EmailHistoryView />}
         {activeTab === 'cleaning' && <CleaningSync />}

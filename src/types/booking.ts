@@ -32,20 +32,29 @@ export interface Booking {
   checkin_date: string;
   checkout_date: string;
   anzahl_gaeste: number;
+  anzahl_begleitpersonen: number;
   status: 'reserviert' | 'bestaetigt' | 'eingecheckt' | 'ausgecheckt' | 'storniert';
+  grundpreis: number;
+  services_preis: number;
+  rabatt_preis: number;
   gesamtpreis: number;
+  anzahl_naechte: number;
   bemerkungen?: string;
   bezahlt: boolean;
   bezahlt_am?: string | null;
   zahlungsmethode?: string | null;
+  mahnung_gesendet_am?: string | null;
   rechnung_versendet_am?: string | null;
   rechnung_versendet_an?: string | null;
-  created_at: string;
+  ist_stiftungsfall: boolean;
+  created_at?: string;
 }
 
 export interface BookingWithDetails extends Booking {
   room: Room;
   guest: Guest;
+  services: ServiceTemplate[];
+  discounts: DiscountTemplate[];
 }
 
 export interface TapeChartEvent {
@@ -64,6 +73,12 @@ export interface ServiceTemplate {
   description?: string;
   price: number;
   is_active: boolean;
+  // Emoji & Visualisierung
+  emoji?: string;
+  color_hex?: string;
+  // Putzplan-Integration
+  show_in_cleaning_plan: boolean;
+  cleaning_plan_position: 'start' | 'end';
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +90,14 @@ export interface DiscountTemplate {
   discount_type: 'percent' | 'fixed';
   discount_value: number;
   is_active: boolean;
+  // Emoji & Visualisierung
+  emoji?: string;
+  color_hex?: string;
+  // Putzplan-Integration
+  show_in_cleaning_plan: boolean;
+  cleaning_plan_position: 'start' | 'end';
+  // Worauf bezieht sich der Rabatt?
+  applies_to: 'overnight_price' | 'total_price';
   created_at: string;
   updated_at: string;
 }

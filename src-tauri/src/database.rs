@@ -63,6 +63,8 @@ pub struct Booking {
     // Rechnungsversand-Tracking
     pub rechnung_versendet_am: Option<String>,
     pub rechnung_versendet_an: Option<String>,
+    // Stiftungsfall-Flag
+    pub ist_stiftungsfall: bool,
 }
 
 // Neue Tabelle: Begleitpersonen für eine Buchung
@@ -118,6 +120,12 @@ pub struct ServiceTemplate {
     pub description: Option<String>,
     pub price: f64,
     pub is_active: bool,
+    // Emoji & Visualisierung
+    pub emoji: Option<String>,
+    pub color_hex: Option<String>,
+    // Putzplan-Integration
+    pub show_in_cleaning_plan: bool,
+    pub cleaning_plan_position: String, // 'start' oder 'end'
     pub created_at: String,
     pub updated_at: String,
 }
@@ -131,7 +139,44 @@ pub struct DiscountTemplate {
     pub discount_type: String, // 'percent' oder 'fixed'
     pub discount_value: f64,
     pub is_active: bool,
+    // Emoji & Visualisierung
+    pub emoji: Option<String>,
+    pub color_hex: Option<String>,
+    // Putzplan-Integration (falls Rabatt mit Zusatzleistung verbunden)
+    pub show_in_cleaning_plan: bool,
+    pub cleaning_plan_position: String, // 'start' oder 'end'
+    // Worauf bezieht sich der Rabatt?
+    pub applies_to: String, // 'overnight_price' oder 'total_price'
     pub created_at: String,
+    pub updated_at: String,
+}
+
+// Reminder-System Structs
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Reminder {
+    pub id: i64,
+    pub booking_id: Option<i64>, // NULL für globale Erinnerungen
+    pub reminder_type: String, // 'manual', 'auto_incomplete_data', 'auto_payment', 'auto_checkin'
+    pub title: String,
+    pub description: Option<String>,
+    pub due_date: String, // Format: YYYY-MM-DD
+    pub priority: String, // 'low', 'medium', 'high'
+    pub is_completed: bool,
+    pub completed_at: Option<String>,
+    pub is_snoozed: bool,
+    pub snoozed_until: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// Settings für Auto-Reminders
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReminderSettings {
+    pub id: i64,
+    pub auto_reminder_incomplete_data: bool,
+    pub auto_reminder_payment: bool,
+    pub auto_reminder_checkin: bool,
+    pub auto_reminder_invoice: bool,
     pub updated_at: String,
 }
 
@@ -258,13 +303,27 @@ pub struct BookingWithDetails {
     // Rechnungsversand-Tracking
     pub rechnung_versendet_am: Option<String>,
     pub rechnung_versendet_an: Option<String>,
+    // Stiftungsfall-Flag
+    pub ist_stiftungsfall: bool,
     pub room: Room,
     pub guest: Guest,
+    // Services & Discounts mit Emoji & Visualisierung
+    pub services: Vec<ServiceTemplate>,
+    pub discounts: Vec<DiscountTemplate>,
 }
 
 pub fn get_db_path() -> PathBuf {
     // Use DB in src-tauri directory
     PathBuf::from("booking_system.db")
+}
+
+// Helper function: Get a database connection
+// Used by all modules that need DB access
+pub fn get_connection() -> Result<Connection> {
+    let conn = Connection::open(get_db_path())?;
+    // WICHTIG: Foreign Keys aktivieren für jede Connection
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+    Ok(conn)
 }
 
 pub fn init_database() -> Result<()> {
@@ -423,6 +482,49 @@ pub fn init_database() -> Result<()> {
         )",
         [],
     )?;
+
+    // Reminder-System: Erinnerungen-Tabelle
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER,
+            reminder_type TEXT NOT NULL CHECK(reminder_type IN ('manual', 'auto_incomplete_data', 'auto_payment', 'auto_checkin', 'auto_invoice')),
+            title TEXT NOT NULL,
+            description TEXT,
+            due_date TEXT NOT NULL,
+            priority TEXT NOT NULL CHECK(priority IN ('low', 'medium', 'high')) DEFAULT 'medium',
+            is_completed INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            is_snoozed INTEGER NOT NULL DEFAULT 0,
+            snoozed_until TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Reminder-System: Settings-Tabelle für Auto-Reminder On/Off
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS reminder_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            auto_reminder_incomplete_data INTEGER NOT NULL DEFAULT 1,
+            auto_reminder_payment INTEGER NOT NULL DEFAULT 1,
+            auto_reminder_checkin INTEGER NOT NULL DEFAULT 1,
+            auto_reminder_invoice INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    // Erstelle default reminder settings falls noch nicht vorhanden
+    conn.execute(
+        "INSERT OR IGNORE INTO reminder_settings (id) VALUES (1)",
+        [],
+    )?;
+
+    // Stiftungsfall-Spalte hinzufügen falls noch nicht vorhanden
+    add_column_if_not_exists(&conn, "bookings", "ist_stiftungsfall", "INTEGER DEFAULT 0")?;
 
     // Phase 1.1: Erstelle Indexes für Performance-Optimierung
     // Basierend auf Best Practices für Buchungssysteme:
@@ -679,6 +781,32 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Junction-Table: Verbindung zwischen Buchungen und Service-Templates (Many-to-Many)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS booking_services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            service_template_id INTEGER NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
+            FOREIGN KEY (service_template_id) REFERENCES service_templates (id) ON DELETE CASCADE,
+            UNIQUE(booking_id, service_template_id)
+        )",
+        [],
+    )?;
+
+    // Junction-Table: Verbindung zwischen Buchungen und Discount-Templates (Many-to-Many)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS booking_discounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            discount_template_id INTEGER NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
+            FOREIGN KEY (discount_template_id) REFERENCES discount_templates (id) ON DELETE CASCADE,
+            UNIQUE(booking_id, discount_template_id)
+        )",
+        [],
+    )?;
+
     // Indexes für Templates
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_service_templates_active ON service_templates(is_active)",
@@ -689,6 +817,56 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_discount_templates_active ON discount_templates(is_active)",
         [],
     )?;
+
+    // Indexes für Junction-Tables (Performance bei JOINs)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_booking_services_booking ON booking_services(booking_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_booking_services_service ON booking_services(service_template_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_booking_discounts_booking ON booking_discounts(booking_id)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_booking_discounts_discount ON booking_discounts(discount_template_id)",
+        [],
+    )?;
+
+    // Indexes für Reminder-System (Performance für Abfragen)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_due_date ON reminders(due_date)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_completed ON reminders(is_completed)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_booking ON reminders(booking_id)",
+        [],
+    )?;
+
+    // Erweitere service_templates um Emoji- und Putzplan-Felder
+    add_column_if_not_exists(&conn, "service_templates", "emoji", "TEXT")?;
+    add_column_if_not_exists(&conn, "service_templates", "color_hex", "TEXT")?;
+    add_column_if_not_exists(&conn, "service_templates", "show_in_cleaning_plan", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(&conn, "service_templates", "cleaning_plan_position", "TEXT DEFAULT 'start'")?;
+
+    // Erweitere discount_templates um Emoji- und Putzplan-Felder
+    add_column_if_not_exists(&conn, "discount_templates", "emoji", "TEXT")?;
+    add_column_if_not_exists(&conn, "discount_templates", "color_hex", "TEXT")?;
+    add_column_if_not_exists(&conn, "discount_templates", "show_in_cleaning_plan", "INTEGER DEFAULT 0")?;
+    add_column_if_not_exists(&conn, "discount_templates", "cleaning_plan_position", "TEXT DEFAULT 'start'")?;
+    add_column_if_not_exists(&conn, "discount_templates", "applies_to", "TEXT DEFAULT 'total_price'")?;
 
     Ok(())
 }
@@ -1063,7 +1241,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            b.rechnung_versendet_am, b.rechnung_versendet_an,
+            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
@@ -1073,7 +1251,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
          ORDER BY b.id DESC"
     )?;
 
-    let bookings = stmt.query_map([], |row| {
+    let mut bookings: Vec<BookingWithDetails> = stmt.query_map([], |row| {
         Ok(BookingWithDetails {
             id: row.get(0)?,
             room_id: row.get(1)?,
@@ -1096,40 +1274,105 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             mahnung_gesendet_am: row.get(18)?,
             rechnung_versendet_am: row.get(19)?,
             rechnung_versendet_an: row.get(20)?,
+            ist_stiftungsfall: row.get::<_, i32>(21)? != 0,
             room: Room {
-                id: row.get(21)?,
-                name: row.get(22)?,
-                gebaeude_typ: row.get(23)?,
-                capacity: row.get(24)?,
-                price_member: row.get(25)?,
-                price_non_member: row.get(26)?,
-                nebensaison_preis: row.get(27)?,
-                hauptsaison_preis: row.get(28)?,
-                endreinigung: row.get(29)?,
-                ort: row.get(30)?,
-                schluesselcode: row.get(31)?,
+                id: row.get(22)?,
+                name: row.get(23)?,
+                gebaeude_typ: row.get(24)?,
+                capacity: row.get(25)?,
+                price_member: row.get(26)?,
+                price_non_member: row.get(27)?,
+                nebensaison_preis: row.get(28)?,
+                hauptsaison_preis: row.get(29)?,
+                endreinigung: row.get(30)?,
+                ort: row.get(31)?,
+                schluesselcode: row.get(32)?,
             },
             guest: Guest {
-                id: row.get(32)?,
-                vorname: row.get(33)?,
-                nachname: row.get(34)?,
-                email: row.get(35)?,
-                telefon: row.get(36)?,
-                dpolg_mitglied: row.get(37)?,
-                strasse: row.get(38)?,
-                plz: row.get(39)?,
-                ort: row.get(40)?,
-                mitgliedsnummer: row.get(41)?,
-                notizen: row.get(42)?,
-                beruf: row.get(43)?,
-                bundesland: row.get(44)?,
-                dienststelle: row.get(45)?,
-                created_at: row.get(46)?,
+                id: row.get(33)?,
+                vorname: row.get(34)?,
+                nachname: row.get(35)?,
+                email: row.get(36)?,
+                telefon: row.get(37)?,
+                dpolg_mitglied: row.get(38)?,
+                strasse: row.get(39)?,
+                plz: row.get(40)?,
+                ort: row.get(41)?,
+                mitgliedsnummer: row.get(42)?,
+                notizen: row.get(43)?,
+                beruf: row.get(44)?,
+                bundesland: row.get(45)?,
+                dienststelle: row.get(46)?,
+                created_at: row.get(47)?,
             },
+            // Initiale leere Vektoren (werden unten befüllt)
+            services: Vec::new(),
+            discounts: Vec::new(),
         })
-    })?;
+    })?.collect::<Result<Vec<_>, _>>()?;
 
-    bookings.collect()
+    // Für jede Buchung: Lade zugehörige Services und Discounts
+    for booking in &mut bookings {
+        // Services laden
+        let mut service_stmt = conn.prepare(
+            "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                    st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
+                    st.created_at, st.updated_at
+             FROM service_templates st
+             JOIN booking_services bs ON st.id = bs.service_template_id
+             WHERE bs.booking_id = ?1"
+        )?;
+
+        let services = service_stmt.query_map([booking.id], |row| {
+            Ok(ServiceTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                price: row.get(3)?,
+                is_active: row.get::<_, i32>(4)? != 0,
+                emoji: row.get(5)?,
+                color_hex: row.get(6)?,
+                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+                cleaning_plan_position: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        booking.services = services;
+
+        // Discounts laden
+        let mut discount_stmt = conn.prepare(
+            "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
+                    dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                    dt.created_at, dt.updated_at
+             FROM discount_templates dt
+             JOIN booking_discounts bd ON dt.id = bd.discount_template_id
+             WHERE bd.booking_id = ?1"
+        )?;
+
+        let discounts = discount_stmt.query_map([booking.id], |row| {
+            Ok(DiscountTemplate {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                discount_type: row.get(3)?,
+                discount_value: row.get(4)?,
+                is_active: row.get::<_, i32>(5)? != 0,
+                emoji: row.get(6)?,
+                color_hex: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+                cleaning_plan_position: row.get(9)?,
+                applies_to: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        booking.discounts = discounts;
+    }
+
+    Ok(bookings)
 }
 
 // ============================================================================
@@ -1558,7 +1801,8 @@ pub fn create_booking(
     services_preis: f64,
     rabatt_preis: f64,
     anzahl_naechte: i32,
-) -> Result<Booking> {
+    ist_stiftungsfall: bool,
+) -> Result<BookingWithDetails> {
     println!("🔍 create_booking() aufgerufen - Transaction Logging aktiviert");
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -1567,8 +1811,8 @@ pub fn create_booking(
     conn.execute(
         "INSERT INTO bookings (room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
          anzahl_gaeste, status, gesamtpreis, bemerkungen, anzahl_begleitpersonen,
-         grundpreis, services_preis, rabatt_preis, anzahl_naechte)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         grundpreis, services_preis, rabatt_preis, anzahl_naechte, ist_stiftungsfall)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         rusqlite::params![
             room_id,
             guest_id,
@@ -1583,7 +1827,8 @@ pub fn create_booking(
             grundpreis,
             services_preis,
             rabatt_preis,
-            anzahl_naechte
+            anzahl_naechte,
+            ist_stiftungsfall
         ],
     )?;
 
@@ -1598,16 +1843,30 @@ pub fn create_booking(
         rusqlite::params![final_reservierungsnummer, id],
     )?;
 
-    let booking = get_booking_by_id(id)?;
+    // FIX: Return BookingWithDetails (with nested room/guest) for Optimistic Update
+    // This prevents "Unbekannt" display issue in frontend
+    let booking_with_details = get_booking_with_details_by_id(id)?;
 
-    // Transaction Log: CREATE
+    // DEBUG LOGGING - Verify nested objects exist
+    println!("🔍 DEBUG create_booking - BookingWithDetails geladen:");
+    println!("   - booking.id: {}", booking_with_details.id);
+    println!("   - booking.room.id: {}", booking_with_details.room.id);
+    println!("   - booking.room.name: {}", booking_with_details.room.name);
+    println!("   - booking.guest.id: {}", booking_with_details.guest.id);
+    println!("   - booking.guest.vorname: {}", booking_with_details.guest.vorname);
+    println!("   - booking.guest.nachname: {}", booking_with_details.guest.nachname);
+    println!("   - booking.ist_stiftungsfall: {}", booking_with_details.ist_stiftungsfall);
+
+    // Transaction Log: CREATE (use simple booking for JSON)
+    let booking = get_booking_by_id(id)?;
     let booking_json = serde_json::to_string(&booking).unwrap_or_default();
     let user_action = format!("Buchung {} erstellt", booking.reservierungsnummer);
     if let Err(e) = crate::transaction_log::log_create("bookings", id, &booking_json, &user_action) {
         eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
-    Ok(booking)
+    println!("✅ DEBUG create_booking - Returning BookingWithDetails to frontend");
+    Ok(booking_with_details)
 }
 
 /// Aktualisiert eine existierende Buchung
@@ -1626,7 +1885,8 @@ pub fn update_booking(
     services_preis: f64,
     rabatt_preis: f64,
     anzahl_naechte: i32,
-) -> Result<Booking> {
+    ist_stiftungsfall: bool,
+) -> Result<BookingWithDetails> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
@@ -1639,8 +1899,8 @@ pub fn update_booking(
          room_id = ?1, guest_id = ?2, checkin_date = ?3, checkout_date = ?4,
          anzahl_gaeste = ?5, status = ?6, gesamtpreis = ?7, bemerkungen = ?8,
          anzahl_begleitpersonen = ?9, grundpreis = ?10, services_preis = ?11,
-         rabatt_preis = ?12, anzahl_naechte = ?13, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?14",
+         rabatt_preis = ?12, anzahl_naechte = ?13, ist_stiftungsfall = ?14, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?15",
         rusqlite::params![
             room_id,
             guest_id,
@@ -1655,6 +1915,7 @@ pub fn update_booking(
             services_preis,
             rabatt_preis,
             anzahl_naechte,
+            ist_stiftungsfall,
             id
         ],
     )?;
@@ -1663,16 +1924,18 @@ pub fn update_booking(
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
-    let updated_booking = get_booking_by_id(id)?;
+    // FIX: Return BookingWithDetails (with nested room/guest) for Optimistic Update
+    let booking_with_details = get_booking_with_details_by_id(id)?;
 
-    // Transaction Log: UPDATE
+    // Transaction Log: UPDATE (use simple booking for JSON)
+    let updated_booking = get_booking_by_id(id)?;
     let new_data_json = serde_json::to_string(&updated_booking).unwrap_or_default();
     let user_action = format!("Buchung {} aktualisiert", updated_booking.reservierungsnummer);
     if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
         eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
-    Ok(updated_booking)
+    Ok(booking_with_details)
 }
 
 /// Löscht eine Buchung (CASCADE löscht auch Services, Gäste, Rabatte)
@@ -1931,7 +2194,7 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
          anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at, anzahl_begleitpersonen,
          grundpreis, services_preis, rabatt_preis, anzahl_naechte, updated_at,
          bezahlt, bezahlt_am, zahlungsmethode, mahnung_gesendet_am,
-         rechnung_versendet_am, rechnung_versendet_an
+         rechnung_versendet_am, rechnung_versendet_an, ist_stiftungsfall
          FROM bookings WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -1959,6 +2222,7 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
                 mahnung_gesendet_am: row.get(20)?,
                 rechnung_versendet_am: row.get(21)?,
                 rechnung_versendet_an: row.get(22)?,
+                ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
             })
         },
     )
@@ -1969,13 +2233,13 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    conn.query_row(
+    let booking = conn.query_row(
         "SELECT
             b.id, b.room_id, b.guest_id, b.reservierungsnummer,
             b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            b.rechnung_versendet_am, b.rechnung_versendet_an,
+            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -2008,39 +2272,104 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
                 mahnung_gesendet_am: row.get(18)?,
                 rechnung_versendet_am: row.get(19)?,
                 rechnung_versendet_an: row.get(20)?,
+                ist_stiftungsfall: row.get::<_, i32>(21)? != 0,
                 room: Room {
-                    id: row.get(21)?,
-                    name: row.get(22)?,
-                    gebaeude_typ: row.get(23)?,
-                    capacity: row.get(24)?,
-                    price_member: row.get(25)?,
-                    price_non_member: row.get(26)?,
-                    nebensaison_preis: row.get(27)?,
-                    hauptsaison_preis: row.get(28)?,
-                    endreinigung: row.get(29)?,
-                    ort: row.get(30)?,
-                    schluesselcode: row.get(31)?,
+                    id: row.get(22)?,
+                    name: row.get(23)?,
+                    gebaeude_typ: row.get(24)?,
+                    capacity: row.get(25)?,
+                    price_member: row.get(26)?,
+                    price_non_member: row.get(27)?,
+                    nebensaison_preis: row.get(28)?,
+                    hauptsaison_preis: row.get(29)?,
+                    endreinigung: row.get(30)?,
+                    ort: row.get(31)?,
+                    schluesselcode: row.get(32)?,
                 },
                 guest: Guest {
-                    id: row.get(32)?,
-                    vorname: row.get(33)?,
-                    nachname: row.get(34)?,
-                    email: row.get(35)?,
-                    telefon: row.get(36)?,
-                    dpolg_mitglied: row.get(37)?,
-                    strasse: row.get(38)?,
-                    plz: row.get(39)?,
-                    ort: row.get(40)?,
-                    mitgliedsnummer: row.get(41)?,
-                    notizen: row.get(42)?,
-                    beruf: row.get(43)?,
-                    bundesland: row.get(44)?,
-                    dienststelle: row.get(45)?,
-                    created_at: row.get(46)?,
+                    id: row.get(33)?,
+                    vorname: row.get(34)?,
+                    nachname: row.get(35)?,
+                    email: row.get(36)?,
+                    telefon: row.get(37)?,
+                    dpolg_mitglied: row.get(38)?,
+                    strasse: row.get(39)?,
+                    plz: row.get(40)?,
+                    ort: row.get(41)?,
+                    mitgliedsnummer: row.get(42)?,
+                    notizen: row.get(43)?,
+                    beruf: row.get(44)?,
+                    bundesland: row.get(45)?,
+                    dienststelle: row.get(46)?,
+                    created_at: row.get(47)?,
                 },
+                // Services und Discounts werden leer initialisiert (werden unten befüllt)
+                services: Vec::new(),
+                discounts: Vec::new(),
             })
         },
-    )
+    )?;
+
+    // Services für diese Buchung laden (aus Junction-Table)
+    let mut service_stmt = conn.prepare(
+        "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
+                st.created_at, st.updated_at
+         FROM service_templates st
+         JOIN booking_services bs ON st.id = bs.service_template_id
+         WHERE bs.booking_id = ?1"
+    )?;
+
+    let services = service_stmt.query_map([id], |row| {
+        Ok(ServiceTemplate {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            price: row.get(3)?,
+            is_active: row.get::<_, i32>(4)? != 0,
+            emoji: row.get(5)?,
+            color_hex: row.get(6)?,
+            show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+            cleaning_plan_position: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    // Discounts für diese Buchung laden (aus Junction-Table)
+    let mut discount_stmt = conn.prepare(
+        "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
+                dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                dt.created_at, dt.updated_at
+         FROM discount_templates dt
+         JOIN booking_discounts bd ON dt.id = bd.discount_template_id
+         WHERE bd.booking_id = ?1"
+    )?;
+
+    let discounts = discount_stmt.query_map([id], |row| {
+        Ok(DiscountTemplate {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            description: row.get(2)?,
+            discount_type: row.get(3)?,
+            discount_value: row.get(4)?,
+            is_active: row.get::<_, i32>(5)? != 0,
+            emoji: row.get(6)?,
+            color_hex: row.get(7)?,
+            show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+            cleaning_plan_position: row.get(9)?,
+            applies_to: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        })
+    })?.collect::<Result<Vec<_>, _>>()?;
+
+    // Mutable booking erstellen und Services/Discounts setzen
+    let mut booking_with_services = booking;
+    booking_with_services.services = services;
+    booking_with_services.discounts = discounts;
+
+    Ok(booking_with_services)
 }
 
 // ============================================================================
@@ -2120,6 +2449,44 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
     })?;
 
     services.collect()
+}
+
+// ============================================================================
+// SERVICE & DISCOUNT TEMPLATE LINKING - Junction Tables
+// ============================================================================
+
+/// Verknüpft ein Service-Template mit einer Buchung (Junction-Table)
+pub fn link_service_template_to_booking(
+    booking_id: i64,
+    service_template_id: i64,
+) -> Result<()> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.execute(
+        "INSERT INTO booking_services (booking_id, service_template_id)
+         VALUES (?1, ?2)",
+        rusqlite::params![booking_id, service_template_id],
+    )?;
+
+    Ok(())
+}
+
+/// Verknüpft ein Discount-Template mit einer Buchung (Junction-Table)
+pub fn link_discount_template_to_booking(
+    booking_id: i64,
+    discount_template_id: i64,
+) -> Result<()> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    conn.execute(
+        "INSERT INTO booking_discounts (booking_id, discount_template_id)
+         VALUES (?1, ?2)",
+        rusqlite::params![booking_id, discount_template_id],
+    )?;
+
+    Ok(())
 }
 
 // ============================================================================
@@ -2863,6 +3230,10 @@ pub fn create_service_template(
     name: String,
     description: Option<String>,
     price: f64,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
 ) -> Result<ServiceTemplate, String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
@@ -2882,16 +3253,30 @@ pub fn create_service_template(
         return Err(format!("Service '{}' existiert bereits", name));
     }
 
+    // Validiere cleaning_plan_position
+    if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
+        return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
+    }
+
     conn.execute(
-        "INSERT INTO service_templates (name, description, price) VALUES (?1, ?2, ?3)",
-        rusqlite::params![name, description, price],
+        "INSERT INTO service_templates (name, description, price, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            name,
+            description,
+            price,
+            emoji,
+            color_hex,
+            if show_in_cleaning_plan { 1 } else { 0 },
+            cleaning_plan_position
+        ],
     )
     .map_err(|e| format!("Fehler beim Erstellen: {}", e))?;
 
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, created_at, updated_at
+        "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
         |row| {
@@ -2901,8 +3286,12 @@ pub fn create_service_template(
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                emoji: row.get(5)?,
+                color_hex: row.get(6)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         },
     )
@@ -2915,7 +3304,7 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, created_at, updated_at
+            "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, created_at, updated_at
              FROM service_templates ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -2928,8 +3317,12 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                emoji: row.get(5)?,
+                color_hex: row.get(6)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -2945,7 +3338,7 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, created_at, updated_at
+            "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, created_at, updated_at
              FROM service_templates WHERE is_active = 1 ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -2958,8 +3351,12 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                emoji: row.get(5)?,
+                color_hex: row.get(6)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -2975,6 +3372,10 @@ pub fn update_service_template(
     description: Option<String>,
     price: f64,
     is_active: bool,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
 ) -> Result<ServiceTemplate, String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
@@ -2994,16 +3395,33 @@ pub fn update_service_template(
         return Err(format!("Service '{}' existiert bereits", name));
     }
 
+    // Validiere cleaning_plan_position
+    if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
+        return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
+    }
+
     conn.execute(
         "UPDATE service_templates
-         SET name = ?1, description = ?2, price = ?3, is_active = ?4, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?5",
-        rusqlite::params![name, description, price, if is_active { 1 } else { 0 }, id],
+         SET name = ?1, description = ?2, price = ?3, is_active = ?4,
+             emoji = ?5, color_hex = ?6, show_in_cleaning_plan = ?7, cleaning_plan_position = ?8,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?9",
+        rusqlite::params![
+            name,
+            description,
+            price,
+            if is_active { 1 } else { 0 },
+            emoji,
+            color_hex,
+            if show_in_cleaning_plan { 1 } else { 0 },
+            cleaning_plan_position,
+            id
+        ],
     )
     .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, created_at, updated_at
+        "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3013,8 +3431,12 @@ pub fn update_service_template(
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                emoji: row.get(5)?,
+                color_hex: row.get(6)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
             })
         },
     )
@@ -3042,6 +3464,11 @@ pub fn create_discount_template(
     description: Option<String>,
     discount_type: String,
     discount_value: f64,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
+    applies_to: String,
 ) -> Result<DiscountTemplate, String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
@@ -3051,6 +3478,16 @@ pub fn create_discount_template(
     // Validiere discount_type
     if discount_type != "percent" && discount_type != "fixed" {
         return Err("Rabatt-Typ muss 'percent' oder 'fixed' sein".to_string());
+    }
+
+    // Validiere cleaning_plan_position
+    if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
+        return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
+    }
+
+    // Validiere applies_to
+    if applies_to != "overnight_price" && applies_to != "total_price" {
+        return Err("applies_to muss 'overnight_price' oder 'total_price' sein".to_string());
     }
 
     // Prüfe ob Name bereits existiert
@@ -3067,16 +3504,26 @@ pub fn create_discount_template(
     }
 
     conn.execute(
-        "INSERT INTO discount_templates (name, description, discount_type, discount_value)
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![name, description, discount_type, discount_value],
+        "INSERT INTO discount_templates (name, description, discount_type, discount_value, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+            name,
+            description,
+            discount_type,
+            discount_value,
+            emoji,
+            color_hex,
+            if show_in_cleaning_plan { 1 } else { 0 },
+            cleaning_plan_position,
+            applies_to
+        ],
     )
     .map_err(|e| format!("Fehler beim Erstellen: {}", e))?;
 
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
          FROM discount_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3087,8 +3534,13 @@ pub fn create_discount_template(
                 discount_type: row.get(3)?,
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                emoji: row.get(6)?,
+                color_hex: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                applies_to: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         },
     )
@@ -3101,7 +3553,7 @@ pub fn get_all_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
              FROM discount_templates ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3115,8 +3567,13 @@ pub fn get_all_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
                 discount_type: row.get(3)?,
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                emoji: row.get(6)?,
+                color_hex: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                applies_to: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3132,7 +3589,7 @@ pub fn get_active_discount_templates() -> Result<Vec<DiscountTemplate>, String> 
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
              FROM discount_templates WHERE is_active = 1 ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3146,8 +3603,13 @@ pub fn get_active_discount_templates() -> Result<Vec<DiscountTemplate>, String> 
                 discount_type: row.get(3)?,
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                emoji: row.get(6)?,
+                color_hex: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                applies_to: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3164,6 +3626,11 @@ pub fn update_discount_template(
     discount_type: String,
     discount_value: f64,
     is_active: bool,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
+    applies_to: String,
 ) -> Result<DiscountTemplate, String> {
     let conn = Connection::open(get_db_path())
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
@@ -3173,6 +3640,16 @@ pub fn update_discount_template(
     // Validiere discount_type
     if discount_type != "percent" && discount_type != "fixed" {
         return Err("Rabatt-Typ muss 'percent' oder 'fixed' sein".to_string());
+    }
+
+    // Validiere cleaning_plan_position
+    if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
+        return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
+    }
+
+    // Validiere applies_to
+    if applies_to != "overnight_price" && applies_to != "total_price" {
+        return Err("applies_to muss 'overnight_price' oder 'total_price' sein".to_string());
     }
 
     // Prüfe ob anderes Template mit diesem Namen existiert
@@ -3191,21 +3668,27 @@ pub fn update_discount_template(
     conn.execute(
         "UPDATE discount_templates
          SET name = ?1, description = ?2, discount_type = ?3, discount_value = ?4,
-             is_active = ?5, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?6",
+             is_active = ?5, emoji = ?6, color_hex = ?7, show_in_cleaning_plan = ?8,
+             cleaning_plan_position = ?9, applies_to = ?10, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?11",
         rusqlite::params![
             name,
             description,
             discount_type,
             discount_value,
             if is_active { 1 } else { 0 },
+            emoji,
+            color_hex,
+            if show_in_cleaning_plan { 1 } else { 0 },
+            cleaning_plan_position,
+            applies_to,
             id
         ],
     )
     .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
 
     conn.query_row(
-        "SELECT id, name, description, discount_type, discount_value, is_active, created_at, updated_at
+        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
          FROM discount_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3216,8 +3699,13 @@ pub fn update_discount_template(
                 discount_type: row.get(3)?,
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
+                emoji: row.get(6)?,
+                color_hex: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                applies_to: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
             })
         },
     )
@@ -3336,7 +3824,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             b.anzahl_begleitpersonen, b.grundpreis, b.services_preis,
             b.rabatt_preis, b.anzahl_naechte, b.updated_at,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            b.rechnung_versendet_am, b.rechnung_versendet_an,
+            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -3374,36 +3862,40 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             mahnung_gesendet_am: row.get(20)?,
             rechnung_versendet_am: row.get(21)?,
             rechnung_versendet_an: row.get(22)?,
+            ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
             room: Room {
-                id: row.get(23)?,
-                name: row.get(24)?,
-                gebaeude_typ: row.get(25)?,
-                capacity: row.get(26)?,
-                price_member: row.get(27)?,
-                price_non_member: row.get(28)?,
-                nebensaison_preis: row.get(29)?,
-                hauptsaison_preis: row.get(30)?,
-                endreinigung: row.get(31)?,
-                ort: row.get(32)?,
-                schluesselcode: row.get(33)?,
+                id: row.get(24)?,
+                name: row.get(25)?,
+                gebaeude_typ: row.get(26)?,
+                capacity: row.get(27)?,
+                price_member: row.get(28)?,
+                price_non_member: row.get(29)?,
+                nebensaison_preis: row.get(30)?,
+                hauptsaison_preis: row.get(31)?,
+                endreinigung: row.get(32)?,
+                ort: row.get(33)?,
+                schluesselcode: row.get(34)?,
             },
             guest: Guest {
-                id: row.get(34)?,
-                vorname: row.get(35)?,
-                nachname: row.get(36)?,
-                email: row.get(37)?,
-                telefon: row.get(38)?,
-                dpolg_mitglied: row.get(39)?,
-                strasse: row.get(40)?,
-                plz: row.get(41)?,
-                ort: row.get(42)?,
-                mitgliedsnummer: row.get(43)?,
-                notizen: row.get(44)?,
-                beruf: row.get(45)?,
-                bundesland: row.get(46)?,
-                dienststelle: row.get(47)?,
-                created_at: row.get(48)?,
+                id: row.get(35)?,
+                vorname: row.get(36)?,
+                nachname: row.get(37)?,
+                email: row.get(38)?,
+                telefon: row.get(39)?,
+                dpolg_mitglied: row.get(40)?,
+                strasse: row.get(41)?,
+                plz: row.get(42)?,
+                ort: row.get(43)?,
+                mitgliedsnummer: row.get(44)?,
+                notizen: row.get(45)?,
+                beruf: row.get(46)?,
+                bundesland: row.get(47)?,
+                dienststelle: row.get(48)?,
+                created_at: row.get(49)?,
             },
+            // Services und Discounts werden leer initialisiert
+            services: Vec::new(),
+            discounts: Vec::new(),
         })
     })?;
 

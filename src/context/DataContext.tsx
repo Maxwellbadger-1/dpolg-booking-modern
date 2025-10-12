@@ -16,50 +16,8 @@ import {
   DeleteRoomCommand
 } from '../lib/commandManager';
 
-// Types
-interface Room {
-  id: number;
-  name: string;
-  gebaeude_typ: string;
-  capacity: number;
-  price_member: number;
-  price_non_member: number;
-  ort: string;
-  schluesselcode?: string;
-}
-
-interface Guest {
-  id: number;
-  vorname: string;
-  nachname: string;
-  email: string;
-  telefon: string;
-  strasse?: string;
-  plz?: string;
-  ort?: string;
-  dpolg_mitglied: boolean;
-  mitgliedsnummer?: string;
-  notizen?: string;
-}
-
-interface Booking {
-  id: number;
-  room_id: number;
-  guest_id: number;
-  reservierungsnummer: string;
-  checkin_date: string;
-  checkout_date: string;
-  status: string;
-  gesamtpreis: number;
-  bemerkungen?: string;
-  bezahlt: boolean;
-  bezahlt_am?: string | null;
-  zahlungsmethode?: string | null;
-  rechnung_versendet_am?: string | null;
-  rechnung_versendet_an?: string | null;
-  room: Room;
-  guest: Guest;
-}
+// Import Types from centralized location
+import type { Room, Guest, BookingWithDetails as Booking } from '../types/booking';
 
 // Context Type
 interface DataContextType {
@@ -92,6 +50,7 @@ interface DataContextType {
   updateBookingStatus: (id: number, status: string) => Promise<void>;
   updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => Promise<void>;
   markInvoiceSent: (id: number, emailAddress: string) => Promise<void>;
+  reloadBooking: (id: number) => Promise<void>;
 }
 
 // Context
@@ -558,6 +517,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [bookings]);
 
+  // Reload Single Booking (für Optimistic Updates nach Service/Discount-Linking)
+  const reloadBooking = useCallback(async (id: number): Promise<void> => {
+    try {
+      console.log('🔄 [DataContext] reloadBooking:', id);
+      const booking = await invoke<Booking>('get_booking_with_details_command', { id });
+      console.log('✅ [DataContext] Booking reloaded with services:', booking.services);
+
+      // State updaten mit vollständigen Daten (inkl. Services + Emojis)
+      setBookings(prev => prev.map(b => b.id === id ? booking : b));
+    } catch (error) {
+      console.error('❌ [DataContext] Fehler beim Neuladen der Buchung:', error);
+      throw error;
+    }
+  }, []);
+
   const value: DataContextType = {
     // Data
     rooms,
@@ -586,6 +560,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     updateBookingStatus,
     updateBookingPayment,
     markInvoiceSent,
+    reloadBooking,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

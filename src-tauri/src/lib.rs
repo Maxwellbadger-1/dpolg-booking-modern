@@ -12,6 +12,7 @@ mod email_scheduler;
 mod backup;
 mod transaction_log;
 mod supabase;
+mod reminders;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -244,8 +245,14 @@ fn create_booking_command(
     services_preis: f64,
     rabatt_preis: f64,
     anzahl_naechte: i32,
-) -> Result<database::Booking, String> {
-    database::create_booking(
+    ist_stiftungsfall: bool,
+) -> Result<database::BookingWithDetails, String> {
+    println!("🔍 DEBUG: create_booking_command aufgerufen");
+    println!("   room_id: {}", room_id);
+    println!("   guest_id: {}", guest_id);
+    println!("   ist_stiftungsfall: {}", ist_stiftungsfall);
+
+    match database::create_booking(
         room_id,
         guest_id,
         reservierungsnummer,
@@ -260,8 +267,24 @@ fn create_booking_command(
         services_preis,
         rabatt_preis,
         anzahl_naechte,
-    )
-    .map_err(|e| format!("Fehler beim Erstellen der Buchung: {}", e))
+        ist_stiftungsfall,
+    ) {
+        Ok(booking) => {
+            println!("✅ DEBUG: create_booking_command - Buchung erfolgreich erstellt");
+            println!("   booking.id: {}", booking.id);
+            println!("   booking.room.name: {}", booking.room.name);
+            println!("   booking.guest.vorname: {}", booking.guest.vorname);
+            println!("   booking.guest.nachname: {}", booking.guest.nachname);
+            println!("   booking.ist_stiftungsfall: {}", booking.ist_stiftungsfall);
+            println!("📦 DEBUG: Returning BookingWithDetails to Frontend:");
+            println!("   {:#?}", booking);
+            Ok(booking)
+        }
+        Err(e) => {
+            eprintln!("❌ DEBUG: create_booking_command - Fehler: {}", e);
+            Err(format!("Fehler beim Erstellen der Buchung: {}", e))
+        }
+    }
 }
 
 #[tauri::command]
@@ -280,7 +303,8 @@ fn update_booking_command(
     services_preis: f64,
     rabatt_preis: f64,
     anzahl_naechte: i32,
-) -> Result<database::Booking, String> {
+    ist_stiftungsfall: bool,
+) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: update_booking_command called");
     println!("  id: {}", id);
     println!("  room_id: {}", room_id);
@@ -296,6 +320,7 @@ fn update_booking_command(
     println!("  services_preis: {}", services_preis);
     println!("  rabatt_preis: {}", rabatt_preis);
     println!("  anzahl_naechte: {}", anzahl_naechte);
+    println!("  ist_stiftungsfall: {}", ist_stiftungsfall);
 
     database::update_booking(
         id,
@@ -312,6 +337,7 @@ fn update_booking_command(
         services_preis,
         rabatt_preis,
         anzahl_naechte,
+        ist_stiftungsfall,
     )
     .map_err(|e| format!("Fehler beim Aktualisieren der Buchung: {}", e))
 }
@@ -402,6 +428,52 @@ fn delete_service_command(service_id: i64) -> Result<(), String> {
 fn get_booking_services_command(booking_id: i64) -> Result<Vec<database::AdditionalService>, String> {
     database::get_booking_services(booking_id)
         .map_err(|e| format!("Fehler beim Abrufen der Services: {}", e))
+}
+
+// ============================================================================
+// SERVICE & DISCOUNT TEMPLATE LINKING COMMANDS - Junction Tables
+// ============================================================================
+
+#[tauri::command]
+fn link_service_template_to_booking_command(
+    booking_id: i64,
+    service_template_id: i64,
+) -> Result<(), String> {
+    println!("🔗 [link_service_template_to_booking_command] Called:");
+    println!("   booking_id: {}", booking_id);
+    println!("   service_template_id: {}", service_template_id);
+
+    match database::link_service_template_to_booking(booking_id, service_template_id) {
+        Ok(()) => {
+            println!("✅ [link_service_template_to_booking_command] Successfully linked!");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ [link_service_template_to_booking_command] Error: {}", e);
+            Err(format!("Fehler beim Verknüpfen des Service-Templates: {}", e))
+        }
+    }
+}
+
+#[tauri::command]
+fn link_discount_template_to_booking_command(
+    booking_id: i64,
+    discount_template_id: i64,
+) -> Result<(), String> {
+    println!("🔗 [link_discount_template_to_booking_command] Called:");
+    println!("   booking_id: {}", booking_id);
+    println!("   discount_template_id: {}", discount_template_id);
+
+    match database::link_discount_template_to_booking(booking_id, discount_template_id) {
+        Ok(()) => {
+            println!("✅ [link_discount_template_to_booking_command] Successfully linked!");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("❌ [link_discount_template_to_booking_command] Error: {}", e);
+            Err(format!("Fehler beim Verknüpfen des Discount-Templates: {}", e))
+        }
+    }
 }
 
 // ============================================================================
@@ -1056,6 +1128,9 @@ pub fn run() {
             add_service_command,
             delete_service_command,
             get_booking_services_command,
+            // Service & Discount Template Linking
+            link_service_template_to_booking_command,
+            link_discount_template_to_booking_command,
             // Accompanying Guests
             add_accompanying_guest_command,
             delete_accompanying_guest_command,
@@ -1150,6 +1225,17 @@ pub fn run() {
             get_recent_transactions_command,
             undo_transaction_command,
             cleanup_old_logs_command,
+            // Reminder System
+            create_reminder_command,
+            get_all_reminders_command,
+            get_reminders_for_booking_command,
+            get_urgent_reminders_command,
+            update_reminder_command,
+            mark_reminder_completed_command,
+            snooze_reminder_command,
+            delete_reminder_command,
+            get_reminder_settings_command,
+            save_reminder_settings_command,
         ])
         .setup(|app| {
             // Starte Email-Scheduler im Hintergrund
@@ -1190,6 +1276,83 @@ pub fn run() {
 }
 
 // ============================================================================
+// REMINDER SYSTEM COMMANDS
+// ============================================================================
+
+#[tauri::command]
+fn create_reminder_command(
+    booking_id: Option<i64>,
+    reminder_type: String,
+    title: String,
+    description: Option<String>,
+    due_date: String,
+    priority: String,
+) -> Result<database::Reminder, String> {
+    reminders::create_reminder(booking_id, reminder_type, title, description, due_date, priority)
+        .map_err(|e| format!("Fehler beim Erstellen der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn get_all_reminders_command(include_completed: bool) -> Result<Vec<database::Reminder>, String> {
+    reminders::get_all_reminders(include_completed)
+        .map_err(|e| format!("Fehler beim Laden der Erinnerungen: {}", e))
+}
+
+#[tauri::command]
+fn get_reminders_for_booking_command(booking_id: i64) -> Result<Vec<database::Reminder>, String> {
+    reminders::get_reminders_for_booking(booking_id)
+        .map_err(|e| format!("Fehler beim Laden der Erinnerungen: {}", e))
+}
+
+#[tauri::command]
+fn get_urgent_reminders_command() -> Result<Vec<database::Reminder>, String> {
+    reminders::get_urgent_reminders()
+        .map_err(|e| format!("Fehler beim Laden dringender Erinnerungen: {}", e))
+}
+
+#[tauri::command]
+fn update_reminder_command(
+    id: i64,
+    title: String,
+    description: Option<String>,
+    due_date: String,
+    priority: String,
+) -> Result<database::Reminder, String> {
+    reminders::update_reminder(id, title, description, due_date, priority)
+        .map_err(|e| format!("Fehler beim Aktualisieren der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn mark_reminder_completed_command(id: i64, completed: bool) -> Result<database::Reminder, String> {
+    reminders::mark_reminder_completed(id, completed)
+        .map_err(|e| format!("Fehler beim Markieren der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn snooze_reminder_command(id: i64, snooze_until: String) -> Result<database::Reminder, String> {
+    reminders::snooze_reminder(id, snooze_until)
+        .map_err(|e| format!("Fehler beim Verschieben der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn delete_reminder_command(id: i64) -> Result<(), String> {
+    reminders::delete_reminder(id)
+        .map_err(|e| format!("Fehler beim Löschen der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn get_reminder_settings_command() -> Result<database::ReminderSettings, String> {
+    reminders::get_reminder_settings()
+        .map_err(|e| format!("Fehler beim Laden der Erinnerungs-Einstellungen: {}", e))
+}
+
+#[tauri::command]
+fn save_reminder_settings_command(settings: database::ReminderSettings) -> Result<database::ReminderSettings, String> {
+    reminders::save_reminder_settings(settings)
+        .map_err(|e| format!("Fehler beim Speichern der Erinnerungs-Einstellungen: {}", e))
+}
+
+// ============================================================================
 // SERVICE TEMPLATES COMMANDS
 // ============================================================================
 
@@ -1198,8 +1361,12 @@ fn create_service_template_command(
     name: String,
     description: Option<String>,
     price: f64,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::create_service_template(name, description, price)
+    database::create_service_template(name, description, price, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]
@@ -1219,8 +1386,12 @@ fn update_service_template_command(
     description: Option<String>,
     price: f64,
     is_active: bool,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::update_service_template(id, name, description, price, is_active)
+    database::update_service_template(id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]
@@ -1238,8 +1409,13 @@ fn create_discount_template_command(
     description: Option<String>,
     discount_type: String,
     discount_value: f64,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
+    applies_to: String,
 ) -> Result<database::DiscountTemplate, String> {
-    database::create_discount_template(name, description, discount_type, discount_value)
+    database::create_discount_template(name, description, discount_type, discount_value, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
 }
 
 #[tauri::command]
@@ -1260,8 +1436,13 @@ fn update_discount_template_command(
     discount_type: String,
     discount_value: f64,
     is_active: bool,
+    emoji: Option<String>,
+    color_hex: Option<String>,
+    show_in_cleaning_plan: bool,
+    cleaning_plan_position: String,
+    applies_to: String,
 ) -> Result<database::DiscountTemplate, String> {
-    database::update_discount_template(id, name, description, discount_type, discount_value, is_active)
+    database::update_discount_template(id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
 }
 
 #[tauri::command]

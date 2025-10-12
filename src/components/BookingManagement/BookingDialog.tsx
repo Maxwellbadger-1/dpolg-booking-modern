@@ -44,6 +44,7 @@ interface Booking {
   anzahl_gaeste: number;
   status: string;
   bemerkungen?: string;
+  ist_stiftungsfall?: boolean;
 }
 
 interface AccompanyingGuest {
@@ -57,6 +58,7 @@ interface AdditionalService {
   id?: number;
   service_name: string;
   service_price: number;
+  template_id?: number; // Wenn aus Template erstellt, ID des Templates
 }
 
 interface Discount {
@@ -64,6 +66,7 @@ interface Discount {
   discount_name: string;
   discount_type: 'percent' | 'fixed';
   discount_value: number;
+  template_id?: number; // Wenn aus Template erstellt, ID des Templates
 }
 
 interface BookingDialogProps {
@@ -82,7 +85,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function BookingDialog({ isOpen, onClose, onSuccess, booking, prefillData }: BookingDialogProps) {
-  const { createBooking, updateBooking } = useData();
+  const { createBooking, updateBooking, reloadBooking } = useData();
 
   const [formData, setFormData] = useState<Booking>({
     room_id: 0,
@@ -251,6 +254,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
     const newService: AdditionalService = {
       service_name: template.name,
       service_price: template.price,
+      template_id: template.id, // ✅ Template-ID speichern!
     };
     setAdditionalServices([...additionalServices, newService]);
   };
@@ -260,6 +264,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
       discount_name: template.name,
       discount_type: template.discount_type,
       discount_value: template.discount_value,
+      template_id: template.id, // ✅ Template-ID speichern!
     };
     setDiscounts([...discounts, newDiscount]);
   };
@@ -635,6 +640,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           servicesPreis: servicesTotal,
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
+          istStiftungsfall: formData.ist_stiftungsfall || false,
         };
 
         await updateBooking(booking.id, updatePayload);
@@ -665,6 +671,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           servicesPreis: servicesTotal,
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
+          istStiftungsfall: formData.ist_stiftungsfall || false,
         };
 
         const result = await createBooking(bookingData) as any;
@@ -683,29 +690,70 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         }
 
         // Save additional services if any
+        console.log('🔍 [BookingDialog] Saving services...', {
+          count: additionalServices.length,
+          services: additionalServices,
+          bookingId: result.id
+        });
+
         if (additionalServices.length > 0 && result.id) {
           for (const service of additionalServices) {
-            await invoke('add_service_command', {
-              bookingId: result.id,
-              serviceName: service.service_name,
-              servicePrice: service.service_price,
+            console.log('🔍 [BookingDialog] Processing service:', {
+              service_name: service.service_name,
+              template_id: service.template_id,
+              has_template: !!service.template_id
             });
+
+            if (service.template_id) {
+              // Template-basierter Service → Junction-Table verwenden
+              console.log('🔗 [BookingDialog] Calling link_service_template_to_booking_command');
+              await invoke('link_service_template_to_booking_command', {
+                bookingId: result.id,
+                serviceTemplateId: service.template_id,
+              });
+              console.log('✅ [BookingDialog] Service template linked successfully');
+            } else {
+              // Custom Service → alte Tabelle verwenden
+              console.log('📝 [BookingDialog] Calling add_service_command');
+              await invoke('add_service_command', {
+                bookingId: result.id,
+                serviceName: service.service_name,
+                servicePrice: service.service_price,
+              });
+              console.log('✅ [BookingDialog] Custom service added successfully');
+            }
           }
+        } else {
+          console.log('⚠️ [BookingDialog] No services to save or no booking ID');
         }
 
         // Save discounts if any
         if (discounts.length > 0 && result.id) {
           for (const discount of discounts) {
-            await invoke('add_discount_command', {
-              bookingId: result.id,
-              discountName: discount.discount_name,
-              discountType: discount.discount_type,
-              discountValue: discount.discount_value,
-            });
+            if (discount.template_id) {
+              // Template-basierter Rabatt → Junction-Table verwenden
+              await invoke('link_discount_template_to_booking_command', {
+                bookingId: result.id,
+                discountTemplateId: discount.template_id,
+              });
+            } else {
+              // Custom Rabatt → alte Tabelle verwenden
+              await invoke('add_discount_command', {
+                bookingId: result.id,
+                discountName: discount.discount_name,
+                discountType: discount.discount_type,
+                discountValue: discount.discount_value,
+              });
+            }
           }
         }
 
-        // 🆕 Email-Auswahl-Dialog öffnen
+        // ✅ Booking nochmal laden um Services/Discounts/Emojis zu erhalten (Optimistic Update!)
+        console.log('🔄 [BookingDialog] Lade Buchung neu mit Services...');
+        await reloadBooking(result.id);
+        console.log('✅ [BookingDialog] Buchung neu geladen - Services sollten jetzt sichtbar sein!');
+
+        // 🆕 Email-Auswahl-Dialog öffnen (IMMER - bei Stiftungsfall ist Rechnung ausgegraut)
         if (result.id) {
           const guestEmail = guests.find(g => g.id === formData.guest_id)?.email || '';
           setCreatedBookingId(result.id);
@@ -1234,6 +1282,27 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
               />
             </div>
 
+            {/* Stiftungsfall Checkbox - FIX: ROT statt Amber (Amber wird für Gast-Notizen verwendet) */}
+            <div className="border-2 border-red-300 rounded-lg p-4 bg-gradient-to-br from-red-50 to-rose-50">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.ist_stiftungsfall || false}
+                  onChange={(e) => setFormData({ ...formData, ist_stiftungsfall: e.target.checked })}
+                  className="mt-0.5 w-5 h-5 accent-red-600 bg-white border-red-300 rounded focus:ring-2 focus:ring-red-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 text-red-900 font-semibold mb-1">
+                    <AlertTriangle className="w-4 h-4" />
+                    Stiftungsfall
+                  </div>
+                  <p className="text-sm text-red-700">
+                    Diese Buchung ist ein Stiftungsfall. Der Email-Dialog wird geöffnet, aber die Rechnung-Option ist deaktiviert (PDF kann manuell erstellt werden).
+                  </p>
+                </div>
+              </label>
+            </div>
+
             {/* Companion Selector - Neues System mit Pool */}
             {formData.guest_id && (() => {
               const selectedGuest = guests.find(g => g.id === formData.guest_id);
@@ -1512,6 +1581,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         }}
         bookingId={createdBookingId}
         guestEmail={createdGuestEmail}
+        istStiftungsfall={formData.ist_stiftungsfall || false}
       />
     )}
     </>

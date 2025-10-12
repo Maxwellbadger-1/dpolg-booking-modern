@@ -32,12 +32,27 @@ interface Room {
   id: number;
   name: string;
   gebaeude_typ: string;
+  capacity: number;
   ort: string;
 }
 
 interface Guest {
   vorname: string;
   nachname: string;
+}
+
+interface ServiceTemplate {
+  id: number;
+  name: string;
+  emoji?: string;
+  color_hex?: string;
+}
+
+interface DiscountTemplate {
+  id: number;
+  name: string;
+  emoji?: string;
+  color_hex?: string;
 }
 
 interface Booking {
@@ -49,8 +64,11 @@ interface Booking {
   status: string;
   bezahlt: boolean;
   rechnung_versendet_am?: string | null;
+  ist_stiftungsfall: boolean;
   room: Room;
   guest: Guest;
+  services: ServiceTemplate[];
+  discounts: DiscountTemplate[];
 }
 
 interface TapeChartProps {
@@ -87,6 +105,12 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
     border: 'border-red-700',
     text: 'text-white',
     shadow: 'shadow-lg shadow-red-500/50'
+  },
+  stiftungsfall: {
+    bg: 'bg-gradient-to-r from-amber-500 to-orange-600',
+    border: 'border-amber-700',
+    text: 'text-white',
+    shadow: 'shadow-lg shadow-amber-500/50'
   },
 };
 
@@ -154,7 +178,10 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
     disabled: isResizing || isPending, // Disable drag during resize OR wenn pending
   });
 
-  const colors = STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt;
+  // Stiftungsfall hat Priorität: Orange/Amber Farbe statt Status-Farbe
+  const colors = booking.ist_stiftungsfall
+    ? STATUS_COLORS.stiftungsfall
+    : (STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt);
 
   // Detect if pointer is in resize zone (dnd-timeline pattern)
   const getResizeDirection = useCallback((e: React.PointerEvent, element: HTMLElement): ResizeDirection => {
@@ -300,7 +327,8 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
     bottom: '8px',
     transform: CSS.Transform.toString(transform),
     cursor: cursor,
-    transition: isResizing ? 'none' : 'all 0.2s', // Disable transition during resize for instant feedback
+    // FIX: Spezifische transitions statt "all" - verhindert dass Text beim Scrollen verschwindet
+    transition: isResizing ? 'none' : 'transform 0.2s ease-out, opacity 0.2s ease-out',
   };
 
   return (
@@ -320,7 +348,8 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       }}
       className={cn(
         isOverlay ? "rounded-xl border-2" : "absolute rounded-xl border-2 group",
-        "flex items-center px-3 transition-all duration-200",
+        // FIX: transition-transform statt transition-all - verhindert dass Text beim Scrollen verschwindet
+        "flex items-center px-3 transition-transform duration-200",
         !isOverlay && !isResizing && "hover:scale-[1.02] active:scale-95",
         "backdrop-blur-sm select-none", // select-none prevents text selection
         isDragging && !isOverlay && "opacity-0",
@@ -334,6 +363,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         ...style,
         userSelect: 'none', // Prevent text selection
         WebkitUserSelect: 'none', // Safari
+        // FIX: Hardware Acceleration - verhindert Text-Flickering beim Scrollen
+        transform: style.transform ? `${style.transform} translateZ(0)` : 'translateZ(0)',
+        WebkitBackfaceVisibility: 'hidden',
+        backfaceVisibility: 'hidden',
+        willChange: 'transform',
       }}
       title={`${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}\n${booking.reservierungsnummer}\n${booking.checkin_date} - ${booking.checkout_date}`}
     >
@@ -353,6 +387,18 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
               <Mail className="w-3 h-3 text-white" />
             </div>
           )}
+          {/* Service Emojis */}
+          {booking.services?.filter(s => s.emoji).map((service) => (
+            <span key={service.id} className="text-sm" title={service.name}>
+              {service.emoji}
+            </span>
+          ))}
+          {/* Discount Emojis */}
+          {booking.discounts?.filter(d => d.emoji).map((discount) => (
+            <span key={discount.id} className="text-sm" title={discount.name}>
+              {discount.emoji}
+            </span>
+          ))}
         </div>
       </div>
       {/* Manual Save/Discard Buttons (wenn Pending) */}
@@ -1385,7 +1431,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
-                    <span className="font-medium">{room.gebaeude_typ}</span>
+                    <span className="font-medium">{room.gebaeude_typ} • {room.capacity}P</span>
                   </div>
                   <div className={cn("flex items-center gap-2 text-slate-600", density.fontSize)}>
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
