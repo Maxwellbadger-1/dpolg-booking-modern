@@ -75,6 +75,7 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
     setSending(true);
     setShowResults(false);
     const newResults: { id: string; success: boolean; message: string }[] = [];
+    let hasInvoiceEmail = false;
 
     for (const emailId of selectedEmails) {
       const option = emailOptions.find(o => o.id === emailId);
@@ -87,6 +88,11 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
           success: true,
           message: `${option.name} erfolgreich versendet`,
         });
+
+        // Track if invoice email was sent
+        if (emailId === 'invoice') {
+          hasInvoiceEmail = true;
+        }
       } catch (error) {
         newResults.push({
           id: emailId,
@@ -99,6 +105,14 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
     setResults(newResults);
     setShowResults(true);
     setSending(false);
+
+    // Trigger data refresh if invoice email was successfully sent
+    // This ensures the rechnung_versendet_am field and emoji are updated in the UI
+    if (hasInvoiceEmail && newResults.some(r => r.id === 'invoice' && r.success)) {
+      window.dispatchEvent(new CustomEvent('refresh-invoice-status', {
+        detail: { bookingId }
+      }));
+    }
   };
 
   const handleClose = () => {

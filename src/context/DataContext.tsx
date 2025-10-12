@@ -17,7 +17,7 @@ import {
 } from '../lib/commandManager';
 
 // Import Types from centralized location
-import type { Room, Guest, BookingWithDetails as Booking } from '../types/booking';
+import type { Room, Guest, BookingWithDetails as Booking, PaymentRecipient } from '../types/booking';
 
 // Context Type
 interface DataContextType {
@@ -25,12 +25,14 @@ interface DataContextType {
   rooms: Room[];
   guests: Guest[];
   bookings: Booking[];
+  paymentRecipients: PaymentRecipient[];
   loading: boolean;
 
   // Refresh Functions
   refreshRooms: () => Promise<void>;
   refreshGuests: () => Promise<void>;
   refreshBookings: () => Promise<void>;
+  refreshPaymentRecipients: () => Promise<void>;
   refreshAll: () => Promise<void>;
 
   // CRUD Operations (trigger auto-refresh)
@@ -45,6 +47,10 @@ interface DataContextType {
   createBooking: (data: any) => Promise<Booking>;
   updateBooking: (id: number, data: any) => Promise<Booking>;
   deleteBooking: (id: number) => Promise<void>;
+
+  createPaymentRecipient: (data: any) => Promise<PaymentRecipient>;
+  updatePaymentRecipient: (id: number, data: any) => Promise<PaymentRecipient>;
+  deletePaymentRecipient: (id: number) => Promise<void>;
 
   // Optimistic Updates
   updateBookingStatus: (id: number, status: string) => Promise<void>;
@@ -61,6 +67,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [paymentRecipients, setPaymentRecipients] = useState<PaymentRecipient[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Refresh Functions
@@ -94,19 +101,28 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshPaymentRecipients = useCallback(async () => {
+    try {
+      const data = await invoke<PaymentRecipient[]>('get_payment_recipients');
+      setPaymentRecipients(data);
+    } catch (error) {
+      console.error('Fehler beim Laden der Rechnungsempfänger:', error);
+      throw error;
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([refreshRooms(), refreshGuests(), refreshBookings()]);
+      await Promise.all([refreshRooms(), refreshGuests(), refreshBookings(), refreshPaymentRecipients()]);
     } finally {
       setLoading(false);
     }
-  }, [refreshRooms, refreshGuests, refreshBookings]);
+  }, [refreshRooms, refreshGuests, refreshBookings, refreshPaymentRecipients]);
 
   // Initial data load on mount
   useEffect(() => {
     refreshAll();
-    // No more event listeners - Command Pattern handles undo/redo in frontend!
   }, [refreshAll]);
 
   // Room CRUD Operations
@@ -240,6 +256,75 @@ export function DataProvider({ children }: { children: ReactNode }) {
       throw error;
     }
   }, [guests]);
+
+  // Payment Recipient CRUD Operations
+  const createPaymentRecipient = useCallback(async (data: any): Promise<PaymentRecipient> => {
+    try {
+      // 1. Backend Create
+      const recipient = await invoke<PaymentRecipient>('create_payment_recipient', data);
+
+      // 2. SOFORT zum State hinzufügen (Optimistic Update)
+      setPaymentRecipients(prev => [...prev, recipient]);
+
+      // 3. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
+
+      return recipient;
+    } catch (error) {
+      // Kein Rollback nötig - Recipient wurde noch nicht hinzugefügt
+      throw error;
+    }
+  }, []);
+
+  const updatePaymentRecipient = useCallback(async (id: number, data: any): Promise<PaymentRecipient> => {
+    // 1. Backup für Rollback
+    const oldRecipient = paymentRecipients.find(r => r.id === id);
+
+    // 2. SOFORT im UI ändern (Optimistic Update)
+    setPaymentRecipients(prev => prev.map(r =>
+      r.id === id ? { ...r, ...data } : r
+    ));
+
+    try {
+      // 3. Backend Update
+      const recipient = await invoke<PaymentRecipient>('update_payment_recipient', { id, ...data });
+
+      // 4. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
+
+      return recipient;
+    } catch (error) {
+      // 5. Rollback bei Fehler
+      if (oldRecipient) {
+        setPaymentRecipients(prev => prev.map(r =>
+          r.id === id ? oldRecipient : r
+        ));
+      }
+      throw error;
+    }
+  }, [paymentRecipients]);
+
+  const deletePaymentRecipient = useCallback(async (id: number): Promise<void> => {
+    // 1. Backup für Rollback
+    const deletedRecipient = paymentRecipients.find(r => r.id === id);
+
+    // 2. SOFORT aus UI entfernen (Optimistic Update)
+    setPaymentRecipients(prev => prev.filter(r => r.id !== id));
+
+    try {
+      // 3. Backend Delete
+      await invoke('delete_payment_recipient', { id });
+
+      // 4. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
+    } catch (error) {
+      // 5. Rollback - Recipient wiederherstellen
+      if (deletedRecipient) {
+        setPaymentRecipients(prev => [...prev, deletedRecipient]);
+      }
+      throw error;
+    }
+  }, [paymentRecipients]);
 
   // Booking CRUD Operations
   const createBooking = useCallback(async (data: any): Promise<Booking> => {
@@ -521,7 +606,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const reloadBooking = useCallback(async (id: number): Promise<void> => {
     try {
       console.log('🔄 [DataContext] reloadBooking:', id);
-      const booking = await invoke<Booking>('get_booking_with_details_command', { id });
+      const booking = await invoke<Booking>('get_booking_with_details_by_id_command', { id });
       console.log('✅ [DataContext] Booking reloaded with services:', booking.services);
 
       // State updaten mit vollständigen Daten (inkl. Services + Emojis)
@@ -532,17 +617,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Event Listener: Refresh invoice status after email send
+  useEffect(() => {
+    const handleInvoiceStatusRefresh = (event: CustomEvent) => {
+      const { bookingId } = event.detail;
+      console.log('📧 [DataContext] Invoice email sent, reloading booking:', bookingId);
+      reloadBooking(bookingId).catch(error => {
+        console.error('❌ [DataContext] Failed to reload booking after invoice send:', error);
+      });
+    };
+
+    window.addEventListener('refresh-invoice-status', handleInvoiceStatusRefresh as EventListener);
+
+    return () => {
+      window.removeEventListener('refresh-invoice-status', handleInvoiceStatusRefresh as EventListener);
+    };
+  }, [reloadBooking]);
+
   const value: DataContextType = {
     // Data
     rooms,
     guests,
     bookings,
+    paymentRecipients,
     loading,
 
     // Refresh
     refreshRooms,
     refreshGuests,
     refreshBookings,
+    refreshPaymentRecipients,
     refreshAll,
 
     // CRUD
@@ -555,6 +659,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     createBooking,
     updateBooking,
     deleteBooking,
+    createPaymentRecipient,
+    updatePaymentRecipient,
+    deletePaymentRecipient,
 
     // Optimistic Updates
     updateBookingStatus,
