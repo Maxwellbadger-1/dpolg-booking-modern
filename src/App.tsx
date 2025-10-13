@@ -7,12 +7,12 @@ import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
 import GuestList from './components/GuestManagement/GuestList';
 import RoomList from './components/RoomManagement/RoomList';
-import DevTools from './components/DevTools';
 import GuestDialog from './components/GuestManagement/GuestDialog';
 import SettingsDialog from './components/Settings/SettingsDialog';
 import EmailHistoryView from './components/Email/EmailHistoryView';
 import TemplatesManagement from './components/TemplatesManagement/TemplatesManagement';
 import BookingDialog from './components/BookingManagement/BookingDialog';
+import BookingSidebar from './components/BookingManagement/BookingSidebar';
 import EmailSelectionDialog from './components/BookingManagement/EmailSelectionDialog';
 import CancellationConfirmDialog from './components/BookingManagement/CancellationConfirmDialog';
 import QuickBookingFAB from './components/QuickBookingFAB';
@@ -74,6 +74,12 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | undefined>(undefined);
+
+  // Booking Sidebar State
+  const [showBookingSidebar, setShowBookingSidebar] = useState(false);
+  const [sidebarBookingId, setSidebarBookingId] = useState<number | null>(null);
+  const [sidebarMode, setSidebarMode] = useState<'view' | 'edit' | 'create'>('view');
+  const [sidebarPrefillData, setSidebarPrefillData] = useState<{ roomId?: number; checkinDate?: string; checkoutDate?: string } | undefined>(undefined);
 
   // Reminder System State
   const [urgentReminderCount, setUrgentReminderCount] = useState<number>(0);
@@ -306,9 +312,11 @@ function AppContent() {
                 onClose={() => setShowReminderDropdown(false)}
                 onReminderClick={(bookingId) => {
                   if (bookingId) {
-                    setSelectedBookingId(bookingId);
-                    setPrefillData(undefined);
-                    setShowBookingDialog(true);
+                    // Öffne Sidebar in Edit Mode
+                    setSidebarBookingId(bookingId);
+                    setSidebarMode('edit');
+                    setSidebarPrefillData(undefined);
+                    setShowBookingSidebar(true);
                     setShowReminderDropdown(false);
                   }
                 }}
@@ -377,20 +385,26 @@ function AppContent() {
           <ErrorBoundary>
             <TapeChart
               onBookingClick={(bookingId) => {
-                setSelectedBookingId(bookingId);
-                setPrefillData(undefined);
-                setShowBookingDialog(true);
+                // Öffne Sidebar in View Mode
+                setSidebarBookingId(bookingId);
+                setSidebarMode('view');
+                setSidebarPrefillData(undefined);
+                setShowBookingSidebar(true);
               }}
               onCreateBooking={(roomId, startDate, endDate) => {
                 console.log('🎨 Create Booking:', { roomId, startDate, endDate });
-                setSelectedBookingId(undefined);
-                setPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
-                setShowBookingDialog(true);
+                // Öffne Sidebar in Create Mode
+                setSidebarBookingId(null);
+                setSidebarMode('create');
+                setSidebarPrefillData({ roomId, checkinDate: startDate, checkoutDate: endDate });
+                setShowBookingSidebar(true);
               }}
               onBookingEdit={(bookingId) => {
-                setSelectedBookingId(bookingId);
-                setPrefillData(undefined);
-                setShowBookingDialog(true);
+                // Öffne Sidebar in Edit Mode
+                setSidebarBookingId(bookingId);
+                setSidebarMode('edit');
+                setSidebarPrefillData(undefined);
+                setShowBookingSidebar(true);
               }}
               onBookingCancel={(bookingId) => {
                 const booking = bookings.find(b => b.id === bookingId);
@@ -415,9 +429,11 @@ function AppContent() {
           <RemindersView
             onNavigateToBooking={(bookingId) => {
               setActiveTab('dashboard');
-              setSelectedBookingId(bookingId);
-              setPrefillData(undefined);
-              setShowBookingDialog(true);
+              // Öffne Sidebar in Edit Mode
+              setSidebarBookingId(bookingId);
+              setSidebarMode('edit');
+              setSidebarPrefillData(undefined);
+              setShowBookingSidebar(true);
             }}
           />
         )}
@@ -426,11 +442,13 @@ function AppContent() {
         {activeTab === 'cleaning' && <CleaningSync />}
       </main>
 
-      {/* Floating Action Button - Always Visible */}
-      <QuickBookingFAB onClick={() => setShowBookingDialog(true)} />
-
-      {/* DevTools - nur während Development */}
-      <DevTools />
+      {/* Floating Action Button - Always Visible - Opens Sidebar */}
+      <QuickBookingFAB onClick={() => {
+        setSidebarBookingId(null);
+        setSidebarMode('create');
+        setSidebarPrefillData(undefined);
+        setShowBookingSidebar(true);
+      }} />
 
       {/* Dialogs */}
       <SettingsDialog
@@ -491,6 +509,20 @@ function AppContent() {
           onCancel={cancelCancellation}
         />
       )}
+
+      {/* Booking Sidebar - Unified View/Edit/Create */}
+      <BookingSidebar
+        bookingId={sidebarBookingId}
+        isOpen={showBookingSidebar}
+        onClose={() => {
+          setShowBookingSidebar(false);
+          setSidebarBookingId(null);
+          setSidebarMode('view');
+          setSidebarPrefillData(undefined);
+        }}
+        mode={sidebarMode}
+        prefillData={sidebarPrefillData}
+      />
       </div>
   );
 }

@@ -1,6 +1,6 @@
 use crate::database::{
-    get_booking_with_details_by_id, get_company_settings, get_payment_settings,
-    BookingWithDetails, CompanySettings, PaymentSettings,
+    get_booking_with_details_by_id, get_booking_credit_usage, get_company_settings,
+    get_payment_settings, BookingWithDetails, CompanySettings, PaymentSettings,
 };
 use crate::payment_recipients::get_payment_recipient;
 use chrono::NaiveDate;
@@ -89,9 +89,15 @@ fn generate_html_from_booking(
     html = html.replace("{{GUEST_ADDRESS}}", &guest_address);
 
     // Rechnungsempfänger (optional) - wenn vorhanden
+    println!("🔍 [INVOICE] payment_recipient_id: {:?}", booking.payment_recipient_id);
+
     let invoice_recipient_card = if let Some(recipient_id) = booking.payment_recipient_id {
+        println!("✅ [INVOICE] payment_recipient_id is Some({}), calling get_payment_recipient", recipient_id);
+
         match get_payment_recipient(recipient_id) {
             Ok(Some(recipient)) => {
+                println!("✅ [INVOICE] get_payment_recipient SUCCESS: {} ({})", recipient.name, recipient.city.as_ref().unwrap_or(&"".to_string()));
+
                 let recipient_address = format!(
                     "{}{}{} {}{}",
                     recipient.street.as_ref().map(|s| format!("{}<br>", s)).unwrap_or_default(),
@@ -105,26 +111,40 @@ fn generate_html_from_booking(
                     }
                 );
 
-                format!(
-                    r#"<div class="recipient-card" style="margin-top: 1.5rem; padding: 1rem; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 0.75rem; border: 2px solid #1d4ed8;">
-                        <div style="font-size: 11px; color: rgba(255,255,255,0.8); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.5rem;">⚠️ EXTERNE RECHNUNG</div>
-                        <div style="font-size: 14px; font-weight: bold; color: white; margin-bottom: 0.25rem;">{}{}</div>
-                        <div style="font-size: 12px; color: rgba(255,255,255,0.9); line-height: 1.6;">{}</div>
-                        <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.2); font-size: 10px; color: rgba(255,255,255,0.7);">
+                let card_html = format!(
+                    r#"<div class="recipient-card" style="padding: 8px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 8px; border: 1px solid #1d4ed8; display: flex; flex-direction: column; justify-content: center; min-height: 85px;">
+                        <div style="font-size: 8px; color: rgba(255,255,255,0.8); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; margin-bottom: 5px;">⚠️ EXTERNE RECHNUNG</div>
+                        <div style="font-size: 11px; font-weight: bold; color: white; margin-bottom: 3px;">{}{}</div>
+                        <div style="font-size: 9px; color: rgba(255,255,255,0.9); line-height: 1.3;">{}</div>
+                        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.2); font-size: 8px; color: rgba(255,255,255,0.7); line-height: 1.3;">
                             Diese Rechnung wird an den oben angegebenen externen Empfänger adressiert.
                         </div>
                     </div>"#,
                     recipient.name,
-                    recipient.company.as_ref().map(|c| format!("<br><span style='font-size: 12px; font-weight: normal;'>{}</span>", c)).unwrap_or_default(),
+                    recipient.company.as_ref().map(|c| format!("<br><span style='font-size: 10px; font-weight: normal;'>{}</span>", c)).unwrap_or_default(),
                     recipient_address
-                )
+                );
+
+                println!("📦 [INVOICE] Generated card HTML ({} bytes)", card_html.len());
+                card_html
             },
-            _ => "".to_string()
+            Ok(None) => {
+                println!("⚠️ [INVOICE] get_payment_recipient returned Ok(None) - recipient not found!");
+                "".to_string()
+            },
+            Err(e) => {
+                println!("❌ [INVOICE] get_payment_recipient ERROR: {}", e);
+                "".to_string()
+            }
         }
     } else {
+        println!("ℹ️ [INVOICE] payment_recipient_id is None - no external recipient");
         "".to_string()
     };
+
+    println!("🔄 [INVOICE] Replacing {{{{INVOICE_RECIPIENT_CARD}}}} with content ({} bytes)", invoice_recipient_card.len());
     html = html.replace("{{INVOICE_RECIPIENT_CARD}}", &invoice_recipient_card);
+    println!("✅ [INVOICE] Replacement complete");
 
     // ============================================================================
     // RECIPIENTS - Booking Details
@@ -211,7 +231,11 @@ fn generate_html_from_booking(
         })
         .sum::<f64>();
 
-    let grand_total = total_before_discount - discount_total;
+    // 💰 Gast-Guthaben (Verrechnetes Guthaben für diese Buchung)
+    let credit_used = get_booking_credit_usage(booking.id).unwrap_or(0.0);
+    println!("💰 [INVOICE] Credit used for booking {}: {:.2} €", booking.id, credit_used);
+
+    let grand_total = total_before_discount - discount_total - credit_used;
 
     html = html.replace("{{SUBTOTAL}}", &format_currency(subtotal));
 
@@ -238,7 +262,7 @@ fn generate_html_from_booking(
     html = html.replace("{{TAX_ROWS}}", &tax_rows);
 
     // Discount Rows
-    let discount_rows = booking.discounts.iter()
+    let mut discount_rows = booking.discounts.iter()
         .map(|d| {
             let amount = if d.discount_type == "percent" {
                 subtotal * (d.discount_value / 100.0)
@@ -256,6 +280,22 @@ fn generate_html_from_booking(
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    // 💰 Credit Row (wenn Guthaben verrechnet wurde)
+    if credit_used > 0.0 {
+        let credit_row = format!(
+            r#"<div class="total-row" style="color: #10b981; font-size: 13px; font-weight: 600;">
+                <span class="total-label">💰 Verrechnetes Gast-Guthaben</span>
+                <span>- {}</span>
+            </div>"#,
+            format_currency(credit_used)
+        );
+        if !discount_rows.is_empty() {
+            discount_rows.push_str("\n");
+        }
+        discount_rows.push_str(&credit_row);
+    }
+
     html = html.replace("{{DISCOUNT_ROWS}}", &discount_rows);
 
     html = html.replace("{{GRAND_TOTAL}}", &format_currency(grand_total));

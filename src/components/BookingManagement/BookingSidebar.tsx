@@ -5,7 +5,7 @@ import {
   UserCheck, ShoppingBag, Percent, Edit2, XCircle, FileText,
   Clock, Home, Send, CheckCircle, AlertCircle, Euro, Download,
   FolderOpen, Eye, AlertTriangle, MessageSquare, Search, History,
-  ChevronDown, ChevronUp, Info, Plus, Trash2, Bookmark, Loader2, Briefcase
+  ChevronDown, ChevronUp, Info, Plus, Trash2, Bookmark, Loader2, Briefcase, Wallet
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -125,6 +125,12 @@ interface PaymentRecipient {
   notes?: string;
 }
 
+interface GuestCreditBalance {
+  guestId: number;
+  balance: number;
+  transactionCount: number;
+}
+
 const STATUS_OPTIONS = [
   { value: 'bestaetigt', label: 'Bestätigt', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'eingecheckt', label: 'Eingecheckt', color: 'bg-blue-100 text-blue-700' },
@@ -147,6 +153,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
   const [paymentRecipients, setPaymentRecipients] = useState<PaymentRecipient[]>([]);
+  const [currentPaymentRecipient, setCurrentPaymentRecipient] = useState<PaymentRecipient | null>(null);
 
   // Form State (for Edit/Create mode)
   const [formData, setFormData] = useState<Booking>({
@@ -208,6 +215,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [historyYearFilter, setHistoryYearFilter] = useState('all');
   const [historyLocationFilter, setHistoryLocationFilter] = useState('all');
 
+  // Guest Credit States
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [creditToApply, setCreditToApply] = useState<number>(0);
+  const [loadingCredit, setLoadingCredit] = useState(false);
+
   // Load data when sidebar opens
   useEffect(() => {
     if (isOpen) {
@@ -255,6 +267,29 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     }
   }, [mode, formData.room_id, formData.guest_id, formData.checkin_date, formData.checkout_date, services, discounts, guests, rooms]);
 
+  // Auto-load Payment Recipient when booking.payment_recipient_id changes
+  useEffect(() => {
+    const loadPaymentRecipient = async () => {
+      if (!booking || mode !== 'view') return;
+
+      if (booking.payment_recipient_id) {
+        try {
+          const recipientData = await invoke<PaymentRecipient>('get_payment_recipient', {
+            id: booking.payment_recipient_id,
+          });
+          setCurrentPaymentRecipient(recipientData);
+        } catch (error) {
+          console.error('[BookingSidebar] Error loading payment recipient:', error);
+          setCurrentPaymentRecipient(null);
+        }
+      } else {
+        setCurrentPaymentRecipient(null);
+      }
+    };
+
+    loadPaymentRecipient();
+  }, [booking?.payment_recipient_id, mode]);
+
   // Availability check effect
   useEffect(() => {
     if ((mode === 'edit' || mode === 'create') && formData.room_id && formData.checkin_date && formData.checkout_date) {
@@ -263,6 +298,35 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       setAvailabilityStatus({ checking: false, available: null });
     }
   }, [mode, formData.room_id, formData.checkin_date, formData.checkout_date]);
+
+  // Load guest credit balance when guest is selected
+  useEffect(() => {
+    const loadCreditBalance = async () => {
+      if (formData.guest_id > 0 && isOpen && (mode === 'edit' || mode === 'create')) {
+        setLoadingCredit(true);
+        try {
+          const balance = await invoke<GuestCreditBalance>('get_guest_credit_balance', {
+            guestId: formData.guest_id,
+          });
+          setCreditBalance(balance.balance);
+          setCreditToApply(0); // Reset amount when guest changes
+          console.log('✅ [Credit] Loaded balance:', balance.balance, '€ for guest', formData.guest_id);
+        } catch (err) {
+          console.error('❌ [Credit] Fehler beim Laden des Guthabens:', err);
+          setCreditBalance(0);
+          setCreditToApply(0);
+        } finally {
+          setLoadingCredit(false);
+        }
+      } else {
+        // Reset when no guest selected
+        setCreditBalance(0);
+        setCreditToApply(0);
+      }
+    };
+
+    loadCreditBalance();
+  }, [formData.guest_id, isOpen, mode]);
 
   const loadBookingDetails = async () => {
     if (!bookingId) return;
@@ -337,6 +401,21 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         setAccompanyingGuests(guestsData);
         setServices(servicesData);
         setDiscounts(discountsData);
+
+        // Load payment recipient if booking has one
+        if (bookingData.payment_recipient_id) {
+          try {
+            const recipientData = await invoke<PaymentRecipient>('get_payment_recipient', {
+              id: bookingData.payment_recipient_id,
+            });
+            setCurrentPaymentRecipient(recipientData);
+          } catch (error) {
+            console.error('[BookingSidebar] Error loading payment recipient:', error);
+            setCurrentPaymentRecipient(null);
+          }
+        } else {
+          setCurrentPaymentRecipient(null);
+        }
       }
     } catch (error) {
       console.error('Fehler beim Laden der Buchung:', error);
@@ -535,6 +614,10 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
+    console.log('🚀 [SIDEBAR handleSubmit] START');
+    console.log('  📦 formData.payment_recipient_id:', formData.payment_recipient_id, 'type:', typeof formData.payment_recipient_id);
+    console.log('  📦 Complete formData:', JSON.stringify(formData, null, 2));
+
     setError(null);
     setLoading(true);
 
@@ -562,9 +645,37 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
+          paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
         };
 
+        console.log('📤 [SIDEBAR updatePayload] Payload being sent to updateBooking:');
+        console.log('  payment_recipient_id:', updatePayload.payment_recipient_id, 'type:', typeof updatePayload.payment_recipient_id);
+        console.log('  Complete payload:', JSON.stringify(updatePayload, null, 2));
+
         await updateBooking(booking.id, updatePayload);
+
+        // 💰 Apply guest credit if any
+        if (creditToApply > 0) {
+          console.log('💰 [Credit] Applying credit:', creditToApply, '€ to booking', booking.id);
+          try {
+            await invoke('use_guest_credit_for_booking', {
+              guestId: formData.guest_id,
+              bookingId: booking.id,
+              amount: creditToApply,
+              notes: `Guthaben verrechnet für Buchung #${booking.id}`,
+            });
+            console.log('✅ [Credit] Successfully applied credit');
+
+            // Guthaben-State aktualisieren
+            const newBalance = creditBalance - creditToApply;
+            setCreditBalance(newBalance);
+            setCreditToApply(0);
+          } catch (err) {
+            console.error('❌ [Credit] Fehler beim Verrechnen des Guthabens:', err);
+            // Nicht werfen - Buchung wurde bereits gespeichert
+            // User kann Guthaben später manuell verrechnen
+          }
+        }
 
         // Switch back to view mode
         setMode('view');
@@ -594,7 +705,12 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
+          paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
         };
+
+        console.log('📤 [SIDEBAR createPayload] Payload being sent to createBooking:');
+        console.log('  payment_recipient_id:', bookingData.payment_recipient_id, 'type:', typeof bookingData.payment_recipient_id);
+        console.log('  Complete payload:', JSON.stringify(bookingData, null, 2));
 
         const result = await createBooking(bookingData) as any;
 
@@ -645,6 +761,29 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 discountValue: discount.discount_value,
               });
             }
+          }
+        }
+
+        // 💰 Apply guest credit if any
+        if (creditToApply > 0 && result.id) {
+          console.log('💰 [Credit] Applying credit:', creditToApply, '€ to booking', result.id);
+          try {
+            await invoke('use_guest_credit_for_booking', {
+              guestId: formData.guest_id,
+              bookingId: result.id,
+              amount: creditToApply,
+              notes: `Guthaben verrechnet für Buchung #${result.id}`,
+            });
+            console.log('✅ [Credit] Successfully applied credit');
+
+            // Guthaben-State aktualisieren
+            const newBalance = creditBalance - creditToApply;
+            setCreditBalance(newBalance);
+            setCreditToApply(0);
+          } catch (err) {
+            console.error('❌ [Credit] Fehler beim Verrechnen des Guthabens:', err);
+            // Nicht werfen - Buchung wurde bereits gespeichert
+            // User kann Guthaben später manuell verrechnen
           }
         }
 
@@ -761,6 +900,63 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         Diese Buchung ist als Stiftungsfall markiert. Es wird keine automatische Rechnungs-E-Mail versendet.
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Recipient (External Invoice Recipient) */}
+              {currentPaymentRecipient && (
+                <div className="border-2 border-blue-300 rounded-lg p-5 bg-gradient-to-br from-blue-50 to-indigo-50">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="flex-shrink-0 p-2 bg-blue-500 rounded-lg">
+                      <FileText className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-blue-900 mb-1">
+                        🔵 Externer Rechnungsempfänger
+                      </h3>
+                      <p className="text-sm text-blue-700">
+                        Die Rechnung für diese Buchung wird an den folgenden externen Empfänger adressiert:
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/60 rounded-lg p-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Name</p>
+                      <p className="font-semibold text-slate-900">{currentPaymentRecipient.name}</p>
+                    </div>
+                    {currentPaymentRecipient.company && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Firma</p>
+                        <p className="font-semibold text-slate-900">{currentPaymentRecipient.company}</p>
+                      </div>
+                    )}
+                    {(currentPaymentRecipient.street || currentPaymentRecipient.plz || currentPaymentRecipient.city) && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5" />
+                          Adresse
+                        </p>
+                        <p className="font-medium text-slate-900">
+                          {currentPaymentRecipient.street && <>{currentPaymentRecipient.street}<br /></>}
+                          {currentPaymentRecipient.plz} {currentPaymentRecipient.city}
+                          {currentPaymentRecipient.country !== 'Deutschland' && <><br />{currentPaymentRecipient.country}</>}
+                        </p>
+                      </div>
+                    )}
+                    {currentPaymentRecipient.contact_person && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Ansprechpartner</p>
+                        <p className="font-medium text-slate-900">{currentPaymentRecipient.contact_person}</p>
+                      </div>
+                    )}
+                    {currentPaymentRecipient.notes && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1">Notizen</p>
+                        <p className="text-sm text-slate-700">{currentPaymentRecipient.notes}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1608,6 +1804,83 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 </div>
               )}
 
+              {/* Guest Credit / Guthaben Section */}
+              {formData.guest_id > 0 && (loadingCredit || creditBalance > 0) && (
+                <div className="border border-emerald-200 rounded-lg p-3 bg-emerald-50">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-emerald-900 mb-2">
+                    <Wallet className="w-4 h-4" />
+                    💰 Gast-Guthaben
+                  </h3>
+
+                  {loadingCredit ? (
+                    <div className="flex items-center gap-2 text-sm text-emerald-700">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Lade Guthaben...</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-emerald-700">Verfügbares Guthaben:</span>
+                        <span className="font-bold text-emerald-900 text-base">{creditBalance.toFixed(2)} €</span>
+                      </div>
+
+                      {creditBalance > 0 && priceInfo && (
+                        <>
+                          <div className="border-t border-emerald-300 pt-2">
+                            <label className="block text-xs font-medium text-emerald-700 mb-1.5">
+                              Guthaben verrechnen:
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                max={Math.min(creditBalance, priceInfo.totalPrice)}
+                                step="0.01"
+                                value={creditToApply || ''}
+                                onChange={(e) => {
+                                  const value = parseFloat(e.target.value) || 0;
+                                  const maxAmount = Math.min(creditBalance, priceInfo.totalPrice);
+                                  setCreditToApply(Math.min(value, maxAmount));
+                                }}
+                                placeholder="Betrag"
+                                className="flex-1 px-3 py-1.5 bg-white border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-700"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setCreditToApply(Math.min(creditBalance, priceInfo.totalPrice))}
+                                className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                              >
+                                Max
+                              </button>
+                            </div>
+                            <p className="text-xs text-emerald-600 mt-1">
+                              Max. {Math.min(creditBalance, priceInfo.totalPrice).toFixed(2)} € (Guthaben oder Rechnungsbetrag)
+                            </p>
+                          </div>
+
+                          {creditToApply > 0 && (
+                            <div className="border-t border-emerald-300 pt-2 space-y-1.5">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-emerald-700">Ursprünglicher Preis:</span>
+                                <span className="font-semibold text-emerald-900">{priceInfo.totalPrice.toFixed(2)} €</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-emerald-700">- Verrechnetes Guthaben:</span>
+                                <span className="font-semibold text-emerald-700">-{creditToApply.toFixed(2)} €</span>
+                              </div>
+                              <div className="flex justify-between border-t border-emerald-300 pt-1.5">
+                                <span className="font-bold text-emerald-900 text-sm">Zu zahlender Betrag:</span>
+                                <span className="font-bold text-emerald-900 text-base">{(priceInfo.totalPrice - creditToApply).toFixed(2)} €</span>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Bemerkungen */}
               <div>
                 <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
@@ -1632,10 +1905,18 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   </label>
                   <select
                     value={formData.payment_recipient_id || ''}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      payment_recipient_id: e.target.value ? parseInt(e.target.value) : null
-                    })}
+                    onChange={(e) => {
+                      console.log('🎯 [SIDEBAR DROPDOWN] onChange fired!');
+                      console.log('  📦 e.target.value (raw):', e.target.value, 'type:', typeof e.target.value);
+                      const newValue = e.target.value ? parseInt(e.target.value) : null;
+                      console.log('  🔢 Parsed newValue:', newValue, 'type:', typeof newValue);
+                      console.log('  📝 Current formData.payment_recipient_id:', formData.payment_recipient_id);
+                      setFormData({
+                        ...formData,
+                        payment_recipient_id: newValue
+                      });
+                      console.log('  ✅ setFormData called with payment_recipient_id:', newValue);
+                    }}
                     className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
                     style={{
                       backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
