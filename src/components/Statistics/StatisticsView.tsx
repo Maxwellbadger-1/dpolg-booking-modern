@@ -374,6 +374,12 @@ export default function StatisticsView() {
 
   const availableYears = getAvailableYears();
 
+  // Helper function to handle year selection
+  const handleYearChange = (year: number) => {
+    setSelectedYear(year);
+    setDateRange('customYear');
+  };
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-800 to-slate-900 p-6">
       {/* Date Range Selector */}
@@ -412,10 +418,7 @@ export default function StatisticsView() {
                 <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Jahr</label>
                 <select
                   value={selectedYear}
-                  onChange={(e) => {
-                    setSelectedYear(parseInt(e.target.value));
-                    setDateRange('customYear');
-                  }}
+                  onChange={(e) => handleYearChange(parseInt(e.target.value))}
                   className={`w-full px-4 py-2 rounded-lg text-sm font-medium appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
                     dateRange === 'customYear'
                       ? 'bg-blue-600 border-2 border-blue-500 text-white shadow-lg shadow-blue-500/30'
