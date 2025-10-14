@@ -362,90 +362,108 @@ export default function StatisticsView() {
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-800 to-slate-900 p-6">
       {/* Date Range Selector */}
-      <div className="mb-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
-        {/* Schnellauswahl */}
-        <div className="flex items-center gap-4">
-          <CalendarRange className="w-5 h-5 text-blue-400" />
-          <span className="text-sm font-medium text-slate-300">Zeitraum:</span>
-          <div className="flex gap-2 flex-wrap">
-            {(Object.keys(dateRangeLabels) as Array<keyof typeof dateRangeLabels>).map((range) => (
-              <button
-                key={range}
-                onClick={() => setDateRange(range)}
-                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                  dateRange === range
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                }`}
-              >
-                {dateRangeLabels[range]}
-              </button>
-            ))}
+      <div className="mb-6 bg-slate-900/50 backdrop-blur-sm rounded-xl p-5 border border-slate-700/50 shadow-xl">
+        <div className="flex items-start gap-6">
+          {/* Icon */}
+          <div className="mt-2">
+            <CalendarRange className="w-5 h-5 text-blue-400" />
           </div>
-        </div>
 
-        {/* Jahr-Auswahl Dropdown */}
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-slate-300 w-20">Jahr:</span>
-          <select
-            value={selectedYear}
-            onChange={(e) => {
-              setSelectedYear(parseInt(e.target.value));
-              setDateRange('customYear');
-            }}
-            className="px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'right 0.75rem center',
-              backgroundSize: '1.5rem',
-              paddingRight: '3rem'
-            }}
-          >
-            {availableYears.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
-          {dateRange === 'customYear' && (
-            <span className="text-sm text-blue-400 font-semibold">✓ Aktiv</span>
-          )}
-        </div>
+          <div className="flex-1 space-y-4">
+            {/* Schnellauswahl */}
+            <div>
+              <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Zeitraum</label>
+              <div className="flex gap-2 flex-wrap">
+                {(Object.keys(dateRangeLabels) as Array<keyof typeof dateRangeLabels>).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setDateRange(range)}
+                    className={`px-3 py-1.5 rounded-lg font-medium text-sm transition-all ${
+                      dateRange === range
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                    }`}
+                  >
+                    {dateRangeLabels[range]}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {/* Individueller Zeitraum */}
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-slate-300 w-20">Individuell:</span>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Von:</label>
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => {
-                  setCustomStartDate(e.target.value);
-                  if (e.target.value && customEndDate) {
-                    setDateRange('customRange');
-                  }
-                }}
-                className="px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              />
+            {/* Jahr & Individuell - Nebeneinander */}
+            <div className="grid grid-cols-2 gap-4">
+              {/* Jahr-Auswahl */}
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Jahr</label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => {
+                      setSelectedYear(parseInt(e.target.value));
+                      setDateRange('customYear');
+                    }}
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 font-medium appearance-none cursor-pointer hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 0.75rem center',
+                      backgroundSize: '1.25rem',
+                      paddingRight: '2.5rem'
+                    }}
+                  >
+                    {availableYears.map(year => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                  {dateRange === 'customYear' && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-400 font-semibold">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Individueller Zeitraum */}
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Individuell</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => {
+                      setCustomStartDate(e.target.value);
+                      if (e.target.value && customEndDate) {
+                        setDateRange('customRange');
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    placeholder="Von"
+                  />
+                  <span className="text-slate-600">—</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => {
+                      setCustomEndDate(e.target.value);
+                      if (customStartDate && e.target.value) {
+                        setDateRange('customRange');
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    placeholder="Bis"
+                  />
+                  {dateRange === 'customRange' && customStartDate && customEndDate && (
+                    <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-400 font-semibold">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Bis:</label>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => {
-                  setCustomEndDate(e.target.value);
-                  if (customStartDate && e.target.value) {
-                    setDateRange('customRange');
-                  }
-                }}
-                className="px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-              />
-            </div>
-            {dateRange === 'customRange' && customStartDate && customEndDate && (
-              <span className="text-sm text-blue-400 font-semibold">✓ Aktiv</span>
-            )}
           </div>
         </div>
       </div>
