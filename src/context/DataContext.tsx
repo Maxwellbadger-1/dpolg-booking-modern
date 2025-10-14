@@ -573,6 +573,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     try {
       // Backend sync (fire-and-forget, runs in background)
       await invoke('update_booking_status_command', { bookingId: id, newStatus: status });
+
+      // AUTO-SYNC zu Turso (Status-Änderung, z.B. Stornierung)
+      if (oldBooking.checkout_date) {
+        console.log('🔄 [DataContext] Status-Änderung - Auto-Sync zu Turso für', oldBooking.checkout_date);
+
+        // Loading Toast
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
+
+        // Fire-and-forget: Sync läuft im Hintergrund
+        invoke('sync_affected_dates', {
+          oldCheckout: oldBooking.checkout_date,
+          newCheckout: oldBooking.checkout_date
+        }).then((result: string) => {
+          console.log('✅ [DataContext] Auto-Sync (STATUS) erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        }).catch((error: any) => {
+          console.error('❌ [DataContext] Auto-Sync (STATUS) Fehler:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+      }
     } catch (error) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();
