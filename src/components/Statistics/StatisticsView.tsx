@@ -35,7 +35,7 @@ interface BookingWithDetails {
   guest: Guest;
 }
 
-type DateRange = 'thisMonth' | 'lastMonth' | 'thisYear' | 'lastYear' | 'allTime';
+type DateRange = 'thisMonth' | 'lastMonth' | 'thisYear' | 'lastYear' | 'allTime' | 'customYear' | 'customRange';
 
 interface StatCardProps {
   title: string;
@@ -70,6 +70,9 @@ export default function StatisticsView() {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>('allTime');
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -99,6 +102,18 @@ export default function StatisticsView() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Get available years from bookings
+  const getAvailableYears = (): number[] => {
+    const years = new Set<number>();
+    bookings.forEach(booking => {
+      const checkinYear = new Date(booking.checkin_date).getFullYear();
+      const checkoutYear = new Date(booking.checkout_date).getFullYear();
+      years.add(checkinYear);
+      years.add(checkoutYear);
+    });
+    return Array.from(years).sort((a, b) => b - a); // Neueste zuerst
   };
 
   // Date range filter
@@ -139,6 +154,28 @@ export default function StatisticsView() {
         end.setMonth(11);
         end.setDate(31);
         end.setHours(23, 59, 59, 999);
+        break;
+      case 'customYear':
+        start.setFullYear(selectedYear);
+        start.setMonth(0);
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        end.setFullYear(selectedYear);
+        end.setMonth(11);
+        end.setDate(31);
+        end.setHours(23, 59, 59, 999);
+        break;
+      case 'customRange':
+        if (customStartDate && customEndDate) {
+          const customStart = new Date(customStartDate);
+          const customEnd = new Date(customEndDate);
+          customStart.setHours(0, 0, 0, 0);
+          customEnd.setHours(23, 59, 59, 999);
+          return { start: customStart, end: customEnd };
+        }
+        // Fallback wenn keine Daten gesetzt
+        start.setFullYear(2000);
+        end.setFullYear(2100);
         break;
       case 'allTime':
         start.setFullYear(2000);
@@ -312,7 +349,7 @@ export default function StatisticsView() {
     );
   }
 
-  const dateRangeLabels: Record<DateRange, string> = {
+  const dateRangeLabels: Record<Exclude<DateRange, 'customYear' | 'customRange'>, string> = {
     thisMonth: 'Dieser Monat',
     lastMonth: 'Letzter Monat',
     thisYear: 'Dieses Jahr',
@@ -320,15 +357,18 @@ export default function StatisticsView() {
     allTime: 'Gesamter Zeitraum',
   };
 
+  const availableYears = getAvailableYears();
+
   return (
     <div className="h-full overflow-y-auto bg-gradient-to-br from-slate-800 to-slate-900 p-6">
       {/* Date Range Selector */}
-      <div className="mb-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-4 border border-slate-700">
+      <div className="mb-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+        {/* Schnellauswahl */}
         <div className="flex items-center gap-4">
           <CalendarRange className="w-5 h-5 text-blue-400" />
           <span className="text-sm font-medium text-slate-300">Zeitraum:</span>
-          <div className="flex gap-2">
-            {(Object.keys(dateRangeLabels) as DateRange[]).map((range) => (
+          <div className="flex gap-2 flex-wrap">
+            {(Object.keys(dateRangeLabels) as Array<keyof typeof dateRangeLabels>).map((range) => (
               <button
                 key={range}
                 onClick={() => setDateRange(range)}
@@ -341,6 +381,71 @@ export default function StatisticsView() {
                 {dateRangeLabels[range]}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Jahr-Auswahl Dropdown */}
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-slate-300 w-20">Jahr:</span>
+          <select
+            value={selectedYear}
+            onChange={(e) => {
+              setSelectedYear(parseInt(e.target.value));
+              setDateRange('customYear');
+            }}
+            className="px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 0.75rem center',
+              backgroundSize: '1.5rem',
+              paddingRight: '3rem'
+            }}
+          >
+            {availableYears.map(year => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+          {dateRange === 'customYear' && (
+            <span className="text-sm text-blue-400 font-semibold">✓ Aktiv</span>
+          )}
+        </div>
+
+        {/* Individueller Zeitraum */}
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-slate-300 w-20">Individuell:</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Von:</label>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => {
+                  setCustomStartDate(e.target.value);
+                  if (e.target.value && customEndDate) {
+                    setDateRange('customRange');
+                  }
+                }}
+                className="px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Bis:</label>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => {
+                  setCustomEndDate(e.target.value);
+                  if (customStartDate && e.target.value) {
+                    setDateRange('customRange');
+                  }
+                }}
+                className="px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              />
+            </div>
+            {dateRange === 'customRange' && customStartDate && customEndDate && (
+              <span className="text-sm text-blue-400 font-semibold">✓ Aktiv</span>
+            )}
           </div>
         </div>
       </div>
