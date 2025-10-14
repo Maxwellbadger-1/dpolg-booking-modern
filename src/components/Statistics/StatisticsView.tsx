@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle, CalendarRange } from 'lucide-react';
+import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle, CalendarRange, Heart, Briefcase, Moon } from 'lucide-react';
 
 interface Room {
   id: number;
@@ -29,8 +29,10 @@ interface BookingWithDetails {
   checkin_date: string;
   checkout_date: string;
   anzahl_gaeste: number;
+  anzahl_naechte: number;
   status: string;
   gesamtpreis: number;
+  ist_stiftungsfall: boolean;
   room: Room;
   guest: Guest;
 }
@@ -338,6 +340,19 @@ export default function StatisticsView() {
     ? Math.round((cancelledBookings / filteredBookings.length) * 100)
     : 0;
 
+  // Booking Categories - Stiftungsfälle vs Normal Urlauber
+  const stiftungsfaelle = activeBookings.filter(b => b.ist_stiftungsfall).length;
+  const normalUrlauber = activeBookings.filter(b => !b.ist_stiftungsfall).length;
+
+  // Übernachtungszahlen (Nights stayed)
+  const gesamtNaechte = activeBookings.reduce((sum, b) => sum + b.anzahl_naechte, 0);
+  const naechteNormalUrlauber = activeBookings
+    .filter(b => !b.ist_stiftungsfall)
+    .reduce((sum, b) => sum + b.anzahl_naechte, 0);
+  const naechteStiftungsfaelle = activeBookings
+    .filter(b => b.ist_stiftungsfall)
+    .reduce((sum, b) => sum + b.anzahl_naechte, 0);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -497,6 +512,66 @@ export default function StatisticsView() {
             icon={DollarSign}
             iconColor="bg-indigo-500"
           />
+        </div>
+      </div>
+
+      {/* Booking Categories Section */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+          <Calendar className="w-6 h-6 text-blue-400" />
+          Buchungs-Kategorien
+        </h2>
+
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <StatCard
+            title="Stiftungsfälle"
+            value={stiftungsfaelle}
+            icon={Heart}
+            iconColor="bg-pink-500"
+          />
+          <StatCard
+            title="Normal Urlauber"
+            value={normalUrlauber}
+            icon={Briefcase}
+            iconColor="bg-blue-500"
+          />
+          <StatCard
+            title="Gesamt Übernachtungen"
+            value={`${gesamtNaechte.toLocaleString('de-DE')} Nächte`}
+            icon={Moon}
+            iconColor="bg-indigo-500"
+          />
+        </div>
+
+        {/* Übernachtungszahlen Breakdown */}
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-6 border border-slate-700">
+          <h3 className="text-lg font-bold text-white mb-4">Übernachtungen nach Kategorie</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-slate-700/50 rounded-lg p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <Moon className="w-5 h-5 text-indigo-400" />
+                <p className="text-sm text-slate-400 font-medium">Gesamt</p>
+              </div>
+              <p className="text-4xl font-bold text-white">{gesamtNaechte.toLocaleString('de-DE')}</p>
+              <p className="text-sm text-slate-400 mt-1">Nächte insgesamt</p>
+            </div>
+            <div className="bg-blue-500/20 rounded-lg p-6 border border-blue-500/30">
+              <div className="flex items-center gap-3 mb-2">
+                <Briefcase className="w-5 h-5 text-blue-400" />
+                <p className="text-sm text-blue-300 font-medium">Normal Urlauber</p>
+              </div>
+              <p className="text-4xl font-bold text-white">{naechteNormalUrlauber.toLocaleString('de-DE')}</p>
+              <p className="text-sm text-blue-300 mt-1">{normalUrlauber} Buchungen</p>
+            </div>
+            <div className="bg-pink-500/20 rounded-lg p-6 border border-pink-500/30">
+              <div className="flex items-center gap-3 mb-2">
+                <Heart className="w-5 h-5 text-pink-400" />
+                <p className="text-sm text-pink-300 font-medium">Stiftungsfälle</p>
+              </div>
+              <p className="text-4xl font-bold text-white">{naechteStiftungsfaelle.toLocaleString('de-DE')}</p>
+              <p className="text-sm text-pink-300 mt-1">{stiftungsfaelle} Buchungen</p>
+            </div>
+          </div>
         </div>
       </div>
 
