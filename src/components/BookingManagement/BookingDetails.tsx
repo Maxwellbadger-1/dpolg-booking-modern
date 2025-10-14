@@ -44,6 +44,18 @@ interface Guest {
   notizen?: string;
 }
 
+interface PaymentRecipient {
+  id: number;
+  name: string;
+  company?: string;
+  street?: string;
+  plz?: string;
+  city?: string;
+  country: string;
+  contact_person?: string;
+  notes?: string;
+}
+
 interface Booking {
   id: number;
   room_id: number;
@@ -67,6 +79,7 @@ interface Booking {
   rechnung_versendet_an?: string | null;
   mahnung_gesendet_am?: string | null;
   ist_stiftungsfall: boolean;
+  payment_recipient_id?: number | null;
   room: Room;
   guest: Guest;
 }
@@ -106,6 +119,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const [services, setServices] = useState<AdditionalService[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
+  const [paymentRecipient, setPaymentRecipient] = useState<PaymentRecipient | null>(null);
   const [loading, setLoading] = useState(true);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -161,6 +175,26 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         bookingId,
       });
       setInvoicePdfs(pdfsData);
+
+      // Load payment recipient if booking has one
+      console.log('🔍 [BookingDetails] bookingData.payment_recipient_id:', bookingData.payment_recipient_id, 'type:', typeof bookingData.payment_recipient_id);
+
+      if (bookingData.payment_recipient_id) {
+        console.log('✅ [BookingDetails] Loading payment recipient with ID:', bookingData.payment_recipient_id);
+        try {
+          const recipientData = await invoke<PaymentRecipient>('get_payment_recipient', {
+            id: bookingData.payment_recipient_id,
+          });
+          console.log('✅ [BookingDetails] Payment recipient loaded:', recipientData);
+          setPaymentRecipient(recipientData);
+        } catch (error) {
+          console.error('❌ [BookingDetails] Fehler beim Laden des Zahlungsempfängers:', error);
+          // Don't fail the whole load if payment recipient fails
+        }
+      } else {
+        console.log('⚠️ [BookingDetails] No payment_recipient_id - setting to null');
+        setPaymentRecipient(null);
+      }
     } catch (error) {
       console.error('Fehler beim Laden der Buchungsdetails:', error);
     } finally {
@@ -423,6 +457,64 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         Diese Buchung ist als Stiftungsfall markiert. Es wird keine automatische Rechnungs-E-Mail versendet, aber PDF-Rechnungen können erstellt und heruntergeladen werden.
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Recipient (External Invoice Recipient) */}
+              {console.log('🎨 [BookingDetails RENDER] paymentRecipient:', paymentRecipient)}
+              {paymentRecipient && (
+                <div className="border-2 border-blue-300 rounded-lg p-5 bg-gradient-to-br from-blue-50 to-indigo-50">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="flex-shrink-0 p-2 bg-blue-500 rounded-lg">
+                      <FileText className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-blue-900 mb-1">
+                        🔵 Externer Rechnungsempfänger
+                      </h3>
+                      <p className="text-sm text-blue-700">
+                        Die Rechnung für diese Buchung wird an den folgenden externen Empfänger adressiert:
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/60 rounded-lg p-4 grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Name</p>
+                      <p className="font-semibold text-slate-900">{paymentRecipient.name}</p>
+                    </div>
+                    {paymentRecipient.company && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Firma</p>
+                        <p className="font-semibold text-slate-900">{paymentRecipient.company}</p>
+                      </div>
+                    )}
+                    {(paymentRecipient.street || paymentRecipient.plz || paymentRecipient.city) && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5" />
+                          Adresse
+                        </p>
+                        <p className="font-medium text-slate-900">
+                          {paymentRecipient.street && <>{paymentRecipient.street}<br /></>}
+                          {paymentRecipient.plz} {paymentRecipient.city}
+                          {paymentRecipient.country !== 'Deutschland' && <><br />{paymentRecipient.country}</>}
+                        </p>
+                      </div>
+                    )}
+                    {paymentRecipient.contact_person && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Ansprechpartner</p>
+                        <p className="font-medium text-slate-900">{paymentRecipient.contact_person}</p>
+                      </div>
+                    )}
+                    {paymentRecipient.notes && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1">Notizen</p>
+                        <p className="text-sm text-slate-700">{paymentRecipient.notes}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

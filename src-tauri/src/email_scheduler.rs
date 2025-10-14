@@ -67,8 +67,8 @@ fn check_and_send_checkin_reminders() -> Result<(), String> {
         return Ok(());
     }
 
-    // Suche Buchungen mit Check-in MORGEN
-    let tomorrow = crate::time_utils::add_days(1)
+    // Suche Buchungen mit Check-in in 7 TAGEN (1 Woche vor Check-in)
+    let in_seven_days = crate::time_utils::add_days(7)
         .format("%Y-%m-%d").to_string();
 
     let mut stmt = conn.prepare(
@@ -78,14 +78,14 @@ fn check_and_send_checkin_reminders() -> Result<(), String> {
          AND b.status != 'storniert'"
     ).map_err(|e| format!("SQL Fehler: {}", e))?;
 
-    let booking_ids: Vec<i64> = stmt.query_map([&tomorrow], |row| {
+    let booking_ids: Vec<i64> = stmt.query_map([&in_seven_days], |row| {
         row.get(0)
     })
     .map_err(|e| format!("Query Fehler: {}", e))?
     .filter_map(|r| r.ok())
     .collect();
 
-    println!("   Gefunden: {} Buchungen mit Check-in morgen ({})", booking_ids.len(), tomorrow);
+    println!("   Gefunden: {} Buchungen mit Check-in in 7 Tagen ({})", booking_ids.len(), in_seven_days);
 
     // Versende Erinnerung für jede Buchung
     for booking_id in booking_ids {
@@ -287,10 +287,10 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
     println!("✅ Found {} future bookings for check-in reminders", checkin_reminders.len());
 
     for (booking_id, res_num, checkin, vorname, nachname, email) in checkin_reminders {
-        // Berechne das Datum für die Erinnerung (1 Tag vor Check-in)
+        // Berechne das Datum für die Erinnerung (7 Tage vor Check-in)
         let checkin_date = chrono::NaiveDate::parse_from_str(&checkin, "%Y-%m-%d")
             .map_err(|e| format!("Fehler beim Parsen des Datums: {}", e))?;
-        let reminder_date = checkin_date - chrono::Duration::days(1);
+        let reminder_date = checkin_date - chrono::Duration::days(7);
         let reminder_date_str = reminder_date.format("%Y-%m-%d").to_string();
 
         let already_sent: bool = conn.query_row(
@@ -314,7 +314,7 @@ pub fn get_scheduled_emails() -> Result<Vec<ScheduledEmail>, String> {
                 guest_email: email,
                 email_type: "Erinnerung".to_string(),
                 scheduled_date: reminder_date_str,
-                reason: format!("Check-in Erinnerung (1 Tag vor Check-in am {})", checkin),
+                reason: format!("Check-in Erinnerung (7 Tage vor Check-in am {})", checkin),
             });
         }
     }

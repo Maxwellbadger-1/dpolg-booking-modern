@@ -9,6 +9,159 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
+## 🚨 KRITISCHE REGEL #1: Tauri Parameter Naming Convention
+
+**⚠️ DIESES PROBLEM TRITT IMMER WIEDER AUF! LIES DIESE REGEL AUFMERKSAM!**
+
+### Das Problem:
+
+Tauri konvertiert **automatisch** camelCase (JavaScript) → snake_case (Rust) **NUR wenn ALLE Parameter konsistent camelCase sind!**
+
+Wenn auch nur EIN Parameter in snake_case geschrieben wird, bricht die Konvertierung für ALLE Parameter!
+
+### ❌ FALSCH - Mixed Naming (HÄUFIGSTER FEHLER!)
+
+```typescript
+// Frontend sendet:
+const payload = {
+  roomId: 1,              // ✅ camelCase
+  guestId: 1,             // ✅ camelCase
+  payment_recipient_id: 1 // ❌ snake_case - BRICHT DIE KONVERTIERUNG!
+};
+
+await invoke('update_booking', payload);
+
+// Backend erhält:
+// room_id: Some(1)           ✅ Funktioniert
+// guest_id: Some(1)          ✅ Funktioniert
+// payment_recipient_id: None ❌ GEHT VERLOREN!
+```
+
+### ✅ RICHTIG - Konsistentes camelCase
+
+```typescript
+// Frontend sendet:
+const payload = {
+  roomId: 1,                // ✅ camelCase
+  guestId: 1,               // ✅ camelCase
+  paymentRecipientId: 1     // ✅ camelCase - KONSISTENT!
+};
+
+await invoke('update_booking', payload);
+
+// Backend erhält:
+// room_id: Some(1)           ✅ Funktioniert
+// guest_id: Some(1)          ✅ Funktioniert
+// payment_recipient_id: Some(1) ✅ Funktioniert jetzt!
+```
+
+### Regel:
+
+**ALLE Parameter die von Frontend → Backend gesendet werden MÜSSEN camelCase sein!**
+
+**KEINE AUSNAHMEN! KEIN MIXING!**
+
+### Betroffene Komponenten:
+
+Diese Komponenten senden Daten an Tauri Commands:
+
+- ✅ BookingSidebar.tsx → `updateBooking`, `createBooking`
+- ✅ BookingDialog.tsx → `updateBooking`, `createBooking`
+- ✅ GuestDialog.tsx → `updateGuest`, `createGuest`
+- ✅ RoomDialog.tsx → `updateRoom`, `createRoom`
+- ✅ PaymentRecipientDialog.tsx → `updatePaymentRecipient`, `createPaymentRecipient`
+- ✅ ALLE zukünftigen Dialoge/Formulare!
+
+### Checkliste VOR JEDEM invoke():
+
+- [ ] Sind ALLE Parameter in camelCase geschrieben?
+- [ ] Gibt es KEINE Parameter mit Unterstrichen (`_`)?
+- [ ] Ist die Naming konsistent im ganzen Payload?
+
+### Beispiele:
+
+```typescript
+// ❌ FALSCH - Verschiedene Fehler
+const badPayload = {
+  room_id: 1,           // ❌ snake_case
+  guestId: 1,           // ✅ camelCase
+  checkin_date: '...',  // ❌ snake_case
+  checkoutDate: '...',  // ✅ camelCase - MIXING!
+};
+
+// ✅ RICHTIG - Alles camelCase
+const goodPayload = {
+  roomId: 1,            // ✅
+  guestId: 1,           // ✅
+  checkinDate: '...',   // ✅
+  checkoutDate: '...',  // ✅
+  paymentRecipientId: 1 // ✅
+};
+```
+
+### Backend Rust Struct bleibt snake_case:
+
+```rust
+#[tauri::command]
+fn update_booking(
+    id: i64,
+    room_id: i64,              // ← snake_case in Rust ✅
+    guest_id: i64,             // ← snake_case in Rust ✅
+    payment_recipient_id: Option<i64>, // ← snake_case in Rust ✅
+) -> Result<Booking, String> {
+    // Tauri macht automatisch die Konvertierung
+    // WENN Frontend konsistent camelCase verwendet!
+}
+```
+
+### Debugging:
+
+Wenn ein Parameter im Backend als `None`/`undefined` ankommt:
+
+1. ✅ Prüfe: Ist der Parameter im Frontend camelCase?
+2. ✅ Prüfe: Sind ALLE anderen Parameter auch camelCase?
+3. ✅ Suche nach: Unterstrichen (`_`) in Parameter-Namen
+4. ✅ Konvertiere ALLE zu camelCase
+
+**MERKE:** Ein einziger Parameter in snake_case bricht die Konvertierung für ALLE Parameter!
+
+### 🛡️ TECHNISCHE ABSICHERUNG (AUTOMATISCH)
+
+**Ab sofort IMMER `safeInvoke()` statt `invoke()` verwenden!**
+
+```typescript
+// ✅ RICHTIG - Mit automatischer Validierung
+import { safeInvoke } from '@/lib/tauri-helpers';
+
+// Strict Mode (Standard) - Wirft Fehler bei snake_case
+const result = await safeInvoke<Booking>('update_booking', {
+  roomId: 1,
+  guestId: 1,
+  paymentRecipientId: 1  // ✅ camelCase wird automatisch validiert
+});
+
+// Auto-Convert Mode - Konvertiert automatisch (nur für Migration/Legacy)
+const result = await safeInvoke<Booking>('update_booking', {
+  room_id: 1,              // wird zu roomId konvertiert
+  guest_id: 1,             // wird zu guestId konvertiert
+  payment_recipient_id: 1  // wird zu paymentRecipientId konvertiert
+}, { autoConvert: true });
+```
+
+**Was `safeInvoke()` macht:**
+
+1. ✅ **Validiert** ALLE Parameter auf camelCase
+2. ✅ **Zeigt exakte Fehler** mit welche Keys falsch sind
+3. ✅ **Schlägt Korrekturen vor** (z.B. `payment_recipient_id` → `paymentRecipientId`)
+4. ✅ **Wirft Fehler** BEVOR der invoke() Call fehlschlägt
+5. ✅ **Optional:** Auto-Convert von snake_case → camelCase
+
+**Alle neuen Komponenten MÜSSEN `safeInvoke()` verwenden statt `invoke()`!**
+
+**Location:** `src/lib/tauri-helpers.ts`
+
+---
+
 ## ⚡ Optimistic Updates - KRITISCHE REGEL!
 
 **WICHTIG:** ALLE Datenänderungen MÜSSEN Optimistic Updates verwenden - NIEMALS `refreshBookings()`, `refreshGuests()` oder `refreshRooms()` nach erfolgreichen Operationen aufrufen!
@@ -270,6 +423,243 @@ interface Booking {
 ```
 
 **Warum:** Production Code soll sauber sein, aber Error Boundaries bleiben!
+
+---
+
+## 🔄 React State & Lifecycle Debugging (KRITISCH!)
+
+**WICHTIG:** Bei State-Problemen wo Daten nicht angezeigt werden IMMER dieses systematische Pattern verwenden!
+
+### Das Problem-Pattern erkennen:
+```typescript
+// SYMPTOM: Komponente zeigt Daten nicht an, obwohl sie im Objekt vorhanden sind
+booking.payment_recipient_id: 1 ✅  // Daten sind da!
+currentPaymentRecipient: null ❌    // State ist leer!
+{currentPaymentRecipient && <Component />}  // Wird nicht gerendert ❌
+```
+
+**ROOT CAUSE:** State wird nur beim **Initial Load** gesetzt, aber NICHT bei Updates!
+
+### 1. **UI-Debug-Box SOFORT einbauen** (Der Game-Changer! 🎯)
+
+```typescript
+{/* 🚨 IMMER ZUERST: Visuelle Debug-Box einbauen */}
+<div className="border-2 border-orange-500 rounded-lg p-4 bg-orange-50 mb-4">
+  <h3 className="text-lg font-bold text-orange-900 mb-3">🚨 DEBUG: State Check</h3>
+  <div className="space-y-2 font-mono text-sm">
+    <p><span className="font-bold">someObject.someId:</span> {String(someObject?.someId ?? 'undefined')} (Type: {typeof someObject?.someId})</p>
+    <p><span className="font-bold">currentState:</span> {currentState ? 'TRUTHY ✅' : 'FALSY ❌'}</p>
+    <p><span className="font-bold">currentState value:</span> {currentState === null ? 'NULL' : currentState === undefined ? 'UNDEFINED' : 'HAS VALUE'}</p>
+    <p><span className="font-bold">Conditional evaluates to:</span> {currentState ? '✅ TRUE - Will render' : '❌ FALSE - Will NOT render'}</p>
+    {currentState && (
+      <div className="mt-2 p-2 bg-white rounded border border-orange-300">
+        <p className="font-bold">State Data:</p>
+        <pre className="text-xs overflow-auto">{JSON.stringify(currentState, null, 2)}</pre>
+      </div>
+    )}
+  </div>
+</div>
+```
+
+**Warum UI-Debug-Box > Console Logs:**
+- ✅ **Visuell sofort sichtbar** - Kein Tab-Wechsel nötig
+- ✅ **User kann Screenshots schicken** - Remote Debugging möglich
+- ✅ **Zeigt Problem in Sekunden** - Diskrepanz zwischen Objekt und State sofort erkennbar
+- ✅ **Immer sichtbar** - Kein Scrollen durch Console nötig
+
+### 2. **Systematische React Lifecycle Checks**
+
+**Bei JEDEM State-Problem diese Fragen durchgehen:**
+
+```typescript
+// ✅ CHECKLISTE FÜR REACT STATE BUGS:
+
+1. Wird der State initial gesetzt?
+   → Test: Initial Load funktioniert?
+
+2. Wird der State bei Updates aktualisiert?
+   → Test: Objekt ändert sich, wird State nachgeladen?
+   → HÄUFIGSTER FEHLER: Nur Initial Load, keine Updates!
+
+3. useEffect Dependencies korrekt?
+   → Hört useEffect auf die richtige Dependency?
+   → Ist die Dependency im Dependency-Array?
+
+4. State wird auf null gesetzt wenn nötig?
+   → Was passiert wenn die ID/Daten fehlen?
+   → Wird alter State überschrieben?
+
+5. Gibt es Race Conditions?
+   → Mehrere Updates gleichzeitig?
+   → Async Calls überschreiben sich?
+```
+
+### 3. **Die Lösung: useEffect mit korrekten Dependencies**
+
+```typescript
+// ❌ FALSCH - Lädt nur beim Initial Mount
+useEffect(() => {
+  const loadData = async () => {
+    if (someObject.someId) {
+      const data = await invoke('get_data', { id: someObject.someId });
+      setCurrentState(data);
+    }
+  };
+  loadData();
+}, []); // ← FEHLER! Leeres Dependency Array!
+
+// ✅ RICHTIG - Lädt bei JEDEM Update
+useEffect(() => {
+  const loadData = async () => {
+    // Prüfe ob Daten vorhanden
+    if (!someObject || mode !== 'view') return;
+
+    if (someObject.someId) {
+      try {
+        const data = await invoke('get_data', { id: someObject.someId });
+        setCurrentState(data);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setCurrentState(null);
+      }
+    } else {
+      // KRITISCH: State auf null setzen wenn keine ID!
+      setCurrentState(null);
+    }
+  };
+
+  loadData();
+}, [someObject?.someId, mode]); // ← Richtige Dependencies!
+```
+
+**Warum das funktioniert:**
+- ✅ useEffect wird bei **JEDER Änderung** von `someObject.someId` getriggert
+- ✅ State wird automatisch nachgeladen
+- ✅ State wird auf `null` gesetzt wenn keine ID vorhanden
+- ✅ Conditional Rendering funktioniert korrekt
+
+### 4. **Web-Recherche Pattern**
+
+```typescript
+// TRIGGER: Problem nach 2-3 Versuchen NICHT gelöst
+if (attempts >= 3 && problem.still_exists) {
+  // SOFORT Web-Recherche durchführen
+  await webSearch({
+    query: "React useState not updating component debugging 2025",
+    query: "React useEffect dependencies best practices 2025",
+    query: "React conditional rendering not showing component 2025"
+  });
+}
+```
+
+**Beispiel-Queries:**
+- "React state not updating after initial load"
+- "React useEffect dependencies explained"
+- "React component not re-rendering when state changes"
+- "React conditional rendering debugging"
+
+### 5. **Complete Debugging Workflow**
+
+```typescript
+// PHASE 1: Diagnose (5 Minuten)
+1. ✅ UI-Debug-Box einbauen (zeigt ALLE relevanten Werte)
+2. ✅ Screenshot vom User anfordern
+3. ✅ Identifiziere: Objekt hat Daten, State ist leer?
+
+// PHASE 2: Root Cause (5 Minuten)
+1. ✅ Initial Load funktioniert?
+2. ✅ Nachgeladen bei Updates? ← HIER ist meist das Problem!
+3. ✅ useEffect Dependencies prüfen
+4. ✅ State wird auf null gesetzt?
+
+// PHASE 3: Fix (5 Minuten)
+1. ✅ useEffect mit korrekten Dependencies hinzufügen
+2. ✅ State auf null setzen wenn keine ID
+3. ✅ Testen mit Daten MIT und OHNE ID
+
+// PHASE 4: Cleanup (5 Minuten)
+1. ✅ Debug-Box entfernen
+2. ✅ Excessive Logs entfernen
+3. ✅ Nur Error-Handling behalten
+```
+
+### 6. **Common Mistakes zu vermeiden**
+
+```typescript
+// ❌ FEHLER 1: Leeres Dependency Array
+useEffect(() => {
+  loadData();
+}, []); // Lädt nur einmal beim Mount!
+
+// ❌ FEHLER 2: Dependency fehlt
+useEffect(() => {
+  if (booking.payment_recipient_id) {
+    loadData();
+  }
+}, [booking]); // ← Sollte [booking?.payment_recipient_id] sein!
+
+// ❌ FEHLER 3: Kein else-Branch
+useEffect(() => {
+  if (someObject.someId) {
+    loadData();
+  }
+  // ❌ Was wenn keine ID? State bleibt alt!
+}, [someObject?.someId]);
+
+// ✅ RICHTIG: Mit else-Branch
+useEffect(() => {
+  if (someObject.someId) {
+    loadData();
+  } else {
+    setCurrentState(null); // ← State zurücksetzen!
+  }
+}, [someObject?.someId]);
+```
+
+### 7. **Testing Checklist**
+
+Nach dem Fix IMMER testen:
+
+- [ ] Komponente MIT Daten laden → State wird gesetzt ✅
+- [ ] Komponente OHNE Daten laden → State ist null ✅
+- [ ] Von MIT zu OHNE wechseln → State wird auf null gesetzt ✅
+- [ ] Von OHNE zu MIT wechseln → State wird geladen ✅
+- [ ] Mehrfaches Wechseln → Funktioniert durchgehend ✅
+
+### 8. **Lessons Learned - Quick Reference**
+
+```typescript
+// 🎯 BEI JEDEM REACT STATE BUG:
+
+1. ✅ UI-Debug-Box SOFORT einbauen (nicht erst nach 10 Versuchen!)
+2. ✅ Web-Recherche nach 2-3 fehlgeschlagenen Versuchen
+3. ✅ Systematisch checken:
+   - Initial Load funktioniert?
+   - Nachgeladen bei Updates?
+   - useEffect Dependencies korrekt?
+   - State wird auf null gesetzt?
+4. ✅ Mit User testen (MIT und OHNE Daten)
+5. ✅ Debug-Code entfernen nach Fix
+
+// ⏱️ ZEITERSPARNIS:
+// Mit diesem Pattern: ~20 Minuten
+// Ohne Pattern: 60+ Minuten (Trial & Error)
+```
+
+### 9. **Anti-Pattern: Was NICHT zu tun**
+
+```typescript
+// ❌ NICHT: Blind Trial & Error
+"Vielleicht hilft setState nochmal?"
+"Vielleicht muss ich forceUpdate()?"
+"Vielleicht ist es ein Cache-Problem?"
+
+// ✅ STATTDESSEN: Systematisch debuggen
+1. UI-Debug-Box zeigt Problem
+2. useEffect Dependencies prüfen
+3. Fix implementieren
+4. Testen
+```
 
 ---
 
@@ -551,6 +941,90 @@ Ausnahmen gibt es nicht. Auch für:
 - ✅ Datenbank-Queries → Unit Tests mit In-Memory DB
 - ✅ Validierung → Unit Tests für alle Edge Cases
 - ✅ Business Logic → Unit Tests ZUERST!
+
+---
+
+## 📱 Mobile App Deployment (KRITISCH!)
+
+**WICHTIG:** IMMER wenn Änderungen an der Mobile Cleaning App (`dpolg-cleaning-mobile`) gemacht werden, MUSS sofort ein Vercel Deployment durchgeführt werden!
+
+### Warum sofort deployen?
+- ✅ **Keine Cache-Probleme** - Neue Version überschreibt alle Cache-Layers (Vercel CDN + Browser)
+- ✅ **Sofort testbar** - Änderungen sind innerhalb von 30 Sekunden live
+- ✅ **Kein manuelles Cache-Clearing** - User muss nicht F5 drücken oder Cache leeren
+- ✅ **Production-ready** - Putzkräfte sehen die Änderung SOFORT auf allen Geräten
+
+### Workflow für JEDE Mobile App Änderung:
+
+```bash
+# 1️⃣ In Mobile App Directory wechseln
+cd "/Users/maximilianfegg/Desktop/Sicherungskopie DPolG Buchungssystem.nosynch/Claude Code/dpolg-cleaning-mobile"
+
+# 2️⃣ Git Commit & Push (wie gewohnt)
+git add index.html  # oder andere geänderte Dateien
+git commit -m "fix: Beschreibung der Änderung"
+git push
+
+# 3️⃣ SOFORT Vercel Production Deployment
+vercel --prod --yes
+```
+
+### Deployment-Regel:
+
+**IMMER in DIESER Reihenfolge:**
+1. ✅ Änderung an `index.html` oder anderen Mobile App Dateien
+2. ✅ Git commit
+3. ✅ Git push
+4. ✅ **SOFORT** Vercel deployment (`vercel --prod --yes`)
+5. ✅ Nach 30 Sekunden: Mobile App URL testen (`https://dpolg-cleaning-mobile.vercel.app`)
+
+### Wann deployen?
+
+**IMMER nach diesen Änderungen:**
+- ✅ UI-Anpassungen (HTML, CSS)
+- ✅ JavaScript Logic Changes
+- ✅ Emoji-Darstellung Fixes
+- ✅ Layout-Änderungen
+- ✅ Timeline-View Updates
+- ✅ Irgendeine Änderung an `index.html` oder anderen Frontend-Dateien
+
+**NICHT nötig nach:**
+- ❌ Backend-Änderungen (`supabase.rs`, `database.rs`) - diese laufen lokal in der Desktop App
+- ❌ Datenbank-Schema-Änderungen - diese sind in Turso Cloud
+
+### Authentifizierung:
+
+Falls `vercel --prod --yes` fehlschlägt mit "token is not valid":
+
+```bash
+# Einmalig authentifizieren
+vercel login
+
+# Dann nochmal deployen
+vercel --prod --yes
+```
+
+### Deployment-Bestätigung:
+
+Nach erfolgreichem Deployment:
+```
+✅ Production: https://dpolg-cleaning-mobile.vercel.app [30s]
+```
+
+**SOFORT testen:**
+1. Mobile App URL im Browser öffnen (mit Shift+Cmd+R für Hard Reload)
+2. Änderung verifizieren
+3. User informieren dass Deployment live ist
+
+### Checkliste für Mobile App Changes:
+
+- [ ] Änderung an Mobile App Datei(en) gemacht
+- [ ] `git add` + `git commit` + `git push`
+- [ ] **SOFORT** `vercel --prod --yes` ausführen
+- [ ] Deployment-URL testen (nach 30s)
+- [ ] User informieren: "Deployment ist live!"
+
+**WICHTIG:** Diese Regel gilt für ALLE Mobile App Änderungen - keine Ausnahmen!
 
 ---
 

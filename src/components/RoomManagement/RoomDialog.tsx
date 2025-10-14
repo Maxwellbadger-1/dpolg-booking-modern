@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { X, Hotel, MapPin, Users, Euro, Key } from 'lucide-react';
+import { useData } from '../../context/DataContext';
 
 interface Room {
   id?: number;
@@ -24,6 +24,7 @@ interface RoomDialogProps {
 }
 
 export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDialogProps) {
+  const { createRoom, updateRoom } = useData();
   const [formData, setFormData] = useState<Room>({
     name: '',
     gebaeude_typ: '',
@@ -65,35 +66,25 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
     setLoading(true);
 
     try {
+      const roomData = {
+        name: formData.name,
+        gebaeudeTyp: formData.gebaeude_typ,
+        capacity: formData.capacity,
+        priceMember: formData.price_member,
+        priceNonMember: formData.price_non_member,
+        nebensaisonPreis: formData.nebensaison_preis,
+        hauptsaisonPreis: formData.hauptsaison_preis,
+        endreinigung: formData.endreinigung,
+        ort: formData.ort,
+        schluesselcode: formData.schluesselcode || null,
+      };
+
       if (room?.id) {
-        // Update existing room
-        await invoke('update_room_command', {
-          id: room.id,
-          name: formData.name,
-          gebaeudeTyp: formData.gebaeude_typ,
-          capacity: formData.capacity,
-          priceMember: formData.price_member,
-          priceNonMember: formData.price_non_member,
-          nebensaisonPreis: formData.nebensaison_preis,
-          hauptsaisonPreis: formData.hauptsaison_preis,
-          endreinigung: formData.endreinigung,
-          ort: formData.ort,
-          schluesselcode: formData.schluesselcode || null,
-        });
+        // Update existing room (Optimistic Update via DataContext)
+        await updateRoom(room.id, roomData);
       } else {
-        // Create new room
-        await invoke('create_room_command', {
-          name: formData.name,
-          gebaeudeTyp: formData.gebaeude_typ,
-          capacity: formData.capacity,
-          priceMember: formData.price_member,
-          priceNonMember: formData.price_non_member,
-          nebensaisonPreis: formData.nebensaison_preis,
-          hauptsaisonPreis: formData.hauptsaison_preis,
-          endreinigung: formData.endreinigung,
-          ort: formData.ort,
-          schluesselcode: formData.schluesselcode || null,
-        });
+        // Create new room (Optimistic Update via DataContext)
+        await createRoom(roomData);
       }
       onSuccess();
       onClose();

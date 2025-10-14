@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent, Bookmark, AlertTriangle, Info, MapPin, Briefcase, ChevronDown, ChevronUp, Search, History } from 'lucide-react';
+import { X, Calendar, Users, MessageSquare, UserPlus, DollarSign, Tag, CheckCircle, AlertCircle, Loader2, UserCheck, Trash2, Plus, ShoppingBag, Percent, Bookmark, AlertTriangle, Info, MapPin, Briefcase, ChevronDown, ChevronUp, Search, History, Wallet } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import SearchableGuestPicker from './SearchableGuestPicker';
 import SearchableRoomPicker from './SearchableRoomPicker';
 import EmailSelectionDialog from './EmailSelectionDialog';
 import CompanionSelector from './CompanionSelector';
+import BookingReminders from '../Reminders/BookingReminders';
 
 interface Guest {
   id: number;
@@ -45,6 +46,24 @@ interface Booking {
   status: string;
   bemerkungen?: string;
   ist_stiftungsfall?: boolean;
+  payment_recipient_id?: number | null;
+}
+
+interface PaymentRecipient {
+  id: number;
+  name: string;
+  company?: string;
+  street?: string;
+  plz?: string;
+  city?: string;
+  country: string;
+}
+
+interface GuestCreditBalance {
+  guestId: number;
+  balance: number;
+  totalAdded: number;
+  totalUsed: number;
 }
 
 interface AccompanyingGuest {
@@ -95,10 +114,12 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
     anzahl_gaeste: 1,
     status: 'bestaetigt',
     bemerkungen: '',
+    payment_recipient_id: null, // FIX: Initialize to null (not undefined!)
   });
 
   const [guests, setGuests] = useState<Guest[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [paymentRecipients, setPaymentRecipients] = useState<PaymentRecipient[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [priceInfo, setPriceInfo] = useState<any>(null);
@@ -141,6 +162,11 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   const [historyYearFilter, setHistoryYearFilter] = useState('all');
   const [historyLocationFilter, setHistoryLocationFilter] = useState('all');
 
+  // Guest Credit States
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [creditToApply, setCreditToApply] = useState<number>(0);
+  const [loadingCredit, setLoadingCredit] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       loadGuestsAndRooms();
@@ -153,6 +179,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
       setFormData({
         ...booking,
         bemerkungen: booking.bemerkungen || '',
+        payment_recipient_id: booking.payment_recipient_id || null,
       });
       // Load accompanying guests, services and discounts if editing
       if (booking.id) {
@@ -170,6 +197,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         anzahl_gaeste: 1,
         status: 'bestaetigt',
         bemerkungen: '',
+        payment_recipient_id: null, // FIX: Initialize to null (not undefined!)
       });
       setAccompanyingGuests([]);
       setAdditionalServices([]);
@@ -183,6 +211,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         anzahl_gaeste: 1,
         status: 'bestaetigt',
         bemerkungen: '',
+        payment_recipient_id: null, // FIX: Initialize to null (not undefined!)
       });
       setAccompanyingGuests([]);
       setAdditionalServices([]);
@@ -224,14 +253,45 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
     }
   }, [formData.room_id, formData.checkin_date, formData.checkout_date]);
 
+  // Load guest credit balance when guest is selected
+  useEffect(() => {
+    const loadCreditBalance = async () => {
+      if (formData.guest_id > 0 && isOpen) {
+        setLoadingCredit(true);
+        try {
+          const balance = await invoke<GuestCreditBalance>('get_guest_credit_balance', {
+            guestId: formData.guest_id,
+          });
+          setCreditBalance(balance.balance);
+          setCreditToApply(0); // Reset amount when guest changes
+          console.log('✅ [Credit] Loaded balance:', balance.balance, '€ for guest', formData.guest_id);
+        } catch (err) {
+          console.error('❌ [Credit] Fehler beim Laden des Guthabens:', err);
+          setCreditBalance(0);
+          setCreditToApply(0);
+        } finally {
+          setLoadingCredit(false);
+        }
+      } else {
+        // Reset when no guest selected
+        setCreditBalance(0);
+        setCreditToApply(0);
+      }
+    };
+
+    loadCreditBalance();
+  }, [formData.guest_id, isOpen]);
+
   const loadGuestsAndRooms = async () => {
     try {
-      const [guestsData, roomsData] = await Promise.all([
+      const [guestsData, roomsData, recipientsData] = await Promise.all([
         invoke<Guest[]>('get_all_guests_command'),
         invoke<Room[]>('get_all_rooms'),
+        invoke<PaymentRecipient[]>('get_payment_recipients'),
       ]);
       setGuests(guestsData);
       setRooms(roomsData);
+      setPaymentRecipients(recipientsData);
     } catch (err) {
       console.error('Fehler beim Laden:', err);
     }
@@ -612,6 +672,10 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log('🚀 [handleSubmit] START');
+    console.log('  📦 formData.payment_recipient_id:', formData.payment_recipient_id, 'type:', typeof formData.payment_recipient_id);
+    console.log('  📦 Complete formData:', JSON.stringify(formData, null, 2));
+
     if (!validateForm()) return;
 
     setError(null);
@@ -641,9 +705,38 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
+          paymentRecipientId: formData.payment_recipient_id || null, // ✅ FIX: camelCase for Tauri auto-conversion
         };
 
+        console.log('📤 [updatePayload] Payload being sent to updateBooking:');
+        console.log('  paymentRecipientId:', updatePayload.paymentRecipientId, 'type:', typeof updatePayload.paymentRecipientId);
+        console.log('  Complete payload:', JSON.stringify(updatePayload, null, 2));
+
         await updateBooking(booking.id, updatePayload);
+
+        // 💰 Apply guest credit if any
+        if (creditToApply > 0) {
+          console.log('💰 [Credit] Applying credit:', creditToApply, '€ to booking', booking.id);
+          try {
+            await invoke('use_guest_credit_for_booking', {
+              guestId: formData.guest_id,
+              bookingId: booking.id,
+              amount: creditToApply,
+              notes: `Guthaben verrechnet für Buchung #${booking.id}`,
+            });
+            console.log('✅ [Credit] Successfully applied credit');
+
+            // Guthaben-State aktualisieren
+            const newBalance = creditBalance - creditToApply;
+            setCreditBalance(newBalance);
+            setCreditToApply(0);
+          } catch (err) {
+            console.error('❌ [Credit] Fehler beim Verrechnen des Guthabens:', err);
+            // Nicht werfen - Buchung wurde bereits gespeichert
+            // User kann Guthaben später manuell verrechnen
+          }
+        }
+
         // Bei Update direkt schließen
         onSuccess();
         onClose();
@@ -672,6 +765,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
+          paymentRecipientId: formData.payment_recipient_id || null,
         };
 
         const result = await createBooking(bookingData) as any;
@@ -748,6 +842,29 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           }
         }
 
+        // 💰 Apply guest credit if any
+        if (creditToApply > 0 && result.id) {
+          console.log('💰 [Credit] Applying credit:', creditToApply, '€ to booking', result.id);
+          try {
+            await invoke('use_guest_credit_for_booking', {
+              guestId: formData.guest_id,
+              bookingId: result.id,
+              amount: creditToApply,
+              notes: `Guthaben verrechnet für Buchung #${result.id}`,
+            });
+            console.log('✅ [Credit] Successfully applied credit');
+
+            // Guthaben-State aktualisieren
+            const newBalance = creditBalance - creditToApply;
+            setCreditBalance(newBalance);
+            setCreditToApply(0);
+          } catch (err) {
+            console.error('❌ [Credit] Fehler beim Verrechnen des Guthabens:', err);
+            // Nicht werfen - Buchung wurde bereits gespeichert
+            // User kann Guthaben später manuell verrechnen
+          }
+        }
+
         // ✅ Booking nochmal laden um Services/Discounts/Emojis zu erhalten (Optimistic Update!)
         console.log('🔄 [BookingDialog] Lade Buchung neu mit Services...');
         await reloadBooking(result.id);
@@ -821,6 +938,46 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                 onSelectRoom={(roomId) => setFormData({ ...formData, room_id: roomId })}
               />
             </div>
+
+            {/* Payment Recipient Selection */}
+            {paymentRecipients.length > 0 && (
+              <div>
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                  <Briefcase className="w-4 h-4" />
+                  Rechnungsempfänger (optional)
+                </label>
+                <select
+                  value={formData.payment_recipient_id || ''}
+                  onChange={(e) => {
+                    console.log('🎯 [DROPDOWN] onChange fired!');
+                    console.log('  📦 e.target.value (raw):', e.target.value, 'type:', typeof e.target.value);
+                    const newValue = e.target.value ? parseInt(e.target.value) : null;
+                    console.log('  🔢 Parsed newValue:', newValue, 'type:', typeof newValue);
+                    console.log('  📝 Current formData.payment_recipient_id:', formData.payment_recipient_id);
+                    setFormData({ ...formData, payment_recipient_id: newValue });
+                    console.log('  ✅ setFormData called with payment_recipient_id:', newValue);
+                  }}
+                  className="w-full px-5 py-3.5 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  style={{
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 0.75rem center',
+                    backgroundSize: '1.5rem',
+                    paddingRight: '3rem'
+                  }}
+                >
+                  <option value="">Kein externer Empfänger (Standard: Gast)</option>
+                  {paymentRecipients.map((recipient) => (
+                    <option key={recipient.id} value={recipient.id}>
+                      {recipient.name}{recipient.company ? ` - ${recipient.company}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">
+                  Bei Auswahl wird die Rechnung an den externen Empfänger adressiert (z.B. Polizeidienststelle statt Gast)
+                </p>
+              </div>
+            )}
 
             {/* Gast-Info-Panel (wird angezeigt wenn Gast ausgewählt) */}
             {formData.guest_id > 0 && (() => {
@@ -1267,6 +1424,83 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
               </div>
             )}
 
+            {/* Guest Credit / Guthaben Section */}
+            {formData.guest_id > 0 && (loadingCredit || creditBalance > 0) && (
+              <div className="border border-emerald-200 rounded-lg p-4 bg-emerald-50">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-emerald-900 mb-3">
+                  <Wallet className="w-4 h-4" />
+                  Gast-Guthaben
+                </h3>
+
+                {loadingCredit ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Lade Guthaben...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-emerald-700">Verfügbares Guthaben:</span>
+                      <span className="font-bold text-emerald-900 text-lg">{creditBalance.toFixed(2)} €</span>
+                    </div>
+
+                    {creditBalance > 0 && priceInfo && (
+                      <>
+                        <div className="border-t border-emerald-300 pt-3">
+                          <label className="block text-sm font-medium text-emerald-700 mb-2">
+                            Guthaben verrechnen:
+                          </label>
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="number"
+                              min="0"
+                              max={Math.min(creditBalance, priceInfo.totalPrice)}
+                              step="0.01"
+                              value={creditToApply || ''}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                const maxAmount = Math.min(creditBalance, priceInfo.totalPrice);
+                                setCreditToApply(Math.min(value, maxAmount));
+                              }}
+                              placeholder="Betrag eingeben"
+                              className="flex-1 px-4 py-2 bg-white border border-emerald-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setCreditToApply(Math.min(creditBalance, priceInfo.totalPrice))}
+                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-lg transition-colors"
+                            >
+                              Max
+                            </button>
+                          </div>
+                          <p className="text-xs text-emerald-600 mt-1">
+                            Max. {Math.min(creditBalance, priceInfo.totalPrice).toFixed(2)} € (Guthaben oder Rechnungsbetrag)
+                          </p>
+                        </div>
+
+                        {creditToApply > 0 && (
+                          <div className="border-t border-emerald-300 pt-3 space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-emerald-700">Ursprünglicher Preis:</span>
+                              <span className="font-semibold text-emerald-900">{priceInfo.totalPrice.toFixed(2)} €</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-emerald-700">- Verrechnetes Guthaben:</span>
+                              <span className="font-semibold text-emerald-700">-{creditToApply.toFixed(2)} €</span>
+                            </div>
+                            <div className="flex justify-between border-t border-emerald-300 pt-2">
+                              <span className="font-bold text-emerald-900">Zu zahlender Betrag:</span>
+                              <span className="font-bold text-emerald-900 text-lg">{(priceInfo.totalPrice - creditToApply).toFixed(2)} €</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Bemerkungen */}
             <div>
               <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
@@ -1302,6 +1536,13 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                 </div>
               </label>
             </div>
+
+            {/* Reminders Section - Only show when editing existing booking */}
+            {booking?.id && (
+              <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                <BookingReminders bookingId={booking.id} />
+              </div>
+            )}
 
             {/* Companion Selector - Neues System mit Pool */}
             {formData.guest_id && (() => {

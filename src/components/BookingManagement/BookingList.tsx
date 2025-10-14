@@ -3,8 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Calendar, Search, Edit2, X, CheckCircle, Circle, Clock, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Eye, Euro, AlertCircle } from 'lucide-react';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
-import BookingDialog from './BookingDialog';
-import BookingDetails from './BookingDetails';
+import BookingSidebar from './BookingSidebar';
 import ErrorBoundary from '../ErrorBoundary';
 import ConfirmDialog from '../ConfirmDialog';
 import CancellationConfirmDialog from './CancellationConfirmDialog';
@@ -66,10 +65,13 @@ export default function BookingList() {
   const [dateTo, setDateTo] = useState<string>('');
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
-  const [showDialog, setShowDialog] = useState(false);
-  const [selectedBooking, setSelectedBooking] = useState<Booking | undefined>(undefined);
-  const [showDetails, setShowDetails] = useState(false);
-  const [detailsBookingId, setDetailsBookingId] = useState<number | null>(null);
+
+  // Sidebar State
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarBookingId, setSidebarBookingId] = useState<number | null>(null);
+  const [sidebarMode, setSidebarMode] = useState<'view' | 'edit' | 'create'>('view');
+  const [sidebarPrefillData, setSidebarPrefillData] = useState<{ roomId?: number; checkinDate?: string; checkoutDate?: string } | undefined>(undefined);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<{ id: number; reservierungsnummer: string } | null>(null);
   const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
@@ -323,8 +325,11 @@ export default function BookingList() {
           </div>
           <button
             onClick={() => {
-              setSelectedBooking(undefined);
-              setShowDialog(true);
+              // Öffne Sidebar in Create Mode
+              setSidebarBookingId(null);
+              setSidebarMode('create');
+              setSidebarPrefillData(undefined);
+              setShowSidebar(true);
             }}
             className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-4 py-2 rounded-lg font-semibold shadow-lg transition-all"
           >
@@ -597,8 +602,11 @@ export default function BookingList() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => {
-                              setDetailsBookingId(booking.id);
-                              setShowDetails(true);
+                              // Öffne Sidebar in View Mode
+                              setSidebarBookingId(booking.id);
+                              setSidebarMode('view');
+                              setSidebarPrefillData(undefined);
+                              setShowSidebar(true);
                             }}
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                           >
@@ -607,8 +615,11 @@ export default function BookingList() {
                           </button>
                           <button
                             onClick={() => {
-                              setSelectedBooking(booking);
-                              setShowDialog(true);
+                              // Öffne Sidebar in Edit Mode
+                              setSidebarBookingId(booking.id);
+                              setSidebarMode('edit');
+                              setSidebarPrefillData(undefined);
+                              setShowSidebar(true);
                             }}
                             className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           >
@@ -633,38 +644,19 @@ export default function BookingList() {
         )}
       </div>
 
-      {/* Booking Dialog */}
-      <BookingDialog
-        isOpen={showDialog}
-        onClose={() => setShowDialog(false)}
-        onSuccess={() => {
-          refreshAll();
-          setShowDialog(false);
+      {/* Booking Sidebar (Ersetzt alte BookingDialog + BookingDetails) */}
+      <BookingSidebar
+        bookingId={sidebarBookingId}
+        isOpen={showSidebar}
+        onClose={() => {
+          setShowSidebar(false);
+          setSidebarBookingId(null);
+          setSidebarMode('view');
+          setSidebarPrefillData(undefined);
         }}
-        booking={selectedBooking}
+        mode={sidebarMode}
+        prefillData={sidebarPrefillData}
       />
-
-      {/* Booking Details */}
-      {detailsBookingId && (
-        <ErrorBoundary>
-          <BookingDetails
-            bookingId={detailsBookingId}
-            isOpen={showDetails}
-            onClose={() => {
-              setShowDetails(false);
-              setDetailsBookingId(null);
-            }}
-            onEdit={() => {
-              const booking = bookings.find(b => b.id === detailsBookingId);
-              if (booking) {
-                setSelectedBooking(booking);
-                setShowDetails(false);
-                setShowDialog(true);
-              }
-            }}
-          />
-        </ErrorBoundary>
-      )}
 
       {/* Delete Confirmation Dialog with Email Option */}
       {showDeleteConfirm && bookingToDelete && (

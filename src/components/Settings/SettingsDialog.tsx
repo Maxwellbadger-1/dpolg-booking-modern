@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Mail, FileText, CreditCard, Building2, Bell, HardDrive, DollarSign } from 'lucide-react';
+import { X, Mail, FileText, CreditCard, Building2, Bell, HardDrive, DollarSign, Users } from 'lucide-react';
 import EmailConfigTab from './EmailConfigTab';
 import EmailTemplatesTab from './EmailTemplatesTab';
 import PaymentSettingsTab from './PaymentSettingsTab';
@@ -7,13 +7,14 @@ import GeneralSettingsTab from './GeneralSettingsTab';
 import NotificationsTab from './NotificationsTab';
 import BackupTab from './BackupTab';
 import PricingSettingsTab from './PricingSettingsTab';
+import PaymentRecipientsTab from './PaymentRecipientsTab';
 
 interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type SettingsTab = 'email' | 'templates' | 'payment' | 'pricing' | 'general' | 'notifications' | 'backup';
+type SettingsTab = 'email' | 'templates' | 'payment' | 'payment_recipients' | 'pricing' | 'general' | 'notifications' | 'backup';
 
 export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('email');
@@ -24,6 +25,7 @@ export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps)
     { id: 'email' as SettingsTab, label: 'Email-Konfiguration', icon: Mail },
     { id: 'templates' as SettingsTab, label: 'Email-Templates', icon: FileText },
     { id: 'payment' as SettingsTab, label: 'Zahlungseinstellungen', icon: CreditCard },
+    { id: 'payment_recipients' as SettingsTab, label: 'Rechnungsempfänger', icon: Users },
     { id: 'pricing' as SettingsTab, label: 'Preise', icon: DollarSign },
     { id: 'general' as SettingsTab, label: 'Allgemein', icon: Building2 },
     { id: 'notifications' as SettingsTab, label: 'Benachrichtigungen', icon: Bell },
@@ -79,6 +81,7 @@ export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps)
           {activeTab === 'email' && <EmailConfigTab />}
           {activeTab === 'templates' && <EmailTemplatesTab />}
           {activeTab === 'payment' && <PaymentSettingsTab />}
+          {activeTab === 'payment_recipients' && <PaymentRecipientsTab />}
           {activeTab === 'pricing' && <PricingSettingsTab />}
           {activeTab === 'general' && <GeneralSettingsTab />}
           {activeTab === 'notifications' && <NotificationsTab />}

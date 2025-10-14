@@ -13,6 +13,8 @@ mod backup;
 mod transaction_log;
 mod supabase;
 mod reminders;
+mod invoice_html;
+mod payment_recipients;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -304,6 +306,7 @@ fn update_booking_command(
     rabatt_preis: f64,
     anzahl_naechte: i32,
     ist_stiftungsfall: bool,
+    payment_recipient_id: Option<i64>,
 ) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: update_booking_command called");
     println!("  id: {}", id);
@@ -321,6 +324,7 @@ fn update_booking_command(
     println!("  rabatt_preis: {}", rabatt_preis);
     println!("  anzahl_naechte: {}", anzahl_naechte);
     println!("  ist_stiftungsfall: {}", ist_stiftungsfall);
+    println!("  payment_recipient_id: {:?}", payment_recipient_id);
 
     database::update_booking(
         id,
@@ -338,6 +342,7 @@ fn update_booking_command(
         rabatt_preis,
         anzahl_naechte,
         ist_stiftungsfall,
+        payment_recipient_id,
     )
     .map_err(|e| format!("Fehler beim Aktualisieren der Buchung: {}", e))
 }
@@ -1189,6 +1194,8 @@ pub fn run() {
             // Pricing Settings
             get_pricing_settings_command,
             save_pricing_settings_command,
+            // Invoice HTML Generation
+            invoice_html::generate_invoice_html,
             // PDF Generation
             pdf_generator::generate_invoice_pdf_command,
             pdf_generator::get_invoice_pdfs_for_booking_command,
@@ -1218,6 +1225,7 @@ pub fn run() {
             supabase::sync_affected_dates,
             supabase::get_cleaning_stats,
             supabase::migrate_cleaning_tasks_schema,
+            supabase::test_emoji_sync,
             get_backup_settings_command,
             save_backup_settings_command,
             open_backup_folder_command,
@@ -1236,6 +1244,17 @@ pub fn run() {
             delete_reminder_command,
             get_reminder_settings_command,
             save_reminder_settings_command,
+            // Payment Recipients
+            payment_recipients::get_payment_recipients,
+            payment_recipients::get_payment_recipient,
+            payment_recipients::create_payment_recipient,
+            payment_recipients::update_payment_recipient,
+            payment_recipients::delete_payment_recipient,
+            // Guest Credit System
+            database::add_guest_credit,
+            database::get_guest_credit_balance,
+            database::get_guest_credit_transactions,
+            database::use_guest_credit_for_booking,
         ])
         .setup(|app| {
             // Starte Email-Scheduler im Hintergrund

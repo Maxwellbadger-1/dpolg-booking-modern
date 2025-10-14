@@ -27,6 +27,9 @@ export default function ServiceTemplateDialog({
     color_hex: '#3b82f6',
     show_in_cleaning_plan: false,
     cleaning_plan_position: 'start' as 'start' | 'end',
+    requires_dog_cleaning: false,
+    requires_bedding_change: false,
+    requires_deep_cleaning: false,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +47,9 @@ export default function ServiceTemplateDialog({
         color_hex: template.color_hex || '#3b82f6',
         show_in_cleaning_plan: template.show_in_cleaning_plan,
         cleaning_plan_position: template.cleaning_plan_position,
+        requires_dog_cleaning: template.requires_dog_cleaning || false,
+        requires_bedding_change: template.requires_bedding_change || false,
+        requires_deep_cleaning: template.requires_deep_cleaning || false,
       });
     } else {
       setFormData({
@@ -55,6 +61,9 @@ export default function ServiceTemplateDialog({
         color_hex: '#3b82f6',
         show_in_cleaning_plan: false,
         cleaning_plan_position: 'start',
+        requires_dog_cleaning: false,
+        requires_bedding_change: false,
+        requires_deep_cleaning: false,
       });
     }
     setError(null);
@@ -95,6 +104,9 @@ export default function ServiceTemplateDialog({
           colorHex: formData.color_hex || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
+          requiresDogCleaning: formData.requires_dog_cleaning,
+          requiresBeddingChange: formData.requires_bedding_change,
+          requiresDeepCleaning: formData.requires_deep_cleaning,
         });
       } else {
         // Create new template
@@ -106,6 +118,9 @@ export default function ServiceTemplateDialog({
           colorHex: formData.color_hex || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
+          requiresDogCleaning: formData.requires_dog_cleaning,
+          requiresBeddingChange: formData.requires_bedding_change,
+          requiresDeepCleaning: formData.requires_deep_cleaning,
         });
       }
       onSuccess();
@@ -324,6 +339,75 @@ export default function ServiceTemplateDialog({
               </div>
             )}
           </div>
+
+          {/* Professional Cleaning Flags - NEW! */}
+          {formData.show_in_cleaning_plan && (
+            <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <span>🧹</span> Reinigungs-Anforderungen
+              </h4>
+              <p className="text-xs text-slate-500">
+                Diese Flags ermöglichen zuverlässige Erkennung im Putzplan (keine Emoji-Varianten-Probleme mehr!)
+              </p>
+
+              {/* Hund-Reinigung */}
+              <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-300 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={formData.requires_dog_cleaning}
+                  onChange={(e) => setFormData({ ...formData, requires_dog_cleaning: e.target.checked })}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🐕</span>
+                    <span className="font-medium text-slate-700">Hund-Reinigung erforderlich</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Zimmer benötigt spezielle Reinigung nach Hunde-Aufenthalt
+                  </p>
+                </div>
+              </label>
+
+              {/* Bettwäsche-Wechsel */}
+              <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-300 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={formData.requires_bedding_change}
+                  onChange={(e) => setFormData({ ...formData, requires_bedding_change: e.target.checked })}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🛏️</span>
+                    <span className="font-medium text-slate-700">Bettwäsche-Wechsel erforderlich</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Zusätzlicher Bettwäsche-Wechsel notwendig
+                  </p>
+                </div>
+              </label>
+
+              {/* Intensiv-Reinigung */}
+              <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 hover:border-blue-300 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={formData.requires_deep_cleaning}
+                  onChange={(e) => setFormData({ ...formData, requires_deep_cleaning: e.target.checked })}
+                  className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">✨</span>
+                    <span className="font-medium text-slate-700">Intensiv-Reinigung erforderlich</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Zimmer benötigt gründliche Tiefenreinigung
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
 
           {/* Active Toggle */}
           {template && (

@@ -1,0 +1,258 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e7]:
+          - img [ref=e9]
+          - heading "DPolG Buchungssystem" [level=1] [ref=e13]
+        - generic [ref=e14]:
+          - button "0 Zimmer" [ref=e15] [cursor=pointer]:
+            - img [ref=e17]
+            - generic [ref=e19]:
+              - generic [ref=e20]: "0"
+              - generic [ref=e21]: Zimmer
+          - button "0 Aktiv" [ref=e22] [cursor=pointer]:
+            - img [ref=e24]
+            - generic [ref=e26]:
+              - generic [ref=e27]: "0"
+              - generic [ref=e28]: Aktiv
+          - button "NaN% Auslastung" [ref=e29] [cursor=pointer]:
+            - img [ref=e31]
+            - generic [ref=e33]:
+              - generic [ref=e34]: NaN%
+              - generic [ref=e35]: Auslastung
+      - generic [ref=e36]:
+        - button "Einstellungen" [ref=e37] [cursor=pointer]:
+          - img [ref=e38]
+        - button "Erinnerungen" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - button "Neuer Gast" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+          - text: Neuer Gast
+        - generic [ref=e50]:
+          - img [ref=e51]
+          - generic [ref=e53]: Mo., 13. Okt. 2025
+    - generic [ref=e55]:
+      - generic [ref=e56]:
+        - button "Dashboard" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - generic [ref=e63]: Dashboard
+        - button "Buchungen" [ref=e64] [cursor=pointer]:
+          - img [ref=e65]
+          - generic [ref=e68]: Buchungen
+        - button "Gäste" [ref=e69] [cursor=pointer]:
+          - img [ref=e70]
+          - generic [ref=e75]: Gäste
+        - button "Zimmer" [ref=e76] [cursor=pointer]:
+          - img [ref=e77]
+          - generic [ref=e80]: Zimmer
+        - button "Erinnerungen" [ref=e81] [cursor=pointer]:
+          - img [ref=e82]
+          - generic [ref=e85]: Erinnerungen
+        - button "Services & Rabatte" [ref=e86] [cursor=pointer]:
+          - img [ref=e87]
+          - generic [ref=e90]: Services & Rabatte
+        - button "Email-Verlauf" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+          - generic [ref=e95]: Email-Verlauf
+        - button "Statistiken" [ref=e96] [cursor=pointer]:
+          - img [ref=e97]
+          - generic [ref=e100]: Statistiken
+        - button "Putzplan Sync" [ref=e101] [cursor=pointer]:
+          - img [ref=e102]
+          - generic [ref=e104]: Putzplan Sync
+      - button "Rückgängig" [disabled] [ref=e106]:
+        - img [ref=e107]
+        - generic [ref=e110]: Rückgängig
+  - main [ref=e111]:
+    - generic [ref=e112]:
+      - generic [ref=e113]:
+        - generic [ref=e114]:
+          - button [ref=e115] [cursor=pointer]:
+            - img [ref=e116]
+          - button "Oktober 2025" [ref=e119] [cursor=pointer]:
+            - img [ref=e120]
+            - generic [ref=e122]: Oktober 2025
+            - img [ref=e123]
+          - button [ref=e125] [cursor=pointer]:
+            - img [ref=e126]
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - button "Kompakt" [ref=e130] [cursor=pointer]:
+              - img [ref=e131]
+            - button "Komfortabel" [ref=e133] [cursor=pointer]:
+              - img [ref=e134]
+            - button "Weitläufig" [ref=e136] [cursor=pointer]:
+              - img [ref=e137]
+          - button "Heute" [ref=e138] [cursor=pointer]:
+            - img [ref=e139]
+            - generic [ref=e141]: Heute
+      - generic [ref=e143]:
+        - generic [ref=e144]:
+          - img [ref=e145]
+          - textbox "Suche nach Gast oder Reservierungsnummer..." [ref=e148]
+        - generic [ref=e149]:
+          - combobox [ref=e150] [cursor=pointer]:
+            - option "Alle Gebäudetypen" [selected]
+          - generic:
+            - img
+      - generic [ref=e151]:
+        - generic [ref=e152]:
+          - generic:
+            - generic: HEUTE
+          - generic [ref=e154]:
+            - generic [ref=e156]:
+              - img [ref=e157]
+              - generic [ref=e159]: Zimmer
+            - generic [ref=e160]:
+              - generic [ref=e161]:
+                - generic [ref=e162]: Mi.
+                - generic [ref=e163]: "1"
+                - generic [ref=e164]: Okt.
+              - generic [ref=e165]:
+                - generic [ref=e166]: Do.
+                - generic [ref=e167]: "2"
+                - generic [ref=e168]: Okt.
+              - generic [ref=e169]:
+                - generic [ref=e170]: Fr.
+                - generic [ref=e171]: "3"
+                - generic [ref=e172]: Okt.
+              - generic [ref=e173]:
+                - generic [ref=e174]: Sa.
+                - generic [ref=e175]: "4"
+                - generic [ref=e176]: Okt.
+              - generic [ref=e177]:
+                - generic [ref=e178]: So.
+                - generic [ref=e179]: "5"
+                - generic [ref=e180]: Okt.
+              - generic [ref=e181]:
+                - generic [ref=e182]: Mo.
+                - generic [ref=e183]: "6"
+                - generic [ref=e184]: Okt.
+              - generic [ref=e185]:
+                - generic [ref=e186]: Di.
+                - generic [ref=e187]: "7"
+                - generic [ref=e188]: Okt.
+              - generic [ref=e189]:
+                - generic [ref=e190]: Mi.
+                - generic [ref=e191]: "8"
+                - generic [ref=e192]: Okt.
+              - generic [ref=e193]:
+                - generic [ref=e194]: Do.
+                - generic [ref=e195]: "9"
+                - generic [ref=e196]: Okt.
+              - generic [ref=e197]:
+                - generic [ref=e198]: Fr.
+                - generic [ref=e199]: "10"
+                - generic [ref=e200]: Okt.
+              - generic [ref=e201]:
+                - generic [ref=e202]: Sa.
+                - generic [ref=e203]: "11"
+                - generic [ref=e204]: Okt.
+              - generic [ref=e205]:
+                - generic [ref=e206]: So.
+                - generic [ref=e207]: "12"
+                - generic [ref=e208]: Okt.
+              - generic [ref=e209]:
+                - generic [ref=e210]: Mo.
+                - generic [ref=e211]: "13"
+                - generic [ref=e212]: Okt.
+              - generic [ref=e213]:
+                - generic [ref=e214]: Di.
+                - generic [ref=e215]: "14"
+                - generic [ref=e216]: Okt.
+              - generic [ref=e217]:
+                - generic [ref=e218]: Mi.
+                - generic [ref=e219]: "15"
+                - generic [ref=e220]: Okt.
+              - generic [ref=e221]:
+                - generic [ref=e222]: Do.
+                - generic [ref=e223]: "16"
+                - generic [ref=e224]: Okt.
+              - generic [ref=e225]:
+                - generic [ref=e226]: Fr.
+                - generic [ref=e227]: "17"
+                - generic [ref=e228]: Okt.
+              - generic [ref=e229]:
+                - generic [ref=e230]: Sa.
+                - generic [ref=e231]: "18"
+                - generic [ref=e232]: Okt.
+              - generic [ref=e233]:
+                - generic [ref=e234]: So.
+                - generic [ref=e235]: "19"
+                - generic [ref=e236]: Okt.
+              - generic [ref=e237]:
+                - generic [ref=e238]: Mo.
+                - generic [ref=e239]: "20"
+                - generic [ref=e240]: Okt.
+              - generic [ref=e241]:
+                - generic [ref=e242]: Di.
+                - generic [ref=e243]: "21"
+                - generic [ref=e244]: Okt.
+              - generic [ref=e245]:
+                - generic [ref=e246]: Mi.
+                - generic [ref=e247]: "22"
+                - generic [ref=e248]: Okt.
+              - generic [ref=e249]:
+                - generic [ref=e250]: Do.
+                - generic [ref=e251]: "23"
+                - generic [ref=e252]: Okt.
+              - generic [ref=e253]:
+                - generic [ref=e254]: Fr.
+                - generic [ref=e255]: "24"
+                - generic [ref=e256]: Okt.
+              - generic [ref=e257]:
+                - generic [ref=e258]: Sa.
+                - generic [ref=e259]: "25"
+                - generic [ref=e260]: Okt.
+              - generic [ref=e261]:
+                - generic [ref=e262]: So.
+                - generic [ref=e263]: "26"
+                - generic [ref=e264]: Okt.
+              - generic [ref=e265]:
+                - generic [ref=e266]: Mo.
+                - generic [ref=e267]: "27"
+                - generic [ref=e268]: Okt.
+              - generic [ref=e269]:
+                - generic [ref=e270]: Di.
+                - generic [ref=e271]: "28"
+                - generic [ref=e272]: Okt.
+              - generic [ref=e273]:
+                - generic [ref=e274]: Mi.
+                - generic [ref=e275]: "29"
+                - generic [ref=e276]: Okt.
+              - generic [ref=e277]:
+                - generic [ref=e278]: Do.
+                - generic [ref=e279]: "30"
+                - generic [ref=e280]: Okt.
+              - generic [ref=e281]:
+                - generic [ref=e282]: Fr.
+                - generic [ref=e283]: "31"
+                - generic [ref=e284]: Okt.
+        - generic [ref=e286]:
+          - generic [ref=e287]: "Status:"
+          - button "Alle" [ref=e288] [cursor=pointer]:
+            - generic [ref=e290]: Alle
+          - button "bestaetigt 0" [ref=e291] [cursor=pointer]:
+            - generic [ref=e293]: bestaetigt
+            - generic [ref=e294]: "0"
+          - button "eingecheckt 0" [ref=e295] [cursor=pointer]:
+            - generic [ref=e297]: eingecheckt
+            - generic [ref=e298]: "0"
+          - button "ausgecheckt 0" [ref=e299] [cursor=pointer]:
+            - generic [ref=e301]: ausgecheckt
+            - generic [ref=e302]: "0"
+          - button "storniert 0" [ref=e303] [cursor=pointer]:
+            - generic [ref=e305]: storniert
+            - generic [ref=e306]: "0"
+          - button "stiftungsfall 0" [ref=e307] [cursor=pointer]:
+            - generic [ref=e309]: stiftungsfall
+            - generic [ref=e310]: "0"
+    - status [ref=e311]
+  - button "Neue Buchung erstellen" [ref=e312] [cursor=pointer]:
+    - img [ref=e313]
+    - generic: Neue Buchung erstellen
+```

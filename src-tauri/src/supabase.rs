@@ -205,7 +205,7 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
             };
 
             // 🏔️ Room Location von booking.room.ort
-            let room_location = booking.room.ort.as_ref().map(|s| s.replace("'", "''")).unwrap_or_default();
+            let room_location = booking.room.ort.replace("'", "''");
 
             // INSERT Check-IN Task (mit room_location)
             let insert_sql = format!(
@@ -280,7 +280,7 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
         };
 
         // 🏔️ Room Location von booking.room.ort
-        let room_location = booking.room.ort.as_ref().map(|s| s.replace("'", "''")).unwrap_or_default();
+        let room_location = booking.room.ort.replace("'", "''");
 
         // INSERT Check-OUT Task (mit room_location)
         let insert_sql = format!(
@@ -573,8 +573,8 @@ pub async fn test_emoji_sync() -> Result<String, String> {
 
     let client = Client::new();
 
-    // Query die ersten 10 Aufgaben mit Emojis
-    let sql = "SELECT booking_id, room_name, guest_name, date, emojis_start, emojis_end FROM cleaning_tasks ORDER BY date LIMIT 15".to_string();
+    // Query die ersten 15 Aufgaben MIT room_location
+    let sql = "SELECT booking_id, room_name, room_location, guest_name, date, emojis_start, emojis_end FROM cleaning_tasks ORDER BY date LIMIT 15".to_string();
 
     let request_body = TursoRequest {
         requests: vec![
@@ -623,21 +623,22 @@ pub async fn test_emoji_sync() -> Result<String, String> {
                         if let Some(rows_array) = rows.as_array() {
                             total_count = rows_array.len();
 
-                            for (idx, row) in rows_array.iter().enumerate() {
+                            for (_idx, row) in rows_array.iter().enumerate() {
                                 if let Some(row_array) = row.as_array() {
                                     let booking_id = row_array.get(0).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
                                     let room_name = row_array.get(1).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
-                                    let guest_name = row_array.get(2).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
-                                    let date = row_array.get(3).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
-                                    let emojis_start = row_array.get(4).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
-                                    let emojis_end = row_array.get(5).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
+                                    let room_location = row_array.get(2).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("KEINE LOCATION!");
+                                    let guest_name = row_array.get(3).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
+                                    let date = row_array.get(4).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
+                                    let emojis_start = row_array.get(5).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
+                                    let emojis_end = row_array.get(6).and_then(|v| v.get("value")).and_then(|v| v.as_str()).unwrap_or("");
 
                                     // Nur Zeilen mit Emojis anzeigen
                                     if !emojis_start.is_empty() || !emojis_end.is_empty() {
                                         emoji_found_count += 1;
                                         result.push_str(&format!(
-                                            "{}. Booking #{} | {} | {}\n",
-                                            emoji_found_count, booking_id, room_name, date
+                                            "{}. Booking #{} | {} | 📍 {} | {}\n",
+                                            emoji_found_count, booking_id, room_name, room_location, date
                                         ));
                                         result.push_str(&format!("   Gast: {}\n", guest_name));
                                         if !emojis_start.is_empty() {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase, MapPinned, Building2 } from 'lucide-react';
+import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase, MapPinned, Building2, Wallet, Plus, Minus, Clock, History } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 
 // HMR Force Reload - Padding Fix Applied
@@ -17,6 +17,24 @@ interface Guest {
   ort?: string;
   mitgliedsnummer?: string;
   notizen?: string;
+}
+
+// Credit System Types
+interface GuestCreditTransaction {
+  id: number;
+  guestId: number;
+  amount: number;
+  transactionType: 'added' | 'used' | 'expired' | 'refund';
+  bookingId?: number | null;
+  notes?: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+interface GuestCreditBalance {
+  guestId: number;
+  balance: number;
+  transactionCount: number;
 }
 
 interface GuestDialogProps {
@@ -78,6 +96,15 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
   const [toast, setToast] = useState<Toast | null>(null);
   const [emailValidating, setEmailValidating] = useState(false);
 
+  // Credit Management State
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<GuestCreditBalance | null>(null);
+  const [creditTransactions, setCreditTransactions] = useState<GuestCreditTransaction[]>([]);
+  const [creditLoading, setCreditLoading] = useState(false);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditNotes, setCreditNotes] = useState('');
+  const [creditType, setCreditType] = useState<'added' | 'expired' | 'refund'>('added');
+
   // Initialize form with guest data when editing
   useEffect(() => {
     if (guest) {
@@ -122,6 +149,122 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 5000);
+  };
+
+  // Load credit data when editing guest
+  useEffect(() => {
+    if (guest && isOpen) {
+      loadCreditData();
+    }
+  }, [guest, isOpen]);
+
+  // Load credit balance and transactions
+  const loadCreditData = async () => {
+    if (!guest) return;
+
+    setCreditLoading(true);
+    try {
+      const [balance, transactions] = await Promise.all([
+        invoke<GuestCreditBalance>('get_guest_credit_balance', { guestId: guest.id }),
+        invoke<GuestCreditTransaction[]>('get_guest_credit_transactions', { guestId: guest.id }),
+      ]);
+
+      setCreditBalance(balance);
+      setCreditTransactions(transactions);
+    } catch (err) {
+      console.error('Error loading credit data:', err);
+      showToast('error', `Fehler beim Laden des Guthabens: ${String(err)}`);
+    } finally {
+      setCreditLoading(false);
+    }
+  };
+
+  // Add credit to guest
+  const handleAddCredit = async () => {
+    if (!guest) return;
+
+    const amount = parseFloat(creditAmount);
+    if (isNaN(amount) || amount === 0) {
+      showToast('error', 'Bitte geben Sie einen gültigen Betrag ein');
+      return;
+    }
+
+    if (!creditNotes.trim()) {
+      showToast('error', 'Bitte geben Sie eine Begründung ein');
+      return;
+    }
+
+    setCreditLoading(true);
+    try {
+      await invoke('add_guest_credit', {
+        guestId: guest.id,
+        amount,
+        transactionType: creditType,
+        notes: creditNotes.trim(),
+        createdBy: 'System',
+      });
+
+      // Reload credit data
+      await loadCreditData();
+
+      // Reset form
+      setCreditAmount('');
+      setCreditNotes('');
+      setCreditType('added');
+
+      showToast('success', 'Guthaben erfolgreich hinzugefügt');
+    } catch (err) {
+      console.error('Error adding credit:', err);
+      showToast('error', `Fehler beim Hinzufügen: ${String(err)}`);
+    } finally {
+      setCreditLoading(false);
+    }
+  };
+
+  // Format date for display
+  const formatDate = (dateStr: string): string => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('de-DE', {
+      style: 'currency',
+      currency: 'EUR',
+    }).format(amount);
+  };
+
+  // Get transaction type label
+  const getTransactionTypeLabel = (type: string): string => {
+    const labels: Record<string, string> = {
+      added: 'Gutgeschrieben',
+      used: 'Verrechnet',
+      expired: 'Verfallen',
+      refund: 'Rückerstattet',
+    };
+    return labels[type] || type;
+  };
+
+  // Get transaction type color
+  const getTransactionTypeColor = (type: string): string => {
+    const colors: Record<string, string> = {
+      added: 'text-emerald-400',
+      used: 'text-red-400',
+      expired: 'text-amber-400',
+      refund: 'text-blue-400',
+    };
+    return colors[type] || 'text-slate-400';
   };
 
   // Validate email using backend command
@@ -610,6 +753,60 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
               )}
             </div>
 
+            {/* Section: Guthaben (only for existing guests) */}
+            {guest && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-white border-b border-slate-600 pb-2 flex-1">
+                    Guthaben
+                  </h3>
+                </div>
+
+                {/* Current Balance Display */}
+                <div className="p-4 bg-gradient-to-r from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-emerald-500/20 rounded-lg">
+                        <Wallet className="w-5 h-5 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-300">Aktuelles Guthaben</p>
+                        {creditLoading ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" />
+                            <span className="text-sm text-slate-400">Lädt...</span>
+                          </div>
+                        ) : (
+                          <p className={`text-2xl font-bold ${
+                            (creditBalance?.balance || 0) > 0 ? 'text-emerald-400' : 'text-slate-300'
+                          }`}>
+                            {formatCurrency(creditBalance?.balance || 0)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowCreditModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                    >
+                      <History className="w-4 h-4" />
+                      Guthaben verwalten
+                    </button>
+                  </div>
+
+                  {/* Transaction Count Info */}
+                  {creditBalance && creditBalance.transactionCount > 0 && (
+                    <div className="mt-3 pt-3 border-t border-emerald-500/20">
+                      <p className="text-xs text-slate-400">
+                        {creditBalance.transactionCount} {creditBalance.transactionCount === 1 ? 'Transaktion' : 'Transaktionen'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Section: Notizen */}
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-white border-b border-slate-600 pb-2">
@@ -688,6 +885,198 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
             <span className="font-medium">{toast.message}</span>
           </div>
         </div>
+      )}
+
+      {/* Credit Management Modal */}
+      {showCreditModal && guest && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] transition-opacity"
+            onClick={() => setShowCreditModal(false)}
+          />
+
+          {/* Modal */}
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <div
+              className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl border border-slate-700 w-full max-w-4xl max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-6 border-b border-slate-700/50 bg-slate-900/50">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg">
+                    <Wallet className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Guthaben verwalten</h2>
+                    <p className="text-sm text-slate-400 mt-1">
+                      {guest.vorname} {guest.nachname} - Aktuelles Guthaben: {formatCurrency(creditBalance?.balance || 0)}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowCreditModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors p-2 hover:bg-slate-700/50 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)] space-y-6">
+                {/* Add Credit Form */}
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-emerald-400" />
+                    Guthaben hinzufügen
+                  </h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Transaction Type */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-slate-200">
+                        Typ
+                      </label>
+                      <select
+                        value={creditType}
+                        onChange={(e) => setCreditType(e.target.value as 'added' | 'expired' | 'refund')}
+                        className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        disabled={creditLoading}
+                      >
+                        <option value="added">Gutschrift</option>
+                        <option value="refund">Rückerstattung</option>
+                        <option value="expired">Verfall</option>
+                      </select>
+                    </div>
+
+                    {/* Amount */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-slate-200">
+                        Betrag (€)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={creditAmount}
+                        onChange={(e) => setCreditAmount(e.target.value)}
+                        placeholder="50.00"
+                        className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                        disabled={creditLoading}
+                      />
+                    </div>
+
+                    {/* Add Button */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-slate-200 opacity-0">
+                        Action
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAddCredit}
+                        disabled={creditLoading || !creditAmount || !creditNotes.trim()}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {creditLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>Lädt...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4" />
+                            <span>Hinzufügen</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  <div className="mt-4 space-y-2">
+                    <label className="block text-sm font-medium text-slate-200">
+                      Begründung *
+                    </label>
+                    <textarea
+                      value={creditNotes}
+                      onChange={(e) => setCreditNotes(e.target.value)}
+                      rows={2}
+                      placeholder="z.B. Gutschrift für Beschwerde, Erstattung für Stornierung, ..."
+                      className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-none"
+                      disabled={creditLoading}
+                    />
+                  </div>
+                </div>
+
+                {/* Transaction History */}
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-blue-400" />
+                    Transaktionshistorie
+                  </h3>
+
+                  {creditTransactions.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400">
+                      <History className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>Noch keine Transaktionen vorhanden</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {creditTransactions.map((transaction) => (
+                        <div
+                          key={transaction.id}
+                          className="p-4 bg-slate-800/50 rounded-lg border border-slate-700 hover:border-slate-600 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className={`text-sm font-medium ${getTransactionTypeColor(transaction.transactionType)}`}>
+                                  {getTransactionTypeLabel(transaction.transactionType)}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {formatDate(transaction.createdAt)}
+                                </span>
+                              </div>
+                              {transaction.notes && (
+                                <p className="text-sm text-slate-300 mb-2">{transaction.notes}</p>
+                              )}
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <span>Erstellt von: {transaction.createdBy}</span>
+                                {transaction.bookingId && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Buchung #{transaction.bookingId}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className={`text-right ${
+                              transaction.amount > 0 ? 'text-emerald-400' : 'text-red-400'
+                            }`}>
+                              <p className="text-lg font-bold">
+                                {transaction.amount > 0 ? '+' : ''}{formatCurrency(transaction.amount)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex justify-end gap-3 p-6 border-t border-slate-700/50 bg-slate-900/50">
+                <button
+                  onClick={() => setShowCreditModal(false)}
+                  className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors font-medium"
+                >
+                  Schließen
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </>
   );
