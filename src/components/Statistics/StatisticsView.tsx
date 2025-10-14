@@ -278,12 +278,16 @@ export default function StatisticsView() {
     ? totalNights / activeBookings.length
     : 0;
 
-  // Return guest rate (guests with more than 1 booking in this period)
-  const guestBookingCount = activeBookings.reduce((acc, b) => {
-    acc[b.guest_id] = (acc[b.guest_id] || 0) + 1;
-    return acc;
-  }, {} as Record<number, number>);
-  const returnGuests = Object.values(guestBookingCount).filter(count => count > 1).length;
+  // Return guest rate (guests who have booked more than once OVERALL, not just in this period)
+  const returnGuests = guestsInRange.filter(guest => {
+    // Count ALL bookings for this guest (across all time, not just in range)
+    const totalGuestBookings = bookings.filter(b =>
+      b.guest_id === guest.id &&
+      b.status !== 'storniert'
+    ).length;
+    return totalGuestBookings > 1; // Has booked more than once overall
+  }).length;
+
   const returnGuestRate = guestsInRange.length > 0
     ? Math.round((returnGuests / guestsInRange.length) * 100)
     : 0;
