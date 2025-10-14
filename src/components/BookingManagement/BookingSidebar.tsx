@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import toast from 'react-hot-toast';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
@@ -2048,11 +2049,21 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   if (booking.checkout_date) {
                                     console.log('🔄 [BookingSidebar] Service gelöscht - Auto-Sync zu Turso für', booking.checkout_date);
-                                    await invoke('sync_affected_dates', {
+
+                                    // Loading Toast
+                                    const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
+
+                                    // Fire-and-forget: Sync läuft im Hintergrund
+                                    invoke('sync_affected_dates', {
                                       oldCheckout: null,
                                       newCheckout: booking.checkout_date
+                                    }).then((result: unknown) => {
+                                      console.log('✅ [BookingSidebar] Auto-Sync erfolgreich:', result);
+                                      toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+                                    }).catch((error: unknown) => {
+                                      console.error('❌ [BookingSidebar] Auto-Sync Fehler:', error);
+                                      toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
                                     });
-                                    console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
                                   }
                                 } catch (error) {
                                   console.error('❌ Fehler beim Löschen des Service:', error);
@@ -2120,11 +2131,21 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   if (booking.checkout_date) {
                                     console.log('🔄 [BookingSidebar] Service-Template verknüpft - Auto-Sync zu Turso für', booking.checkout_date);
-                                    await invoke('sync_affected_dates', {
+
+                                    // Loading Toast
+                                    const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
+
+                                    // Fire-and-forget: Sync läuft im Hintergrund
+                                    invoke('sync_affected_dates', {
                                       oldCheckout: null,
                                       newCheckout: booking.checkout_date
+                                    }).then((result: unknown) => {
+                                      console.log('✅ [BookingSidebar] Auto-Sync erfolgreich:', result);
+                                      toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+                                    }).catch((error: unknown) => {
+                                      console.error('❌ [BookingSidebar] Auto-Sync Fehler:', error);
+                                      toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
                                     });
-                                    console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
                                   }
                                 } catch (error) {
                                   console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
