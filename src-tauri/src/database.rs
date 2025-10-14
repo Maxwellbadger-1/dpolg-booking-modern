@@ -2610,6 +2610,7 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
     // UNION Query: Beide Quellen kombinieren
     // 1. Manuelle Services aus additional_services
     // 2. Template-basierte Services aus booking_services JOIN service_templates
+    // NOTE: booking_services hat keine created_at Spalte, verwende CURRENT_TIMESTAMP
     let mut stmt = conn.prepare(
         "SELECT id, booking_id, service_name, service_price, created_at, NULL as template_id
          FROM additional_services
@@ -2622,7 +2623,7 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
             bs.booking_id,
             st.name as service_name,
             st.price as service_price,
-            bs.created_at,
+            datetime('now') as created_at,
             bs.service_template_id as template_id
          FROM booking_services bs
          JOIN service_templates st ON bs.service_template_id = st.id
