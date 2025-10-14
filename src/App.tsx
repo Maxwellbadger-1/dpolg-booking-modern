@@ -259,7 +259,7 @@ function AppContent() {
                 </div>
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-lg font-bold text-white">{bookings.filter(b => b.status !== 'storniert').length}</span>
-                  <span className="text-xs text-slate-400">Aktiv</span>
+                  <span className="text-xs text-slate-400">Gesamt</span>
                 </div>
               </button>
 
@@ -274,8 +274,20 @@ function AppContent() {
                   </svg>
                 </div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-lg font-bold text-white">{Math.round((bookings.filter(b => b.status !== 'storniert').length / rooms.length) * 100)}%</span>
-                  <span className="text-xs text-slate-400">Auslastung</span>
+                  <span className="text-lg font-bold text-white">{(() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const occupiedRooms = new Set(
+                      bookings
+                        .filter(b =>
+                          b.status !== 'storniert' &&
+                          b.checkin_date <= today &&
+                          b.checkout_date > today
+                        )
+                        .map(b => b.room_id)
+                    ).size;
+                    return Math.round((occupiedRooms / rooms.length) * 100);
+                  })()}%</span>
+                  <span className="text-xs text-slate-400">Heute</span>
                 </div>
               </button>
             </div>
