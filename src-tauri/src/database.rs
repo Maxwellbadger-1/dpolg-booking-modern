@@ -2632,7 +2632,7 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
          ORDER BY created_at",
     )?;
 
-    let services = stmt.query_map(rusqlite::params![booking_id, booking_id], |row| {
+    let services = stmt.query_map(rusqlite::params![booking_id], |row| {
         Ok(AdditionalService {
             id: row.get(0)?,
             booking_id: row.get(1)?,
