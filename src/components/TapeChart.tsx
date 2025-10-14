@@ -1534,7 +1534,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
               {/* Individual Status Buttons */}
               {Object.entries(STATUS_COLORS).map(([status, colors]) => {
-                const count = localBookings.filter(b => b.status === status).length;
+                // Special case for 'stiftungsfall': count bookings where ist_stiftungsfall === true
+                const count = status === 'stiftungsfall'
+                  ? localBookings.filter(b => b.ist_stiftungsfall).length
+                  : localBookings.filter(b => b.status === status).length;
                 const isActive = statusFilter === status;
 
                 return (

@@ -38,8 +38,22 @@ export function filterBookings(
       }
     }
 
-    // Status filter
-    if (statusFilter !== 'all' && booking.status !== statusFilter) {
+    // Status filter - Professional PMS Pattern:
+    // Exclude 'storniert' bookings by default (even when showing 'all')
+    // Only show them when explicitly selected via 'storniert' filter
+    if (statusFilter === 'all') {
+      // When showing "all", exclude cancelled bookings
+      if (booking.status === 'storniert') {
+        return false;
+      }
+    } else if (statusFilter === 'stiftungsfall') {
+      // Special case: 'stiftungsfall' is NOT a status, it's a boolean flag
+      // Show only bookings where ist_stiftungsfall === true (regardless of status)
+      if (!booking.ist_stiftungsfall) {
+        return false;
+      }
+    } else if (booking.status !== statusFilter) {
+      // When specific status is selected, only show that status
       return false;
     }
 
