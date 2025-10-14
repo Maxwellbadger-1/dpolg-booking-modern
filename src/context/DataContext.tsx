@@ -135,6 +135,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setRooms(prev => [...prev, room]);
 
       // 3. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return room;
     } catch (error) {
@@ -156,11 +157,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Update
       const room = await invoke<Room>('update_room_command', { id, ...data });
 
-      // 4. Event für Undo-Button
+      // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
+      setRooms(prev => prev.map(r =>
+        r.id === id ? room : r
+      ));
+
+      // 5. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return room;
     } catch (error) {
-      // 5. Rollback bei Fehler
+      // 6. Rollback bei Fehler
       if (oldRoom) {
         setRooms(prev => prev.map(r =>
           r.id === id ? oldRoom : r
@@ -182,6 +189,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('delete_room_command', { id });
 
       // 4. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 5. Rollback - Room wiederherstellen
       if (deletedRoom) {
@@ -201,6 +209,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setGuests(prev => [...prev, guest]);
 
       // 3. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return guest;
     } catch (error) {
@@ -222,11 +231,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Update
       const guest = await invoke<Guest>('update_guest_command', { id, ...data });
 
-      // 4. Event für Undo-Button
+      // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
+      setGuests(prev => prev.map(g =>
+        g.id === id ? guest : g
+      ));
+
+      // 5. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return guest;
     } catch (error) {
-      // 5. Rollback bei Fehler
+      // 6. Rollback bei Fehler
       if (oldGuest) {
         setGuests(prev => prev.map(g =>
           g.id === id ? oldGuest : g
@@ -248,6 +263,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       await invoke('delete_guest_command', { id });
 
       // 4. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 5. Rollback - Guest wiederherstellen
       if (deletedGuest) {
@@ -289,12 +305,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Update
       const recipient = await invoke<PaymentRecipient>('update_payment_recipient', { id, ...data });
 
-      // 4. Event für Undo-Button
+      // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
+      setPaymentRecipients(prev => prev.map(r =>
+        r.id === id ? recipient : r
+      ));
+
+      // 5. Event für Undo-Button
       window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return recipient;
     } catch (error) {
-      // 5. Rollback bei Fehler
+      // 6. Rollback bei Fehler
       if (oldRecipient) {
         setPaymentRecipients(prev => prev.map(r =>
           r.id === id ? oldRecipient : r
@@ -376,6 +397,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
 
       // 4. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return booking;
     } catch (error) {
@@ -386,6 +408,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateBooking = useCallback(async (id: number, data: any): Promise<Booking> => {
+    console.log('🔍 [DataContext.updateBooking] START');
+
+    // FIX: Support beide camelCase und snake_case (Backwards-Compatibility)
+    // Neue Komponenten senden: paymentRecipientId (camelCase)
+    // Alte Komponenten senden: payment_recipient_id (snake_case)
+    const paymentRecipientIdValue = data.paymentRecipientId ?? data.payment_recipient_id;
+    console.log('  📦 Incoming paymentRecipientId:', data.paymentRecipientId, 'type:', typeof data.paymentRecipientId);
+    console.log('  📦 Incoming payment_recipient_id:', data.payment_recipient_id, 'type:', typeof data.payment_recipient_id);
+    console.log('  ✅ Using value:', paymentRecipientIdValue, 'type:', typeof paymentRecipientIdValue);
+
+    // FIX: Konvertiere undefined zu null (Serde/JSON.stringify Issue)
+    // Problem: JSON.stringify überspringt undefined properties → Rust bekommt Feld nicht!
+    // Lösung: Explizit undefined → null konvertieren
+    const sanitizedData = { ...data };
+
+    // WICHTIG: Tauri erwartet paymentRecipientId (camelCase), konvertiert automatisch zu payment_recipient_id (snake_case)
+    sanitizedData.paymentRecipientId = paymentRecipientIdValue === undefined ? null : paymentRecipientIdValue;
+
+    // Entferne den alten snake_case Key (falls vorhanden) um Konsistenz zu gewährleisten
+    delete sanitizedData.payment_recipient_id;
+
+    console.log('  ✅ [SANITIZED] paymentRecipientId:', sanitizedData.paymentRecipientId, 'type:', typeof sanitizedData.paymentRecipientId);
+
     // 1. Backup für Rollback
     const oldBooking = bookings.find(b => b.id === id);
 
@@ -396,7 +441,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     try {
       // 3. Backend Update
-      const booking = await invoke<Booking>('update_booking_command', { id, ...data });
+      const invokePayload = { id, ...sanitizedData };
+      console.log('📤 [DataContext] Calling invoke with:');
+      console.log('  payment_recipient_id:', invokePayload.payment_recipient_id);
+      console.log('  Complete payload:', JSON.stringify(invokePayload, null, 2));
+
+      const booking = await invoke<Booking>('update_booking_command', invokePayload);
 
       // 4. AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
       const checkoutChanged = oldBooking && data.checkout_date && oldBooking.checkout_date !== data.checkout_date;
@@ -450,6 +500,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
 
       // 5. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
 
       return booking;
     } catch (error) {
@@ -495,6 +546,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       }
 
       // 5. Event für Undo-Button
+      window.dispatchEvent(new CustomEvent('refresh-data'));
     } catch (error) {
       // 6. Rollback - Booking wiederherstellen
       if (deletedBooking) {
