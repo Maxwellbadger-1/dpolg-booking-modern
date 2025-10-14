@@ -272,6 +272,9 @@ export default function StatisticsView() {
   const memberPercentage = guestsInRange.length > 0
     ? Math.round((memberGuests / guestsInRange.length) * 100)
     : 0;
+  const nonMemberPercentage = guestsInRange.length > 0
+    ? Math.round((nonMemberGuests / guestsInRange.length) * 100)
+    : 0;
 
   // Average length of stay
   const avgLengthOfStay = activeBookings.length > 0
@@ -476,7 +479,7 @@ export default function StatisticsView() {
                 <p className="text-sm text-blue-300 font-medium">Nicht-Mitglieder</p>
               </div>
               <p className="text-4xl font-bold text-white">{nonMemberGuests}</p>
-              <p className="text-sm text-blue-300 mt-1">{100 - memberPercentage}% aller Gäste</p>
+              <p className="text-sm text-blue-300 mt-1">{nonMemberPercentage}% aller Gäste</p>
             </div>
           </div>
         </div>
