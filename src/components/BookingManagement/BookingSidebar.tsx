@@ -2079,53 +2079,69 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       Aus Vorlagen wählen:
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                      {serviceTemplates.map(template => (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={async () => {
-                            const newService: AdditionalService = {
-                              service_name: template.name,
-                              service_price: template.price,
-                              template_id: template.id,
-                            };
+                      {serviceTemplates.map(template => {
+                        // Prüfe ob Template bereits hinzugefügt wurde
+                        const isAlreadyAdded = services.some(s => s.template_id === template.id);
 
-                            if (booking?.id) {
-                              // EDIT mode - Service sofort zum Backend hinzufügen
-                              try {
-                                // 1. Service-Template zum Backend linken
-                                await invoke('link_service_template_to_booking_command', {
-                                  bookingId: booking.id,
-                                  serviceTemplateId: template.id,
-                                });
-
-                                // 2. Buchung NEU laden (inkl. Services mit Emojis)
-                                await reloadBooking(booking.id);
-
-                                // 3. Lokalen Sidebar-State aktualisieren
-                                const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
-                                setServices(updatedServices);
-
-                                // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
-                                if (booking.checkout_date) {
-                                  console.log('🔄 [BookingSidebar] Service-Template verknüpft - Auto-Sync zu Turso für', booking.checkout_date);
-                                  await invoke('sync_affected_dates', {
-                                    oldCheckout: null,
-                                    newCheckout: booking.checkout_date
-                                  });
-                                  console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
-                                }
-                              } catch (error) {
-                                console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
-                                setError('Fehler beim Verknüpfen des Service-Templates');
+                        return (
+                          <button
+                            key={template.id}
+                            type="button"
+                            onClick={async () => {
+                              // Verhindere doppeltes Hinzufügen
+                              if (isAlreadyAdded) {
+                                setError('Dieser Service ist bereits hinzugefügt!');
+                                setTimeout(() => setError(null), 3000);
+                                return;
                               }
-                            } else {
-                              // CREATE mode - nur lokaler State
-                              setServices([...services, newService]);
-                            }
-                          }}
-                          className="flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors text-left"
-                        >
+
+                              const newService: AdditionalService = {
+                                service_name: template.name,
+                                service_price: template.price,
+                                template_id: template.id,
+                              };
+
+                              if (booking?.id) {
+                                // EDIT mode - Service sofort zum Backend hinzufügen
+                                try {
+                                  // 1. Service-Template zum Backend linken
+                                  await invoke('link_service_template_to_booking_command', {
+                                    bookingId: booking.id,
+                                    serviceTemplateId: template.id,
+                                  });
+
+                                  // 2. Buchung NEU laden (inkl. Services mit Emojis)
+                                  await reloadBooking(booking.id);
+
+                                  // 3. Lokalen Sidebar-State aktualisieren
+                                  const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                                  setServices(updatedServices);
+
+                                  // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
+                                  if (booking.checkout_date) {
+                                    console.log('🔄 [BookingSidebar] Service-Template verknüpft - Auto-Sync zu Turso für', booking.checkout_date);
+                                    await invoke('sync_affected_dates', {
+                                      oldCheckout: null,
+                                      newCheckout: booking.checkout_date
+                                    });
+                                    console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
+                                  }
+                                } catch (error) {
+                                  console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
+                                  setError('Fehler beim Verknüpfen des Service-Templates');
+                                }
+                              } else {
+                                // CREATE mode - nur lokaler State
+                                setServices([...services, newService]);
+                              }
+                            }}
+                            disabled={isAlreadyAdded}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg transition-colors text-left ${
+                              isAlreadyAdded
+                                ? 'bg-slate-100 border border-slate-200 opacity-50 cursor-not-allowed'
+                                : 'bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                            }`}
+                          >
                           <span className="text-sm font-medium text-emerald-900 truncate">
                             {template.name}
                           </span>
@@ -2133,7 +2149,8 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             {template.price.toFixed(2)} €
                           </span>
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
