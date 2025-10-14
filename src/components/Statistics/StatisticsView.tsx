@@ -344,14 +344,14 @@ export default function StatisticsView() {
   const stiftungsfaelle = activeBookings.filter(b => b.ist_stiftungsfall).length;
   const normalUrlauber = activeBookings.filter(b => !b.ist_stiftungsfall).length;
 
-  // Übernachtungszahlen (Nights stayed)
-  const gesamtNaechte = activeBookings.reduce((sum, b) => sum + b.anzahl_naechte, 0);
+  // Übernachtungszahlen (Nights stayed) - nur Nächte INNERHALB des Zeitraums
+  const gesamtNaechte = activeBookings.reduce((sum, b) => sum + calculateNightsInRange(b), 0);
   const naechteNormalUrlauber = activeBookings
     .filter(b => !b.ist_stiftungsfall)
-    .reduce((sum, b) => sum + b.anzahl_naechte, 0);
+    .reduce((sum, b) => sum + calculateNightsInRange(b), 0);
   const naechteStiftungsfaelle = activeBookings
     .filter(b => b.ist_stiftungsfall)
-    .reduce((sum, b) => sum + b.anzahl_naechte, 0);
+    .reduce((sum, b) => sum + calculateNightsInRange(b), 0);
 
   if (loading) {
     return (
