@@ -395,40 +395,41 @@ export default function StatisticsView() {
               {/* Jahr-Auswahl */}
               <div>
                 <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Jahr</label>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedYear}
-                    onChange={(e) => {
-                      setSelectedYear(parseInt(e.target.value));
-                      setDateRange('customYear');
-                    }}
-                    className="flex-1 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 font-medium appearance-none cursor-pointer hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                    style={{
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 0.75rem center',
-                      backgroundSize: '1.25rem',
-                      paddingRight: '2.5rem'
-                    }}
-                  >
-                    {availableYears.map(year => (
-                      <option key={year} value={year}>{year}</option>
-                    ))}
-                  </select>
-                  {dateRange === 'customYear' && (
-                    <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-400 font-semibold">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => {
+                    setSelectedYear(parseInt(e.target.value));
+                    setDateRange('customYear');
+                  }}
+                  className={`w-full px-4 py-2 rounded-lg text-sm font-medium appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all ${
+                    dateRange === 'customYear'
+                      ? 'bg-blue-600 border-2 border-blue-500 text-white shadow-lg shadow-blue-500/30'
+                      : 'bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-slate-600'
+                  }`}
+                  style={{
+                    backgroundImage: dateRange === 'customYear'
+                      ? `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`
+                      : `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 0.75rem center',
+                    backgroundSize: '1.25rem',
+                    paddingRight: '2.5rem'
+                  }}
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Individueller Zeitraum */}
               <div>
                 <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Individuell</label>
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                  dateRange === 'customRange'
+                    ? 'bg-blue-600 border-2 border-blue-500 shadow-lg shadow-blue-500/30'
+                    : 'bg-slate-800 border border-slate-700'
+                }`}>
                   <input
                     type="date"
                     value={customStartDate}
@@ -438,10 +439,12 @@ export default function StatisticsView() {
                         setDateRange('customRange');
                       }
                     }}
-                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none ${
+                      dateRange === 'customRange' ? 'text-white placeholder-blue-200' : 'text-slate-200 placeholder-slate-500'
+                    }`}
                     placeholder="Von"
                   />
-                  <span className="text-slate-600">—</span>
+                  <span className={dateRange === 'customRange' ? 'text-blue-200' : 'text-slate-600'}>—</span>
                   <input
                     type="date"
                     value={customEndDate}
@@ -451,16 +454,11 @@ export default function StatisticsView() {
                         setDateRange('customRange');
                       }
                     }}
-                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium hover:bg-slate-750 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none ${
+                      dateRange === 'customRange' ? 'text-white placeholder-blue-200' : 'text-slate-200 placeholder-slate-500'
+                    }`}
                     placeholder="Bis"
                   />
-                  {dateRange === 'customRange' && customStartDate && customEndDate && (
-                    <div className="flex items-center gap-1 px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-400 font-semibold">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
