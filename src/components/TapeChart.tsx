@@ -22,7 +22,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import ContextMenu, { ContextMenuItem } from './ContextMenu';
-import { Edit2, Mail, XCircle, X } from 'lucide-react';
+import { Edit2, Mail, XCircle, X, Users } from 'lucide-react';
 import ChangeConfirmationDialog from './TapeChart/ChangeConfirmationDialog';
 import TapeChartFilters from './TapeChart/TapeChartFilters';
 import TodayLine from './TapeChart/TodayLine';
@@ -46,6 +46,7 @@ interface ServiceTemplate {
   name: string;
   emoji?: string;
   color_hex?: string;
+  cleaning_plan_position?: string; // 'start' or 'end'
 }
 
 interface DiscountTemplate {
@@ -61,6 +62,7 @@ interface Booking {
   reservierungsnummer: string;
   checkin_date: string;
   checkout_date: string;
+  anzahl_gaeste: number;
   status: string;
   bezahlt: boolean;
   rechnung_versendet_am?: string | null;
@@ -377,6 +379,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         </div>
         <div className="text-xs truncate opacity-90 font-medium flex items-center gap-1">
           {booking.reservierungsnummer}
+          {/* Personenanzahl */}
+          <div className="inline-flex items-center justify-center gap-0.5 px-1.5 py-0.5 bg-white/20 rounded" title={`${booking.anzahl_gaeste} ${booking.anzahl_gaeste === 1 ? 'Person' : 'Personen'}`}>
+            <Users className="w-3 h-3 text-white" />
+            <span className="text-[10px] font-bold text-white">{booking.anzahl_gaeste}</span>
+          </div>
           {booking.bezahlt && (
             <div className="inline-flex items-center justify-center w-4 h-4 bg-emerald-500 rounded-full" title="Bezahlt">
               <span className="text-[10px] font-bold text-white">€</span>
@@ -685,8 +692,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
 
     // Check for overlaps with other bookings in the same room
+    // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
     const hasOverlap = localBookings.some(b => {
       if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
+
+      // Skip cancelled bookings - they don't block availability
+      if (b.status === 'storniert') return false;
 
       const existingStart = startOfDay(new Date(b.checkin_date));
       const existingEnd = startOfDay(new Date(b.checkout_date));
@@ -803,9 +814,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       }
 
       // Check for overlaps with other bookings in the same room
+      // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
       const hasOverlap = prev.some(b =>
         b.id !== bookingId &&
         b.room_id === currentBooking.room_id &&
+        b.status !== 'storniert' && // Skip cancelled bookings
         checkOverlap(
           newCheckin,
           newCheckout,
@@ -1165,8 +1178,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
 
         // Check if this would overlap
+        // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
         const hasOverlap = localBookings.some(b => {
           if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
+
+          // Skip cancelled bookings - they don't block availability
+          if (b.status === 'storniert') return false;
 
           const existingStart = startOfDay(new Date(b.checkin_date));
           const existingEnd = startOfDay(new Date(b.checkout_date));
