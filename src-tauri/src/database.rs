@@ -138,6 +138,7 @@ pub struct AdditionalService {
     pub service_name: String,
     pub service_price: f64,
     pub created_at: String,
+    pub template_id: Option<i64>, // Wenn Service von Template kommt (aus booking_services Junction-Table)
 }
 
 // Neue Tabelle: Rabatte für eine Buchung
@@ -2578,6 +2579,7 @@ pub fn add_service_to_booking(
                 service_name: row.get(2)?,
                 service_price: row.get(3)?,
                 created_at: row.get(4)?,
+                template_id: None, // Manuelle Services haben kein Template
             })
         },
     )
@@ -2600,25 +2602,43 @@ pub fn delete_service(service_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Gibt alle Services für eine Buchung zurück
+/// Gibt alle Services für eine Buchung zurück (manuelle + template-basierte)
 pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // UNION Query: Beide Quellen kombinieren
+    // 1. Manuelle Services aus additional_services
+    // 2. Template-basierte Services aus booking_services JOIN service_templates
     let mut stmt = conn.prepare(
-        "SELECT id, booking_id, service_name, service_price, created_at
+        "SELECT id, booking_id, service_name, service_price, created_at, NULL as template_id
          FROM additional_services
          WHERE booking_id = ?1
+
+         UNION ALL
+
+         SELECT
+            bs.id,
+            bs.booking_id,
+            st.name as service_name,
+            st.price as service_price,
+            bs.created_at,
+            bs.service_template_id as template_id
+         FROM booking_services bs
+         JOIN service_templates st ON bs.service_template_id = st.id
+         WHERE bs.booking_id = ?1
+
          ORDER BY created_at",
     )?;
 
-    let services = stmt.query_map(rusqlite::params![booking_id], |row| {
+    let services = stmt.query_map(rusqlite::params![booking_id, booking_id], |row| {
         Ok(AdditionalService {
             id: row.get(0)?,
             booking_id: row.get(1)?,
             service_name: row.get(2)?,
             service_price: row.get(3)?,
             created_at: row.get(4)?,
+            template_id: row.get(5)?,
         })
     })?;
 
