@@ -2032,11 +2032,32 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               if (service.id && booking?.id) {
-                                invoke('delete_service_command', { serviceId: service.id }).then(() => {
-                                  invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id }).then(setServices);
-                                });
+                                try {
+                                  // 1. Service vom Backend löschen
+                                  await invoke('delete_service_command', { serviceId: service.id });
+
+                                  // 2. Buchung NEU laden (inkl. aktualisierte Services mit Emojis)
+                                  await reloadBooking(booking.id);
+
+                                  // 3. Lokalen Sidebar-State aktualisieren
+                                  const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                                  setServices(updatedServices);
+
+                                  // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
+                                  if (booking.checkout_date) {
+                                    console.log('🔄 [BookingSidebar] Service gelöscht - Auto-Sync zu Turso für', booking.checkout_date);
+                                    await invoke('sync_affected_dates', {
+                                      oldCheckout: null,
+                                      newCheckout: booking.checkout_date
+                                    });
+                                    console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
+                                  }
+                                } catch (error) {
+                                  console.error('❌ Fehler beim Löschen des Service:', error);
+                                  setError('Fehler beim Löschen des Service');
+                                }
                               } else {
                                 setServices(services.filter((_, i) => i !== index));
                               }
@@ -2062,13 +2083,46 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         <button
                           key={template.id}
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             const newService: AdditionalService = {
                               service_name: template.name,
                               service_price: template.price,
                               template_id: template.id,
                             };
-                            setServices([...services, newService]);
+
+                            if (booking?.id) {
+                              // EDIT mode - Service sofort zum Backend hinzufügen
+                              try {
+                                // 1. Service-Template zum Backend linken
+                                await invoke('link_service_template_to_booking_command', {
+                                  bookingId: booking.id,
+                                  serviceTemplateId: template.id,
+                                });
+
+                                // 2. Buchung NEU laden (inkl. Services mit Emojis)
+                                await reloadBooking(booking.id);
+
+                                // 3. Lokalen Sidebar-State aktualisieren
+                                const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                                setServices(updatedServices);
+
+                                // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
+                                if (booking.checkout_date) {
+                                  console.log('🔄 [BookingSidebar] Service-Template verknüpft - Auto-Sync zu Turso für', booking.checkout_date);
+                                  await invoke('sync_affected_dates', {
+                                    oldCheckout: null,
+                                    newCheckout: booking.checkout_date
+                                  });
+                                  console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
+                                }
+                              } catch (error) {
+                                console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
+                                setError('Fehler beim Verknüpfen des Service-Templates');
+                              }
+                            } else {
+                              // CREATE mode - nur lokaler State
+                              setServices([...services, newService]);
+                            }
                           }}
                           className="flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors text-left"
                         >
@@ -2109,22 +2163,44 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!newService.service_name || newService.service_price <= 0) {
                         setError('Bitte Service-Name und Preis eingeben (Preis muss > 0 sein)');
                         return;
                       }
 
                       if (booking?.id) {
-                        invoke('add_service_command', {
-                          bookingId: booking.id,
-                          serviceName: newService.service_name,
-                          servicePrice: newService.service_price,
-                        }).then(() => {
-                          invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id! }).then(setServices);
+                        try {
+                          // 1. Service zum Backend hinzufügen
+                          await invoke('add_service_command', {
+                            bookingId: booking.id,
+                            serviceName: newService.service_name,
+                            servicePrice: newService.service_price,
+                          });
+
+                          // 2. Buchung NEU laden (inkl. Services mit Emojis)
+                          await reloadBooking(booking.id);
+
+                          // 3. Lokalen Sidebar-State aktualisieren
+                          const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                          setServices(updatedServices);
+
+                          // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
+                          if (booking.checkout_date) {
+                            console.log('🔄 [BookingSidebar] Service hinzugefügt - Auto-Sync zu Turso für', booking.checkout_date);
+                            await invoke('sync_affected_dates', {
+                              oldCheckout: null,
+                              newCheckout: booking.checkout_date
+                            });
+                            console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
+                          }
+
                           setNewService({ service_name: '', service_price: 0 });
                           setError(null);
-                        });
+                        } catch (error) {
+                          console.error('❌ Fehler beim Hinzufügen des Service:', error);
+                          setError('Fehler beim Hinzufügen des Service');
+                        }
                       } else {
                         setServices([...services, { ...newService }]);
                         setNewService({ service_name: '', service_price: 0 });
