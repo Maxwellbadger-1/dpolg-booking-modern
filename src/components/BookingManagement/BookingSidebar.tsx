@@ -678,6 +678,26 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           }
         }
 
+        // 🔄 SYNC zu Turso (Mobile App) - ALLE Service-Änderungen auf einmal
+        if (formData.checkout_date) {
+          console.log('🔄 [BookingSidebar] Buchung aktualisiert - Sync zu Turso für', formData.checkout_date);
+
+          // Loading Toast
+          const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
+
+          // Fire-and-forget: Sync läuft im Hintergrund
+          invoke('sync_affected_dates', {
+            oldCheckout: booking.checkout_date, // Original checkout_date für Cleanup
+            newCheckout: formData.checkout_date  // Neues checkout_date
+          }).then((result: unknown) => {
+            console.log('✅ [BookingSidebar] Sync erfolgreich:', result);
+            toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+          }).catch((error: unknown) => {
+            console.error('❌ [BookingSidebar] Sync Fehler:', error);
+            toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+          });
+        }
+
         // Switch back to view mode
         setMode('view');
         await loadBookingDetails();
@@ -2045,26 +2065,6 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   // 3. Lokalen Sidebar-State aktualisieren
                                   const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
                                   setServices(updatedServices);
-
-                                  // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
-                                  if (booking.checkout_date) {
-                                    console.log('🔄 [BookingSidebar] Service gelöscht - Auto-Sync zu Turso für', booking.checkout_date);
-
-                                    // Loading Toast
-                                    const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
-
-                                    // Fire-and-forget: Sync läuft im Hintergrund
-                                    invoke('sync_affected_dates', {
-                                      oldCheckout: null,
-                                      newCheckout: booking.checkout_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Auto-Sync erfolgreich:', result);
-                                      toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Auto-Sync Fehler:', error);
-                                      toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-                                    });
-                                  }
                                 } catch (error) {
                                   console.error('❌ Fehler beim Löschen des Service:', error);
                                   setError('Fehler beim Löschen des Service');
@@ -2127,26 +2127,6 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   // 3. Lokalen Sidebar-State aktualisieren
                                   const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
                                   setServices(updatedServices);
-
-                                  // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
-                                  if (booking.checkout_date) {
-                                    console.log('🔄 [BookingSidebar] Service-Template verknüpft - Auto-Sync zu Turso für', booking.checkout_date);
-
-                                    // Loading Toast
-                                    const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
-
-                                    // Fire-and-forget: Sync läuft im Hintergrund
-                                    invoke('sync_affected_dates', {
-                                      oldCheckout: null,
-                                      newCheckout: booking.checkout_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Auto-Sync erfolgreich:', result);
-                                      toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Auto-Sync Fehler:', error);
-                                      toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-                                    });
-                                  }
                                 } catch (error) {
                                   console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
                                   setError('Fehler beim Verknüpfen des Service-Templates');
@@ -2222,16 +2202,6 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           // 3. Lokalen Sidebar-State aktualisieren
                           const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
                           setServices(updatedServices);
-
-                          // 4. AUTO-SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
-                          if (booking.checkout_date) {
-                            console.log('🔄 [BookingSidebar] Service hinzugefügt - Auto-Sync zu Turso für', booking.checkout_date);
-                            await invoke('sync_affected_dates', {
-                              oldCheckout: null,
-                              newCheckout: booking.checkout_date
-                            });
-                            console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
-                          }
 
                           setNewService({ service_name: '', service_price: 0 });
                           setError(null);

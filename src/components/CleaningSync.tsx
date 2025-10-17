@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Database } from 'lucide-react';
+import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Database, Copy, CheckCircle, Lock } from 'lucide-react';
 
 interface CleaningStats {
   today: number;
@@ -17,6 +17,10 @@ export default function CleaningSync() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [stats, setStats] = useState<CleaningStats>({ today: 0, tomorrow: 0, this_week: 0, total: 0 });
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile');
+  const [passwordCopied, setPasswordCopied] = useState(false);
+
+  // Hardcoded password (matches mobile app)
+  const MOBILE_APP_PASSWORD = 'putzplan2025';
 
   // Lade Stats aus Turso
   useEffect(() => {
@@ -79,6 +83,12 @@ export default function CleaningSync() {
 
   const openMobileApp = () => {
     window.open('https://dpolg-cleaning-mobile.vercel.app', '_blank');
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(MOBILE_APP_PASSWORD);
+    setPasswordCopied(true);
+    setTimeout(() => setPasswordCopied(false), 2000);
   };
 
   return (
@@ -327,6 +337,43 @@ export default function CleaningSync() {
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                   <span>URL: <code className="px-2 py-1 bg-white rounded border border-slate-200 text-xs">dpolg-cleaning-mobile.vercel.app</code></span>
                 </div>
+
+                {/* Password Display Section */}
+                <div className="mt-2 p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Lock className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm font-semibold text-blue-900">Passwort für Mobile App:</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <code className="px-4 py-2 bg-white rounded-lg border-2 border-blue-300 text-blue-900 font-bold text-lg tracking-wider">
+                          {MOBILE_APP_PASSWORD}
+                        </code>
+                        <button
+                          onClick={handleCopyPassword}
+                          className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium"
+                        >
+                          {passwordCopied ? (
+                            <>
+                              <CheckCircle className="w-4 h-4" />
+                              Kopiert!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4" />
+                              Kopieren
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <p className="text-xs text-blue-700 mt-2">
+                        🔒 Passwort bleibt während der Browser-Session aktiv
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex items-center gap-2 text-sm text-slate-600">
                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
                   <span>Automatische Updates alle 5 Minuten</span>

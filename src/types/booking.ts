@@ -10,6 +10,9 @@ export interface Room {
   endreinigung: number;
   ort: string;
   schluesselcode?: string;
+  streetAddress?: string;
+  postalCode?: string;
+  city?: string;
 }
 
 export interface Guest {

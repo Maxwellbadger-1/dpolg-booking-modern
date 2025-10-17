@@ -9,156 +9,495 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
-## 🚨 KRITISCHE REGEL #1: Tauri Parameter Naming Convention
+## 🚨 KRITISCHE REGEL #1: Tauri + Serde camelCase/snake_case - VOLLSTÄNDIGER LEITFADEN
 
 **⚠️ DIESES PROBLEM TRITT IMMER WIEDER AUF! LIES DIESE REGEL AUFMERKSAM!**
 
-### Das Problem:
+Diese Regel basiert auf Web-Recherche und realen Debugging-Sessions. Sie deckt ALLE Aspekte der camelCase/snake_case Konvertierung in Tauri ab.
 
-Tauri konvertiert **automatisch** camelCase (JavaScript) → snake_case (Rust) **NUR wenn ALLE Parameter konsistent camelCase sind!**
+---
 
-Wenn auch nur EIN Parameter in snake_case geschrieben wird, bricht die Konvertierung für ALLE Parameter!
+## 📋 Inhaltsverzeichnis
 
-### ❌ FALSCH - Mixed Naming (HÄUFIGSTER FEHLER!)
+1. [Das Grundproblem](#das-grundproblem)
+2. [Frontend → Backend (invoke Parameter)](#frontend--backend-invoke-parameter)
+3. [Backend → Frontend (Serde Serialization)](#backend--frontend-serde-serialization)
+4. [Struct vs Individuelle Parameter](#struct-vs-individuelle-parameter)
+5. [Debugging Checklist](#debugging-checklist)
+6. [Komplette Beispiele](#komplette-beispiele)
+
+---
+
+## 🔍 Das Grundproblem
+
+**Rust Convention:** `snake_case` für Variablen/Felder
+**JavaScript/TypeScript Convention:** `camelCase` für Variablen/Properties
+
+**Tauri's Rolle:**
+- Konvertiert **automatisch** Parameter-Namen zwischen beiden Welten
+- **ABER:** Nur unter bestimmten Bedingungen!
+- **ACHTUNG:** Unterschiedliches Verhalten für Parameter vs Struct-Properties!
+
+---
+
+## 1️⃣ Frontend → Backend (invoke Parameter)
+
+### Wie Tauri Parameter konvertiert:
+
+**Tauri konvertiert automatisch Top-Level Parameter von camelCase → snake_case**
 
 ```typescript
-// Frontend sendet:
+// Frontend
+await invoke('update_room', {
+  roomId: 1,        // → Rust: room_id
+  roomName: "Test"  // → Rust: room_name
+});
+
+// Rust Backend empfängt:
+fn update_room(room_id: i64, room_name: String) { }
+```
+
+### ❌ KRITISCHER FEHLER: Parameter-Mixing
+
+**Wenn auch nur EIN Parameter in snake_case ist, BRICHT die Konvertierung für ALLE!**
+
+```typescript
+// ❌ FALSCH - Mixed Naming
 const payload = {
-  roomId: 1,              // ✅ camelCase
-  guestId: 1,             // ✅ camelCase
-  payment_recipient_id: 1 // ❌ snake_case - BRICHT DIE KONVERTIERUNG!
+  roomId: 1,              // camelCase
+  guestId: 1,             // camelCase
+  payment_recipient_id: 1 // snake_case - FEHLER!
 };
 
 await invoke('update_booking', payload);
 
 // Backend erhält:
-// room_id: Some(1)           ✅ Funktioniert
-// guest_id: Some(1)          ✅ Funktioniert
-// payment_recipient_id: None ❌ GEHT VERLOREN!
+// room_id: Some(1)           ← Funktioniert
+// guest_id: Some(1)          ← Funktioniert
+// payment_recipient_id: None ← VERLOREN!
 ```
 
-### ✅ RICHTIG - Konsistentes camelCase
+### ✅ RICHTIG: Konsistentes camelCase
 
 ```typescript
-// Frontend sendet:
+// ✅ RICHTIG - Alles camelCase
 const payload = {
-  roomId: 1,                // ✅ camelCase
-  guestId: 1,               // ✅ camelCase
-  paymentRecipientId: 1     // ✅ camelCase - KONSISTENT!
+  roomId: 1,                // ✅
+  guestId: 1,               // ✅
+  paymentRecipientId: 1     // ✅ Konsistent!
 };
 
 await invoke('update_booking', payload);
 
 // Backend erhält:
-// room_id: Some(1)           ✅ Funktioniert
-// guest_id: Some(1)          ✅ Funktioniert
-// payment_recipient_id: Some(1) ✅ Funktioniert jetzt!
+// room_id: Some(1)           ← Funktioniert
+// guest_id: Some(1)          ← Funktioniert
+// payment_recipient_id: Some(1) ← Funktioniert!
 ```
 
-### Regel:
+### 🚨 REGEL für Frontend → Backend:
 
 **ALLE Parameter die von Frontend → Backend gesendet werden MÜSSEN camelCase sein!**
 
 **KEINE AUSNAHMEN! KEIN MIXING!**
 
-### Betroffene Komponenten:
+---
 
-Diese Komponenten senden Daten an Tauri Commands:
+## 2️⃣ Backend → Frontend (Serde Serialization)
 
-- ✅ BookingSidebar.tsx → `updateBooking`, `createBooking`
-- ✅ BookingDialog.tsx → `updateBooking`, `createBooking`
-- ✅ GuestDialog.tsx → `updateGuest`, `createGuest`
-- ✅ RoomDialog.tsx → `updateRoom`, `createRoom`
-- ✅ PaymentRecipientDialog.tsx → `updatePaymentRecipient`, `createPaymentRecipient`
-- ✅ ALLE zukünftigen Dialoge/Formulare!
+### Das Problem:
 
-### Checkliste VOR JEDEM invoke():
+**Tauri konvertiert NICHT automatisch Rust Struct Properties beim Zurückgeben!**
 
-- [ ] Sind ALLE Parameter in camelCase geschrieben?
-- [ ] Gibt es KEINE Parameter mit Unterstrichen (`_`)?
-- [ ] Ist die Naming konsistent im ganzen Payload?
-
-### Beispiele:
-
-```typescript
-// ❌ FALSCH - Verschiedene Fehler
-const badPayload = {
-  room_id: 1,           // ❌ snake_case
-  guestId: 1,           // ✅ camelCase
-  checkin_date: '...',  // ❌ snake_case
-  checkoutDate: '...',  // ✅ camelCase - MIXING!
-};
-
-// ✅ RICHTIG - Alles camelCase
-const goodPayload = {
-  roomId: 1,            // ✅
-  guestId: 1,           // ✅
-  checkinDate: '...',   // ✅
-  checkoutDate: '...',  // ✅
-  paymentRecipientId: 1 // ✅
-};
-```
-
-### Backend Rust Struct bleibt snake_case:
+Rust serialisiert Structs mit Serde → JSON → Frontend
 
 ```rust
-#[tauri::command]
-fn update_booking(
-    id: i64,
-    room_id: i64,              // ← snake_case in Rust ✅
-    guest_id: i64,             // ← snake_case in Rust ✅
-    payment_recipient_id: Option<i64>, // ← snake_case in Rust ✅
-) -> Result<Booking, String> {
-    // Tauri macht automatisch die Konvertierung
-    // WENN Frontend konsistent camelCase verwendet!
+// Rust Struct
+#[derive(Serialize)]
+pub struct Room {
+    pub id: i64,
+    pub street_address: Option<String>,  // snake_case
+    pub postal_code: Option<String>,     // snake_case
 }
 ```
 
-### Debugging:
-
-Wenn ein Parameter im Backend als `None`/`undefined` ankommt:
-
-1. ✅ Prüfe: Ist der Parameter im Frontend camelCase?
-2. ✅ Prüfe: Sind ALLE anderen Parameter auch camelCase?
-3. ✅ Suche nach: Unterstrichen (`_`) in Parameter-Namen
-4. ✅ Konvertiere ALLE zu camelCase
-
-**MERKE:** Ein einziger Parameter in snake_case bricht die Konvertierung für ALLE Parameter!
-
-### 🛡️ TECHNISCHE ABSICHERUNG (AUTOMATISCH)
-
-**Ab sofort IMMER `safeInvoke()` statt `invoke()` verwenden!**
-
-```typescript
-// ✅ RICHTIG - Mit automatischer Validierung
-import { safeInvoke } from '@/lib/tauri-helpers';
-
-// Strict Mode (Standard) - Wirft Fehler bei snake_case
-const result = await safeInvoke<Booking>('update_booking', {
-  roomId: 1,
-  guestId: 1,
-  paymentRecipientId: 1  // ✅ camelCase wird automatisch validiert
-});
-
-// Auto-Convert Mode - Konvertiert automatisch (nur für Migration/Legacy)
-const result = await safeInvoke<Booking>('update_booking', {
-  room_id: 1,              // wird zu roomId konvertiert
-  guest_id: 1,             // wird zu guestId konvertiert
-  payment_recipient_id: 1  // wird zu paymentRecipientId konvertiert
-}, { autoConvert: true });
+```json
+// JSON an Frontend (DEFAULT)
+{
+  "id": 1,
+  "street_address": "Hauptstraße 1",  // snake_case ❌
+  "postal_code": "12345"               // snake_case ❌
+}
 ```
 
-**Was `safeInvoke()` macht:**
+```typescript
+// TypeScript erwartet:
+interface Room {
+  id: number;
+  streetAddress?: string;  // camelCase!
+  postalCode?: string;     // camelCase!
+}
 
-1. ✅ **Validiert** ALLE Parameter auf camelCase
-2. ✅ **Zeigt exakte Fehler** mit welche Keys falsch sind
-3. ✅ **Schlägt Korrekturen vor** (z.B. `payment_recipient_id` → `paymentRecipientId`)
-4. ✅ **Wirft Fehler** BEVOR der invoke() Call fehlschlägt
-5. ✅ **Optional:** Auto-Convert von snake_case → camelCase
+// room.streetAddress  → undefined ❌
+// room.street_address → "Hauptstraße 1" (falsch!)
+```
 
-**Alle neuen Komponenten MÜSSEN `safeInvoke()` verwenden statt `invoke()`!**
+### ✅ LÖSUNG 1: Serde `#[serde(rename)]` für einzelne Felder
 
-**Location:** `src/lib/tauri-helpers.ts`
+**Verwende dies wenn NUR EINIGE neue Felder zu einem bestehenden Struct hinzugefügt werden:**
+
+```rust
+#[derive(Serialize, Deserialize)]
+pub struct Room {
+    pub id: i64,
+    pub name: String,
+    pub gebaeude_typ: String,           // Alte Felder bleiben snake_case
+    pub price_member: f64,              // (historische Gründe)
+    #[serde(rename = "streetAddress")]  // ← Einzelfeld rename!
+    pub street_address: Option<String>,
+    #[serde(rename = "postalCode")]     // ← Einzelfeld rename!
+    pub postal_code: Option<String>,
+    pub city: Option<String>,           // bleibt "city"
+}
+```
+
+**Wann verwenden:**
+- ✅ Bestehende Structs mit gemischten Konventionen
+- ✅ Nur einzelne neue Felder hinzufügen
+- ✅ Backwards-Kompatibilität mit Frontend nötig
+
+### ✅ LÖSUNG 2: Serde `#[serde(rename_all = "camelCase")]` für ganze Struct
+
+**Verwende dies für NEUE Structs oder komplette Refactorings:**
+
+```rust
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]  // ← Ganzes Struct!
+pub struct NewEntity {
+    pub id: i64,
+    pub first_name: String,         // → firstName
+    pub last_name: String,          // → lastName
+    pub street_address: String,     // → streetAddress
+    pub postal_code: String,        // → postalCode
+}
+```
+
+**Wann verwenden:**
+- ✅ Neue Structs von Anfang an
+- ✅ Alle Felder sollen konvertiert werden
+- ✅ Keine gemischten Konventionen
+
+### ⚠️ WICHTIG: `rename_all` überschreibt ALLE Felder!
+
+```rust
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Example {
+    pub some_field: String,       // → someField ✅
+    pub another_field: i64,       // → anotherField ✅
+    pub old_snake_name: String,   // → oldSnakeName ⚠️  (wird auch konvertiert!)
+}
+```
+
+### 🚨 REGEL für Backend → Frontend:
+
+**Neue Struct-Felder MÜSSEN mit `#[serde(rename = "camelCase")]` annotiert werden!**
+
+**Bestehende gemischte Structs:** Nur neue Felder mit `#[serde(rename)]` annotieren
+**Neue Structs:** Gesamtes Struct mit `#[serde(rename_all = "camelCase")]` annotieren
+
+---
+
+## 3️⃣ Struct vs Individuelle Parameter
+
+### Das große Missverständnis:
+
+**Tauri konvertiert nur Top-Level Parameter-Namen, NICHT Struct-Properties!**
+
+### ❌ FALSCH: Nested Struct Properties
+
+```typescript
+// Frontend - Struct als Parameter
+const roomData = {
+  name: "Zimmer 1",
+  street_address: "Test",  // ❌ snake_case in nested object
+  postal_code: "12345"     // ❌
+};
+
+await invoke('update_room', { roomData });  // ← Struct as Parameter
+
+// Rust Command erwartet:
+#[tauri::command]
+fn update_room(room_data: RoomData) -> Result<Room, String> {
+    // room_data.street_address → None ❌
+    // room_data.postal_code    → None ❌
+}
+```
+
+**Warum geht das nicht?**
+- Tauri konvertiert `roomData` → `room_data` (Top-Level ✅)
+- **ABER:** Properties INNERHALB von `roomData` werden NICHT konvertiert!
+- Struct benötigt `#[serde(rename_all = "camelCase")]` oder individuelle `#[serde(rename)]`
+
+### ✅ RICHTIG Option A: Individuelle Parameter
+
+```typescript
+// Frontend - Alle Parameter einzeln übergeben
+await invoke('update_room', {
+  id: 1,
+  name: "Zimmer 1",
+  gebaeudeTyp: "App",         // camelCase!
+  capacity: 2,
+  priceMember: 51,            // camelCase!
+  priceNonMember: 60,         // camelCase!
+  streetAddress: "Test",      // camelCase!
+  postalCode: "12345",        // camelCase!
+  city: "Berlin"
+});
+
+// Rust Command:
+#[tauri::command]
+fn update_room(
+    id: i64,
+    name: String,
+    gebaeude_typ: String,    // ← Tauri konvertiert automatisch
+    capacity: i32,
+    price_member: f64,       // ← Tauri konvertiert automatisch
+    price_non_member: f64,   // ← Tauri konvertiert automatisch
+    street_address: Option<String>,
+    postal_code: Option<String>,
+    city: Option<String>,
+) -> Result<Room, String> { }
+```
+
+**Vorteil:** Tauri's automatische Konvertierung funktioniert! ✅
+
+### ✅ RICHTIG Option B: Struct mit Serde Annotation
+
+```rust
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]  // ← WICHTIG!
+pub struct UpdateRoomRequest {
+    pub id: i64,
+    pub name: String,
+    pub gebaeude_typ: String,
+    pub street_address: Option<String>,
+    pub postal_code: Option<String>,
+}
+
+#[tauri::command]
+fn update_room(request: UpdateRoomRequest) -> Result<Room, String> {
+    // Jetzt funktioniert's! ✅
+}
+```
+
+```typescript
+// Frontend - Struct als Parameter
+const request = {
+  id: 1,
+  name: "Test",
+  gebaeudeTyp: "App",      // camelCase → gebaeude_typ
+  streetAddress: "Test",   // camelCase → street_address
+  postalCode: "12345"      // camelCase → postal_code
+};
+
+await invoke('update_room', { request });
+```
+
+### 🚨 REGEL: Struct vs Individuelle Parameter
+
+**Option 1: Individuelle Parameter (Empfohlen für bestehende Commands)**
+- ✅ Tauri konvertiert automatisch
+- ✅ Keine Serde-Annotations nötig
+- ❌ Viele Parameter = lange Signatur
+
+**Option 2: Struct (Empfohlen für neue Commands mit vielen Parametern)**
+- ✅ Saubere Command-Signatur
+- ✅ Einfach zu erweitern
+- ⚠️ Benötigt `#[serde(rename_all = "camelCase")]` oder individuelle `#[serde(rename)]`
+
+---
+
+## 4️⃣ Debugging Checklist
+
+### Symptom: Parameter kommt als `None`/`undefined` im Backend an
+
+**Checklist:**
+1. ✅ Ist der Parameter im Frontend in camelCase geschrieben?
+2. ✅ Sind ALLE anderen Parameter auch camelCase? (kein Mixing!)
+3. ✅ Wird ein Struct als Parameter übergeben?
+   - JA → Hat das Rust-Struct `#[serde(rename_all = "camelCase")]`?
+   - NEIN → Sind alle Parameter Top-Level im invoke-Object?
+4. ✅ Console-Log: Welche Daten sendet das Frontend wirklich?
+5. ✅ Rust println!: Was empfängt das Backend wirklich?
+
+### Symptom: Frontend empfängt snake_case statt camelCase
+
+**Checklist:**
+1. ✅ Hat das Rust-Struct `#[derive(Serialize)]`?
+2. ✅ Hat es `#[serde(rename = "fieldName")]` für betroffene Felder?
+   - ODER: `#[serde(rename_all = "camelCase")]` für das ganze Struct?
+3. ✅ Console-Log: Was gibt das Backend zurück (JSON.stringify)?
+4. ✅ TypeScript Interface: Matched es die erwarteten camelCase Namen?
+
+### Debug-Tools:
+
+```typescript
+// Frontend: Zeige EXAKT was gesendet wird
+console.log('📤 Sending to Tauri:', JSON.stringify(payload, null, 2));
+const result = await invoke('command', payload);
+console.log('📥 Received from Tauri:', JSON.stringify(result, null, 2));
+```
+
+```rust
+// Backend: Zeige EXAKT was empfangen wird
+#[tauri::command]
+fn my_command(param1: String, param2: Option<String>) -> Result<Data, String> {
+    println!("🔍 Received param1: {:?}", param1);
+    println!("🔍 Received param2: {:?}", param2);
+    // ...
+}
+```
+
+---
+
+## 5️⃣ Komplette Beispiele
+
+### Beispiel 1: Room Update (Individuelle Parameter - EMPFOHLEN)
+
+```typescript
+// Frontend: RoomDialog.tsx
+const roomData = {
+  name: formData.name,
+  gebaeudeTyp: formData.gebaeude_typ,        // camelCase!
+  capacity: formData.capacity,
+  priceMember: formData.price_member,        // camelCase!
+  priceNonMember: formData.price_non_member, // camelCase!
+  streetAddress: formData.streetAddress,     // camelCase!
+  postalCode: formData.postalCode,           // camelCase!
+  city: formData.city,
+};
+
+await invoke('update_room_command', {
+  id: room.id,
+  ...roomData  // Alle Properties auf Top-Level!
+});
+```
+
+```rust
+// Backend: lib.rs
+#[tauri::command]
+fn update_room_command(
+    id: i64,
+    name: String,
+    gebaeude_typ: String,         // ← Tauri konvertiert von gebaeudeTyp
+    capacity: i32,
+    price_member: f64,            // ← Tauri konvertiert von priceMember
+    price_non_member: f64,
+    street_address: Option<String>, // ← Tauri konvertiert von streetAddress
+    postal_code: Option<String>,
+    city: Option<String>,
+) -> Result<Room, String> {
+    database::update_room(
+        id, name, gebaeude_typ, capacity,
+        price_member, price_non_member,
+        street_address, postal_code, city
+    )
+}
+```
+
+```rust
+// Backend: database.rs - Room Struct
+#[derive(Serialize, Deserialize)]
+pub struct Room {
+    pub id: i64,
+    pub name: String,
+    pub gebaeude_typ: String,  // Alte Felder bleiben snake_case
+    pub capacity: i32,
+    pub price_member: f64,
+    pub price_non_member: f64,
+    #[serde(rename = "streetAddress")]  // ← Nur neue Felder mit rename!
+    pub street_address: Option<String>,
+    #[serde(rename = "postalCode")]
+    pub postal_code: Option<String>,
+    pub city: Option<String>,
+}
+```
+
+### Beispiel 2: Neue Entity (Struct mit rename_all)
+
+```typescript
+// Frontend
+const guestData = {
+  firstName: "Max",
+  lastName: "Müller",
+  emailAddress: "max@test.de",
+  phoneNumber: "+49123",
+  streetAddress: "Teststr. 1",
+  postalCode: "12345",
+  cityName: "Berlin"
+};
+
+await invoke('create_guest', { guestData });
+```
+
+```rust
+// Backend
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]  // ← Für ganzes Struct!
+pub struct CreateGuestRequest {
+    pub first_name: String,       // ← von firstName
+    pub last_name: String,        // ← von lastName
+    pub email_address: String,
+    pub phone_number: String,
+    pub street_address: String,
+    pub postal_code: String,
+    pub city_name: String,
+}
+
+#[tauri::command]
+fn create_guest(guest_data: CreateGuestRequest) -> Result<Guest, String> {
+    // guest_data.first_name ✅
+    // guest_data.street_address ✅
+    // Alles funktioniert!
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]  // ← Auch für Response!
+pub struct Guest {
+    pub id: i64,
+    pub first_name: String,  // → firstName im JSON
+    pub last_name: String,   // → lastName im JSON
+    pub email_address: String,
+}
+```
+
+---
+
+## 📚 Zusammenfassung & Quick Reference
+
+### Frontend → Backend:
+✅ **IMMER** alle Parameter in **camelCase** schreiben
+✅ **Individuelle Parameter** bevorzugen (Tauri konvertiert automatisch)
+⚠️ Bei Structs: Rust-Struct braucht `#[serde(rename_all = "camelCase")]`
+
+### Backend → Frontend:
+✅ **Neue Felder:** Mit `#[serde(rename = "fieldName")]` annotieren
+✅ **Neue Structs:** Mit `#[serde(rename_all = "camelCase")]` annotieren
+✅ **Bestehende Structs:** Nur neue Felder mit `#[serde(rename)]`
+
+### Debugging:
+✅ Console-Logs im Frontend (JSON.stringify)
+✅ println! im Backend
+✅ Prüfen: camelCase consistency
+✅ Prüfen: Serde annotations vorhanden
+
+### Golden Rules:
+1. **Frontend sendet IMMER camelCase** (keine Ausnahmen!)
+2. **Backend annotiert IMMER neue Felder** mit Serde rename
+3. **Individuelle Parameter > Structs** (wenn möglich)
+4. **Bei Structs:** `#[serde(rename_all = "camelCase")]` nicht vergessen!
+5. **Testen:** Mit Console-Logs BEIDE Seiten prüfen
 
 ---
 
@@ -1108,22 +1447,51 @@ Nachher:
 
 ---
 
-## 🔍 Web-Recherche Strategie
+## 🔍 Web-Recherche Strategie (AUTOMATISCH!)
 
-### IMMER Web-Recherche durchführen bei:
-- Neuen/unbekannten Rust Crates (API, Best Practices)
-- Tauri 2 spezifischen Features (neue Version, Breaking Changes)
-- TailwindCSS 4 Patterns (neue Syntax, Features)
-- TypeScript neuesten Features (2024/2025 Updates)
-- Sicherheits-relevanten Themen (Encryption, Authentication)
-- Performance-Optimierungen (neueste Benchmarks)
-- PDF/Email Libraries (aktuelle Empfehlungen)
-- **Hartnäckigen UI/CSS Problemen (KRITISCH!)**: Wenn mehrere Lösungsversuche fehlschlagen, SOFORT Web-Recherche durchführen
-- Debug-Methoden und Browser DevTools Features
-- CSS Layout-Probleme (overflow, z-index, positioning)
+**KRITISCH:** Führe automatisch eine Deep Web Search durch wenn du bei einem Problem nicht weiterkommst!
 
-### Recherche-Pattern:
+### Trigger Bedingungen - AUTOMATISCHE Web-Recherche:
+
+Führe automatisch eine **Deep Web Search** durch wenn:
+
+1. **Du bei einem Problem nicht weiterkommst** nach 2-3 Versuchen
+2. **Eine Implementierung unklar ist** trotz Code-Analyse
+3. **Ein Bug auftritt** der nicht offensichtlich ist
+4. **Eine Library-spezifische Funktion** nicht wie erwartet funktioniert
+5. **Best Practices** für ein Pattern gefragt sind
+6. **Hartnäckige UI/CSS Probleme**: Wenn mehrere Lösungsversuche fehlschlagen
+
+### 4-Phasen Such-Strategie:
+
+#### Phase 1: Tech Stack Spezifische Suche
+```
+Suche nach: "[Library Name] [Feature] [Current Year]"
+Beispiel: "dnd-kit drag drop resize 2025"
+```
+
+#### Phase 2: GitHub Repository & Code Search
+```
+Suche nach: "github [Library Name] [Feature] example"
+Beispiel: "github dnd-timeline resize implementation"
+```
+
+#### Phase 3: Kombinierte Setup-Suche
+```
+Suche nach: "[Tech1] + [Tech2] + [Feature] implementation"
+Beispiel: "react typescript dnd-kit calendar drag drop"
+```
+
+#### Phase 4: Problem-Spezifische Suche
+```
+Suche nach: "[Error Message]" OR "[Specific Behavior]"
+Beispiel: "dnd-kit drag not working after resize"
+```
+
+### Recherche-Pattern (Code-Trigger):
+
 ```typescript
+// AUTOMATISCHER TRIGGER
 if (task.involves("neue_library") || task.involves("best_practices") || task.involves("security")) {
   await webSearch({
     query: "specific technology + best practices 2025",
@@ -1131,8 +1499,9 @@ if (task.involves("neue_library") || task.involves("best_practices") || task.inv
   });
 }
 
-// KRITISCH: Bei hartnäckigen Problemen nach 2-3 fehlgeschlagenen Versuchen
+// KRITISCH: Nach 2-3 fehlgeschlagenen Versuchen
 if (attempts >= 3 && problem.still_exists) {
+  // SOFORT Web-Recherche - STOP weitere Trial & Error Versuche!
   await webSearch({
     query: "specific problem description + debugging + solution 2025",
     focus: "StackOverflow, official docs, debugging guides"
@@ -1141,17 +1510,112 @@ if (attempts >= 3 && problem.still_exists) {
 ```
 
 ### Web-Recherche Trigger-Regel:
-**Wenn ein Problem nach 3 Lösungsversuchen NICHT gelöst ist:**
-1. STOP weitere Versuche ohne Recherche
-2. Führe Web-Recherche durch mit präziser Problembeschreibung
-3. Suche nach: Problem + Technologie + "debugging" + "2025"
-4. Fokus: StackOverflow Answers, Browser DevTools Guides, Official Docs
+**Wenn ein Problem nach 2-3 Lösungsversuchen NICHT gelöst ist:**
+1. ✅ **STOP** weitere Versuche ohne Recherche
+2. ✅ Führe **Deep Web-Recherche** durch mit präziser Problembeschreibung
+3. ✅ Suche nach: Problem + Technologie + "debugging" + "2025"
+4. ✅ Fokus: StackOverflow Answers, Browser DevTools Guides, Official Docs
+5. ✅ **Dokumentiere** Findings und angewendete Lösung
+
+### Pflicht Web Searches für TapeChart-bezogene Tasks:
+
+Bei TapeChart-bezogenen Aufgaben **IMMER** folgende Quellen prüfen:
+
+1. **dnd-timeline GitHub Repository**
+   - URL: https://github.com/samuelarbibe/dnd-timeline
+   - Suche nach: Code patterns, Issues, Discussions
+
+2. **@dnd-kit Documentation**
+   - Aktuelle Version: 6.3.1
+   - Suche nach: PointerSensor, useDraggable, useDroppable
+
+3. **Stack Overflow**
+   - Tags: `[dnd-kit]`, `[react-dnd]`, `[drag-and-drop]`
+   - Suche nach: ähnlichen Problemen mit unserem Setup
+
+4. **GitHub Code Search**
+   - Suche nach: Repositories die dnd-kit für Calendar/Timeline verwenden
+   - Filter: Updated in last year
+
+### Beispiel: Komplexes Problem Workflow
+
+**Scenario**: Drag funktioniert nicht mehr nach Density Mode Update
+
+**Automatischer Workflow:**
+
+1. **Sofort**: Lies `TAPECHART_CONTEXT.md` für bekannte Lösungen (falls vorhanden)
+2. **Web Search 1**: "dnd-kit drag not working listeners 2025"
+3. **Web Search 2**: "github dnd-kit conditional listeners"
+4. **Web Search 3**: "dnd-timeline drag resize conflict solution"
+5. **Code Analysis**: Vergleiche gefundene Patterns mit aktuellem Code
+6. **Implementation**: Wende beste Lösung an
+7. **Documentation**: Update Context-Dokumente mit neuer Lösung
+
+### Output Format - Nach jeder Web Search:
+
+Nach jeder Web Search dokumentiere:
+
+```markdown
+## Web Search Results: [Problem Description]
+
+**Search Query**: "[exact query]"
+**Source**: [URL oder "Multiple sources"]
+**Key Findings**:
+- Finding 1
+- Finding 2
+- Finding 3
+
+**Applied Solution**: [Beschreibung der implementierten Lösung]
+**File**: [path/to/file.tsx:line_number]
+```
 
 ### Beispiel-Queries:
 - "Tauri 2 SQLite connection pooling best practices 2025"
 - "Rust lettre email attachment modern example"
 - "React TailwindCSS modal accessibility 2025"
 - "rusqlite transaction performance optimization"
+- "dnd-kit drag drop resize calendar implementation 2025"
+- "React state not updating useEffect dependencies 2025"
+
+### TapeChart Spezialist Modus:
+
+**WICHTIG:** Wenn der User über TapeChart spricht oder Änderungen anfragt:
+
+#### Automatische Aktionen:
+1. **Lies TAPECHART_CONTEXT.md** vor jeder Antwort (falls vorhanden)
+2. **Prüfe dnd-timeline GitHub** für ähnliche Implementierungen
+3. **Verwende bekannte Patterns** aus unserer Historie
+4. **Dokumentiere alle Änderungen** im Context-Dokument (falls vorhanden)
+
+#### TapeChart Wissen & Context:
+Du bist Experte für:
+- **@dnd-kit/core v6.3.1** Drag & Drop Library
+- **dnd-timeline** Patterns und Best Practices
+- **React TypeScript** mit Hooks
+- **Tailwind CSS v3** Styling
+- **date-fns v4** Date manipulation
+- **Overlap Prevention** Custom Logic
+- **Density Modes** mit localStorage
+
+#### TapeChart Code Style:
+Halte dich an diese Standards:
+- **TypeScript strict mode** aktiviert
+- **Functional components** mit Hooks (keine Class Components)
+- **useCallback** für Event Handler
+- **useMemo** für teure Berechnungen
+- **cn()** utility für Tailwind classnames
+- **select-none** für Drag/Resize Elemente
+
+### Problemlösung Priorität (Workflow):
+
+Bei Bugs oder Fehlern folge dieser Reihenfolge:
+
+1. **Check Context-Dokumente** - Bekannte Lösungen (TAPECHART_CONTEXT.md, etc.)
+2. **Web Search** - Aktuelle Implementierungen/Lösungen
+3. **GitHub Repository** - Issues & Discussions (dnd-timeline, etc.)
+4. **Code Analysis** - Vergleich mit Working Patterns
+5. **Experimentation** - Nur wenn keine Lösung gefunden
+6. **Documentation** - Update Context mit Lösung
 
 ---
 

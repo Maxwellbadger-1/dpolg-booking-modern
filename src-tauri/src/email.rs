@@ -417,6 +417,38 @@ fn create_all_placeholders(
         placeholders.insert("schluesselcode".to_string(), "Wird beim Check-in bekannt gegeben".to_string());
     }
 
+    // Zimmer-Adresse (NEU)
+    placeholders.insert("zimmer_strasse".to_string(), room.street_address.clone().unwrap_or_default());
+    placeholders.insert("zimmer_plz".to_string(), room.postal_code.clone().unwrap_or_default());
+    placeholders.insert("zimmer_stadt".to_string(), room.city.clone().unwrap_or_default());
+
+    // Vollständige Zimmer-Adresse (kombiniert)
+    let mut zimmer_adresse_parts = Vec::new();
+    if let Some(strasse) = &room.street_address {
+        if !strasse.is_empty() {
+            zimmer_adresse_parts.push(strasse.clone());
+        }
+    }
+    if let Some(plz) = &room.postal_code {
+        if let Some(stadt) = &room.city {
+            if !plz.is_empty() || !stadt.is_empty() {
+                zimmer_adresse_parts.push(format!("{} {}", plz, stadt).trim().to_string());
+            }
+        } else if !plz.is_empty() {
+            zimmer_adresse_parts.push(plz.clone());
+        }
+    } else if let Some(stadt) = &room.city {
+        if !stadt.is_empty() {
+            zimmer_adresse_parts.push(stadt.clone());
+        }
+    }
+    let zimmer_adresse_vollstaendig = if zimmer_adresse_parts.is_empty() {
+        "".to_string()
+    } else {
+        zimmer_adresse_parts.join(", ")
+    };
+    placeholders.insert("zimmer_adresse".to_string(), zimmer_adresse_vollstaendig);
+
     // Mitreisende/Begleitpersonen (NEU)
     if let Ok(accompanying) = get_booking_accompanying_guests(booking.id) {
         placeholders.insert("anzahl_mitreisende".to_string(), accompanying.len().to_string());

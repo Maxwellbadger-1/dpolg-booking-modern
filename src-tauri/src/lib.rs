@@ -163,6 +163,9 @@ fn create_room_command(
     endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
+    street_address: Option<String>,
+    postal_code: Option<String>,
+    city: Option<String>,
 ) -> Result<database::Room, String> {
     database::create_room(
         name,
@@ -175,6 +178,9 @@ fn create_room_command(
         endreinigung,
         ort,
         schluesselcode,
+        street_address,
+        postal_code,
+        city,
     )
     .map_err(|e| format!("Fehler beim Erstellen des Raums: {}", e))
 }
@@ -192,8 +198,27 @@ fn update_room_command(
     endreinigung: f64,
     ort: String,
     schluesselcode: Option<String>,
+    street_address: Option<String>,
+    postal_code: Option<String>,
+    city: Option<String>,
 ) -> Result<database::Room, String> {
-    database::update_room(
+    println!("🔍 [update_room_command] Called with:");
+    println!("   id: {}", id);
+    println!("   name: {}", name);
+    println!("   gebaeude_typ: {}", gebaeude_typ);
+    println!("   capacity: {}", capacity);
+    println!("   price_member: {}", price_member);
+    println!("   price_non_member: {}", price_non_member);
+    println!("   nebensaison_preis: {}", nebensaison_preis);
+    println!("   hauptsaison_preis: {}", hauptsaison_preis);
+    println!("   endreinigung: {}", endreinigung);
+    println!("   ort: {}", ort);
+    println!("   schluesselcode: {:?}", schluesselcode);
+    println!("   street_address: {:?}", street_address);
+    println!("   postal_code: {:?}", postal_code);
+    println!("   city: {:?}", city);
+
+    match database::update_room(
         id,
         name,
         gebaeude_typ,
@@ -205,8 +230,24 @@ fn update_room_command(
         endreinigung,
         ort,
         schluesselcode,
-    )
-    .map_err(|e| format!("Fehler beim Aktualisieren des Raums: {}", e))
+        street_address,
+        postal_code,
+        city,
+    ) {
+        Ok(room) => {
+            println!("✅ [update_room_command] Successfully updated room:");
+            println!("   room.id: {}", room.id);
+            println!("   room.name: {}", room.name);
+            println!("   room.street_address: {:?}", room.street_address);
+            println!("   room.postal_code: {:?}", room.postal_code);
+            println!("   room.city: {:?}", room.city);
+            Ok(room)
+        }
+        Err(e) => {
+            eprintln!("❌ [update_room_command] Error: {}", e);
+            Err(format!("Fehler beim Aktualisieren des Raums: {}", e))
+        }
+    }
 }
 
 #[tauri::command]

@@ -127,9 +127,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Room CRUD Operations
   const createRoom = useCallback(async (data: any): Promise<Room> => {
+    console.log('🔍 [DataContext.createRoom] START');
+    console.log('  📥 Incoming data:', JSON.stringify(data, null, 2));
+
     try {
-      // 1. Backend Create
-      const room = await invoke<Room>('create_room_command', data);
+      // 1. Backend Create - EINZELNE PARAMETER übergeben (nicht als Object!)
+      console.log('  📤 Calling create_room_command with individual parameters:');
+      console.log('    - name:', data.name);
+      console.log('    - gebaeudeTyp:', data.gebaeudeTyp);
+      console.log('    - capacity:', data.capacity);
+      console.log('    - priceMember:', data.priceMember);
+      console.log('    - priceNonMember:', data.priceNonMember);
+      console.log('    - nebensaisonPreis:', data.nebensaisonPreis);
+      console.log('    - hauptsaisonPreis:', data.hauptsaisonPreis);
+      console.log('    - endreinigung:', data.endreinigung);
+      console.log('    - ort:', data.ort);
+      console.log('    - schluesselcode:', data.schluesselcode);
+      console.log('    - streetAddress:', data.streetAddress);
+      console.log('    - postalCode:', data.postalCode);
+      console.log('    - city:', data.city);
+
+      const room = await invoke<Room>('create_room_command', {
+        name: data.name,
+        gebaeudeTyp: data.gebaeudeTyp,
+        capacity: data.capacity,
+        priceMember: data.priceMember,
+        priceNonMember: data.priceNonMember,
+        nebensaisonPreis: data.nebensaisonPreis,
+        hauptsaisonPreis: data.hauptsaisonPreis,
+        endreinigung: data.endreinigung,
+        ort: data.ort,
+        schluesselcode: data.schluesselcode || null,
+        streetAddress: data.streetAddress || null,
+        postalCode: data.postalCode || null,
+        city: data.city || null,
+      });
+
+      console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));
 
       // 2. SOFORT zum State hinzufügen (Optimistic Update)
       setRooms(prev => [...prev, room]);
@@ -139,12 +173,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       return room;
     } catch (error) {
+      console.error('  ❌ [DataContext.createRoom] Error:', error);
       // Kein Rollback nötig - Room wurde noch nicht hinzugefügt
       throw error;
     }
   }, []);
 
   const updateRoom = useCallback(async (id: number, data: any): Promise<Room> => {
+    console.log('🔍 [DataContext.updateRoom] START');
+    console.log('  📥 Incoming data:', JSON.stringify(data, null, 2));
+
     // 1. Backup für Rollback
     const oldRoom = rooms.find(r => r.id === id);
 
@@ -154,8 +192,42 @@ export function DataProvider({ children }: { children: ReactNode }) {
     ));
 
     try {
-      // 3. Backend Update
-      const room = await invoke<Room>('update_room_command', { id, ...data });
+      // 3. Backend Update - EINZELNE PARAMETER übergeben (nicht als Object!)
+      // Tauri braucht JEDEN Parameter separat, sonst werden sie nicht richtig gemappt!
+      console.log('  📤 Calling update_room_command with individual parameters:');
+      console.log('    - id:', id);
+      console.log('    - name:', data.name);
+      console.log('    - gebaeudeTyp:', data.gebaeudeTyp);
+      console.log('    - capacity:', data.capacity);
+      console.log('    - priceMember:', data.priceMember);
+      console.log('    - priceNonMember:', data.priceNonMember);
+      console.log('    - nebensaisonPreis:', data.nebensaisonPreis);
+      console.log('    - hauptsaisonPreis:', data.hauptsaisonPreis);
+      console.log('    - endreinigung:', data.endreinigung);
+      console.log('    - ort:', data.ort);
+      console.log('    - schluesselcode:', data.schluesselcode);
+      console.log('    - streetAddress:', data.streetAddress);
+      console.log('    - postalCode:', data.postalCode);
+      console.log('    - city:', data.city);
+
+      const room = await invoke<Room>('update_room_command', {
+        id,
+        name: data.name,
+        gebaeudeTyp: data.gebaeudeTyp,
+        capacity: data.capacity,
+        priceMember: data.priceMember,
+        priceNonMember: data.priceNonMember,
+        nebensaisonPreis: data.nebensaisonPreis,
+        hauptsaisonPreis: data.hauptsaisonPreis,
+        endreinigung: data.endreinigung,
+        ort: data.ort,
+        schluesselcode: data.schluesselcode || null,
+        streetAddress: data.streetAddress || null,
+        postalCode: data.postalCode || null,
+        city: data.city || null,
+      });
+
+      console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));
 
       // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
       setRooms(prev => prev.map(r =>
@@ -167,6 +239,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       return room;
     } catch (error) {
+      console.error('  ❌ [DataContext.updateRoom] Error:', error);
       // 6. Rollback bei Fehler
       if (oldRoom) {
         setRooms(prev => prev.map(r =>

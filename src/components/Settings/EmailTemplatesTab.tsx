@@ -233,6 +233,10 @@ export default function EmailTemplatesTab() {
                   <div><code className="text-blue-400">{'{zimmer_ort}'}</code> - Ort</div>
                   <div><code className="text-blue-400">{'{zimmer_typ}'}</code> - Gebäude-Typ</div>
                   <div><code className="text-blue-400">{'{schluesselcode}'}</code> - Schlüsselcode</div>
+                  <div><code className="text-blue-400">{'{zimmer_strasse}'}</code> - Straße & Hausnr. <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{zimmer_plz}'}</code> - PLZ <span className="text-orange-400">NEU</span></div>
+                  <div><code className="text-blue-400">{'{zimmer_stadt}'}</code> - Stadt <span className="text-orange-400">NEU</span></div>
+                  <div className="col-span-2"><code className="text-blue-400">{'{zimmer_adresse}'}</code> - Vollständige Adresse <span className="text-orange-400">NEU</span></div>
                 </div>
               </div>
 
