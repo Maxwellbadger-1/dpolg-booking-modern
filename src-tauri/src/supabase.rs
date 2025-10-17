@@ -188,6 +188,7 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
             let room_name = booking.room.name.replace("'", "''");
             let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname).replace("'", "''");
             let emojis_start_escaped = emojis_start_str.replace("'", "''");
+            let reservierungsnummer_escaped = booking.reservierungsnummer.replace("'", "''");
 
             let extras = serde_json::json!({
                 "guest_count": booking.anzahl_gaeste,
@@ -207,10 +208,11 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
             // 🏔️ Room Location von booking.room.ort
             let room_location = booking.room.ort.replace("'", "''");
 
-            // INSERT Check-IN Task (mit room_location)
+            // INSERT Check-IN Task (mit room_location + reservierungsnummer)
             let insert_sql = format!(
-                "INSERT INTO cleaning_tasks (booking_id, date, room_name, room_id, room_location, guest_name, checkout_time, checkin_time, priority, notes, status, guest_count, extras, emojis_start, emojis_end) VALUES ({}, '{}', '{}', {}, '{}', '{}', '{}', '{}', 'normal', {}, 'pending', {}, '{}', '{}', '')",
+                "INSERT INTO cleaning_tasks (booking_id, reservierungsnummer, date, room_name, room_id, room_location, guest_name, checkout_time, checkin_time, priority, notes, status, guest_count, extras, emojis_start, emojis_end) VALUES ({}, '{}', '{}', '{}', {}, '{}', '{}', '{}', '{}', 'normal', {}, 'pending', {}, '{}', '{}', '')",
                 booking.id,
+                reservierungsnummer_escaped,  // 📋 Reservierungsnummer hinzugefügt!
                 date,  // Check-IN Tag
                 room_name,
                 booking.room_id,
@@ -257,6 +259,7 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
         let room_name = booking.room.name.replace("'", "''");
         let guest_name = format!("{} {}", booking.guest.vorname, booking.guest.nachname).replace("'", "''");
         let emojis_end_escaped = emojis_end_str.replace("'", "''");
+        let reservierungsnummer_escaped = booking.reservierungsnummer.replace("'", "''");
 
         let extras = serde_json::json!({
             "guest_count": booking.anzahl_gaeste,
@@ -282,10 +285,11 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
         // 🏔️ Room Location von booking.room.ort
         let room_location = booking.room.ort.replace("'", "''");
 
-        // INSERT Check-OUT Task (mit room_location)
+        // INSERT Check-OUT Task (mit room_location + reservierungsnummer)
         let insert_sql = format!(
-            "INSERT INTO cleaning_tasks (booking_id, date, room_name, room_id, room_location, guest_name, checkout_time, checkin_time, priority, notes, status, guest_count, extras, emojis_start, emojis_end) VALUES ({}, '{}', '{}', {}, '{}', '{}', '{}', {}, '{}', {}, 'pending', {}, '{}', '', '{}')",
+            "INSERT INTO cleaning_tasks (booking_id, reservierungsnummer, date, room_name, room_id, room_location, guest_name, checkout_time, checkin_time, priority, notes, status, guest_count, extras, emojis_start, emojis_end) VALUES ({}, '{}', '{}', '{}', {}, '{}', '{}', '{}', {}, '{}', {}, 'pending', {}, '{}', '', '{}')",
             booking.id,
+            reservierungsnummer_escaped,  // 📋 Reservierungsnummer hinzugefügt!
             date,  // Check-OUT Tag
             room_name,
             booking.room_id,
@@ -314,6 +318,21 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
     println!("✅ [sync_cleaning_tasks] Erfolgreich! {} Aufgaben synchronisiert\n", task_count);
 
     Ok(format!("✅ {} Aufgaben synchronisiert", task_count))
+}
+
+/// 🗑️ Löscht ALLE Tasks für eine spezifische Booking ID aus Turso
+/// Wird vor Drag/Resize aufgerufen um alte "occupied" Tasks zu löschen
+#[tauri::command]
+pub async fn delete_booking_tasks(booking_id: i64) -> Result<String, String> {
+    println!("🗑️  [delete_booking_tasks] Lösche alle Tasks für Booking #{}", booking_id);
+
+    let sql = format!("DELETE FROM cleaning_tasks WHERE booking_id = {}", booking_id);
+
+    execute_turso_sql(sql).await?;
+
+    println!("✅ [delete_booking_tasks] Erfolgreich gelöscht!");
+
+    Ok(format!("✅ Tasks für Booking #{} gelöscht", booking_id))
 }
 
 /// Synchronisiert automatisch alle Buchungen der nächsten 90 Tage (3 Monate)
@@ -533,6 +552,7 @@ pub async fn migrate_cleaning_tasks_schema() -> Result<String, String> {
         "CREATE TABLE cleaning_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER NOT NULL,
+            reservierungsnummer TEXT NOT NULL,
             date TEXT NOT NULL,
             room_name TEXT NOT NULL,
             room_id INTEGER NOT NULL,

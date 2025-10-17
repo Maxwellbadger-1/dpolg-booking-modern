@@ -779,6 +779,76 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
   }, [reloadBooking]);
 
+  // Event Listener: Sync Mobile App after Undo operation
+  useEffect(() => {
+    const handleUndoExecuted = (event: CustomEvent) => {
+      const { commandType, description } = event.detail || {};
+      console.log('🔄 [DataContext] Undo executed - syncing mobile app:', { commandType, description });
+
+      // Loading Toast
+      const syncToast = toast.loading('☁️ Synchronisiere Putzplan nach Undo...', {
+        style: {
+          background: '#1e293b',
+          color: '#fff',
+          borderRadius: '0.75rem',
+          padding: '1rem',
+        }
+      });
+
+      // Vollständiger Sync (nächste 7 Tage)
+      invoke('sync_week_ahead')
+        .then((result: string) => {
+          console.log('✅ [DataContext] Mobile App Sync nach Undo erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        })
+        .catch((error: any) => {
+          console.error('❌ [DataContext] Mobile App Sync nach Undo fehlgeschlagen:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+    };
+
+    window.addEventListener('undo-executed', handleUndoExecuted as EventListener);
+
+    return () => {
+      window.removeEventListener('undo-executed', handleUndoExecuted as EventListener);
+    };
+  }, []);
+
+  // Event Listener: Sync Mobile App after Redo operation
+  useEffect(() => {
+    const handleRedoExecuted = (event: CustomEvent) => {
+      const { commandType, description } = event.detail || {};
+      console.log('🔄 [DataContext] Redo executed - syncing mobile app:', { commandType, description });
+
+      // Loading Toast
+      const syncToast = toast.loading('☁️ Synchronisiere Putzplan nach Wiederherstellen...', {
+        style: {
+          background: '#1e293b',
+          color: '#fff',
+          borderRadius: '0.75rem',
+          padding: '1rem',
+        }
+      });
+
+      // Vollständiger Sync (nächste 7 Tage)
+      invoke('sync_week_ahead')
+        .then((result: string) => {
+          console.log('✅ [DataContext] Mobile App Sync nach Redo erfolgreich:', result);
+          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+        })
+        .catch((error: any) => {
+          console.error('❌ [DataContext] Mobile App Sync nach Redo fehlgeschlagen:', error);
+          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        });
+    };
+
+    window.addEventListener('redo-executed', handleRedoExecuted as EventListener);
+
+    return () => {
+      window.removeEventListener('redo-executed', handleRedoExecuted as EventListener);
+    };
+  }, []);
+
   const value: DataContextType = {
     // Data
     rooms,

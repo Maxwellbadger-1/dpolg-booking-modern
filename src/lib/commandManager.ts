@@ -418,6 +418,17 @@ export class CommandManager {
     command.undo();
     this.redoStack.push(command);
     this.notifyListeners();
+
+    // 🔄 Dispatch 'undo-executed' Event für Mobile App Sync
+    // DataContext hört auf dieses Event und triggert vollständigen Sync
+    console.log('🔄 [CommandManager] Undo executed - dispatching event for mobile app sync');
+    window.dispatchEvent(new CustomEvent('undo-executed', {
+      detail: {
+        commandType: command.constructor.name,
+        description: command.description
+      }
+    }));
+
     return true;
   }
 
@@ -428,6 +439,17 @@ export class CommandManager {
     command.execute();
     this.undoStack.push(command);
     this.notifyListeners();
+
+    // 🔄 Dispatch 'redo-executed' Event für Mobile App Sync
+    // DataContext hört auf dieses Event und triggert vollständigen Sync
+    console.log('🔄 [CommandManager] Redo executed - dispatching event for mobile app sync');
+    window.dispatchEvent(new CustomEvent('redo-executed', {
+      detail: {
+        commandType: command.constructor.name,
+        description: command.description
+      }
+    }));
+
     return true;
   }
 

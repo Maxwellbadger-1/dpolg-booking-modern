@@ -953,6 +953,8 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       const newCheckoutDate = pendingChange.newData.checkout_date;
       const oldCheckinDate = pendingChange.oldData.checkin_date;
       const newCheckinDate = pendingChange.newData.checkin_date;
+      const oldRoomId = pendingChange.oldData.room_id;
+      const newRoomId = pendingChange.newData.room_id;
 
       // Reset pending state (Dialog schließt SOFORT)
       setPendingBookingId(null);
@@ -964,17 +966,20 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       await refreshBookings();
       console.log('✅ [TapeChart] Bookings refreshed from database!');
 
-      // AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
+      // 🔄 SYNC zu Turso (Mobile App) - NUR wenn SPEICHERN Button geklickt wurde!
       const checkoutChanged = oldCheckoutDate !== newCheckoutDate;
       const checkinChanged = oldCheckinDate !== newCheckinDate;
+      const roomChanged = oldRoomId !== newRoomId;
 
-      if (checkoutChanged || checkinChanged) {
+      if (checkoutChanged || checkinChanged || roomChanged) {
         if (checkoutChanged) {
           console.log('🔄 [TapeChart] Checkout-Datum geändert:', oldCheckoutDate, '→', newCheckoutDate);
         }
         if (checkinChanged) {
           console.log('🔄 [TapeChart] Checkin-Datum geändert:', oldCheckinDate, '→', newCheckinDate);
-          console.log('   → Sync checkout_date um Priorität zu aktualisieren');
+        }
+        if (roomChanged) {
+          console.log('🔄 [TapeChart] Zimmer geändert:', oldRoomId, '→', newRoomId);
         }
 
         // Loading Toast
@@ -987,20 +992,37 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           }
         });
 
-        // Sync: Bei checkout_date Änderung → alte + neue Daten
-        //       Bei checkin_date Änderung → nur checkout_date neu (Priorität-Update)
-        invoke('sync_affected_dates', {
-          oldCheckout: checkoutChanged ? oldCheckoutDate : null,
-          newCheckout: newCheckoutDate
-        }).then((result: string) => {
-          console.log('✅ [TapeChart] Auto-Sync erfolgreich:', result);
-          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-        }).catch((error: any) => {
-          console.error('❌ [TapeChart] Auto-Sync Fehler:', error);
-          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-        });
+        // 🔥 KRITISCH: 2-Schritt Sync Strategie (wie Profis es machen!)
+        // Schritt 1: DELETE alle Tasks dieser Booking ID (Booking-Level DELETE)
+        // Schritt 2: Vollständiger Sync (sync_week_ahead) erstellt neue Tasks
+        //
+        // Problem das wir lösen:
+        // - Booking #24 war auf Tag 20-25
+        // - User verkürzt auf Tag 20-22
+        // - Alte "occupied" Tasks auf Tag 23-25 bleiben in Mobile App
+        //
+        // Lösung: Lösche ALLE Tasks für Booking #24, dann sync neu
+        console.log('🔄 [TapeChart] 2-Schritt Mobile App Sync: DELETE Booking Tasks → Full Sync');
+
+        // Schritt 1: DELETE alle Tasks dieser Booking
+        console.log('🗑️  [TapeChart] Schritt 1: Lösche alle Tasks für Booking #' + savedBookingId);
+        invoke('delete_booking_tasks', { bookingId: savedBookingId })
+          .then(() => {
+            console.log('✅ [TapeChart] Booking Tasks gelöscht, starte Full Sync...');
+
+            // Schritt 2: Vollständiger Sync
+            return invoke('sync_week_ahead');
+          })
+          .then((result: string) => {
+            console.log('✅ [TapeChart] Vollständiger Sync erfolgreich:', result);
+            toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+          })
+          .catch((error: any) => {
+            console.error('❌ [TapeChart] Sync fehlgeschlagen:', error);
+            toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+          });
       } else {
-        console.log('⚠️ [TapeChart] Keine Auto-Sync - Daten unverändert');
+        console.log('⚠️ [TapeChart] Keine Änderung - Daten unverändert (kein Datum-/Zimmer-Wechsel)');
       }
 
       // Email und Rechnung im HINTERGRUND erstellen (nicht-blockierend)
