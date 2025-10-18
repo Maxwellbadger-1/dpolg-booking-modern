@@ -121,8 +121,36 @@ function AppContent() {
   // ✅ Event Listener für Toast-Notifications (von Background-Prozessen)
   useEffect(() => {
     const handleShowToast = (event: CustomEvent) => {
-      const { message, type, duration } = event.detail;
+      const { id, message, type, duration } = event.detail;
 
+      // ✅ LOADING TOAST - bleibt offen bis update (mit ID)
+      if (type === 'loading') {
+        toast.loading(message, { id });
+        return;
+      }
+
+      // ✅ UPDATE EXISTING TOAST (wenn ID vorhanden)
+      if (id) {
+        switch (type) {
+          case 'success':
+            toast.success(message, { id, duration: duration || 4000 });
+            break;
+          case 'error':
+            toast.error(message, { id, duration: duration || 5000 });
+            break;
+          case 'info':
+            toast(message, { id, duration: duration || 3000, icon: '📧' });
+            break;
+          case 'warning':
+            toast(message, { id, duration: duration || 4000, icon: '⚠️' });
+            break;
+          default:
+            toast(message, { id, duration: duration || 3000 });
+        }
+        return;
+      }
+
+      // ✅ NEW TOAST (ohne ID - alte Kompatibilität)
       switch (type) {
         case 'success':
           toast.success(message, { duration: duration || 4000 });

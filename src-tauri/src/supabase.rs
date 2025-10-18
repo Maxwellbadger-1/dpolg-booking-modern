@@ -335,6 +335,27 @@ pub async fn delete_booking_tasks(booking_id: i64) -> Result<String, String> {
     Ok(format!("✅ Tasks für Booking #{} gelöscht", booking_id))
 }
 
+/// 🧹 CLEANUP: Löscht ALLE Tasks und synchronisiert neu (entfernt alte gelöschte Buchungen)
+/// Verwendet "Truncate & Refill" Pattern wie professionelle Sync-Systeme
+#[tauri::command]
+pub async fn cleanup_cleaning_tasks() -> Result<String, String> {
+    println!("🧹 [cleanup_cleaning_tasks] CLEANUP START - Lösche ALLE Tasks...");
+
+    // Schritt 1: TRUNCATE (alle Tasks löschen)
+    let sql = "DELETE FROM cleaning_tasks".to_string();
+    execute_turso_sql(sql).await?;
+
+    println!("✅ [cleanup_cleaning_tasks] Alle alten Tasks gelöscht!");
+    println!("🔄 [cleanup_cleaning_tasks] Starte Full Sync (90 Tage)...");
+
+    // Schritt 2: REFILL (vollständiger Sync)
+    let result = sync_week_ahead().await?;
+
+    println!("✅ [cleanup_cleaning_tasks] CLEANUP ABGESCHLOSSEN!");
+
+    Ok(format!("🧹 CLEANUP ERFOLGREICH!\n\n{}", result))
+}
+
 /// Synchronisiert automatisch alle Buchungen der nächsten 90 Tage (3 Monate)
 #[tauri::command]
 pub async fn sync_week_ahead() -> Result<String, String> {

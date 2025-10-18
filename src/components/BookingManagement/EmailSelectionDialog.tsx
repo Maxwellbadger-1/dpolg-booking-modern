@@ -79,17 +79,17 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
     // Close dialog immediately
     handleClose();
 
-    // Show initial toast
+    // ✅ LOADING TOAST - bleibt offen bis fertig
+    const toastId = `email-batch-${bookingId}`;
     const toastMessage = emailCount === 1
-      ? '📧 Email wird im Hintergrund versendet...'
-      : `📧 ${emailCount} Emails werden im Hintergrund versendet...`;
+      ? '📧 Email wird versendet...'
+      : `📧 ${emailCount} Emails werden versendet...`;
 
-    // Dispatch custom event to show toast (handled by App.tsx or similar)
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
+        id: toastId,
         message: toastMessage,
-        type: 'info',
-        duration: 2000
+        type: 'loading'
       }
     }));
 
@@ -136,7 +136,7 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
         }
       }
 
-      // Show final summary toast
+      // ✅ UPDATE LOADING TOAST mit Final Result
       if (successCount > 0 && failCount === 0) {
         const summaryMessage = successCount === 1
           ? '✅ Email erfolgreich versendet'
@@ -144,6 +144,7 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
 
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId, // ← Gleiche ID = Toast wird updated!
             message: summaryMessage,
             type: 'success',
             duration: 3000
@@ -152,9 +153,20 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
       } else if (successCount > 0 && failCount > 0) {
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId, // ← Gleiche ID = Toast wird updated!
             message: `⚠️ ${successCount} erfolgreich, ${failCount} fehlgeschlagen`,
             type: 'warning',
             duration: 4000
+          }
+        }));
+      } else if (failCount > 0) {
+        // Alle fehlgeschlagen
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            id: toastId, // ← Gleiche ID = Toast wird updated!
+            message: `❌ ${failCount} Email${failCount > 1 ? 's' : ''} fehlgeschlagen`,
+            type: 'error',
+            duration: 5000
           }
         }));
       }

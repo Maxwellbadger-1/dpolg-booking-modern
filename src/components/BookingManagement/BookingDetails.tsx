@@ -240,12 +240,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleSendConfirmationEmail = async () => {
     if (!booking) return;
 
-    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    // ✅ LOADING TOAST - bleibt offen bis fertig
+    const toastId = `confirmation-${bookingId}`;
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
+        id: toastId,
         message: '📧 Bestätigung wird versendet...',
-        type: 'info',
-        duration: 2000
+        type: 'loading'
       }
     }));
 
@@ -254,16 +255,20 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       try {
         const result = await invoke<string>('send_confirmation_email_command', { bookingId });
 
+        // ✅ UPDATE LOADING TOAST mit Success
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `✅ ${result}`,
             type: 'success',
             duration: 3000
           }
         }));
       } catch (error) {
+        // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `❌ Fehler beim Senden: ${error}`,
             type: 'error',
             duration: 5000
@@ -279,12 +284,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleSendReminderEmail = async () => {
     if (!booking) return;
 
-    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    // ✅ LOADING TOAST - bleibt offen bis fertig
+    const toastId = `reminder-${bookingId}`;
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
+        id: toastId,
         message: '📧 Erinnerung wird versendet...',
-        type: 'info',
-        duration: 2000
+        type: 'loading'
       }
     }));
 
@@ -293,16 +299,20 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       try {
         const result = await invoke<string>('send_reminder_email_command', { bookingId });
 
+        // ✅ UPDATE LOADING TOAST mit Success
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `✅ ${result}`,
             type: 'success',
             duration: 3000
           }
         }));
       } catch (error) {
+        // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `❌ Fehler beim Senden: ${error}`,
             type: 'error',
             duration: 5000
@@ -318,12 +328,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleSendInvoiceEmail = async () => {
     if (!booking) return;
 
-    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    // ✅ LOADING TOAST - bleibt offen bis fertig
+    const toastId = `invoice-${bookingId}`;
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
+        id: toastId,
         message: '📧 Rechnung wird generiert und versendet...',
-        type: 'info',
-        duration: 2000
+        type: 'loading'
       }
     }));
 
@@ -334,8 +345,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         // damit PDF automatisch generiert und angehängt wird
         const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
 
+        // ✅ UPDATE LOADING TOAST mit Success
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `✅ ${result}`,
             type: 'success',
             duration: 3000
@@ -347,8 +360,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         await refreshBookings();
         await loadBookingDetails();
       } catch (error) {
+        // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `❌ Fehler beim Senden: ${error}`,
             type: 'error',
             duration: 5000
@@ -364,12 +379,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleGeneratePdf = async () => {
     if (!booking) return;
 
-    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    // ✅ LOADING TOAST - bleibt offen bis fertig
+    const toastId = `pdf-${bookingId}`;
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
+        id: toastId,
         message: '📄 PDF-Rechnung wird erstellt...',
-        type: 'info',
-        duration: 2000
+        type: 'loading'
       }
     }));
 
@@ -378,8 +394,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       try {
         const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
 
+        // ✅ UPDATE LOADING TOAST mit Success
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `✅ PDF-Rechnung erfolgreich erstellt`,
             type: 'success',
             duration: 3000
@@ -393,8 +411,11 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         setInvoicePdfs(pdfsData);
       } catch (error) {
         console.error('❌ ERROR generating PDF:', error);
+
+        // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
+            id: toastId,
             message: `❌ Fehler beim Erstellen der PDF: ${error}`,
             type: 'error',
             duration: 5000

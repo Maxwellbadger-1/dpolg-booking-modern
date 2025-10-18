@@ -1265,6 +1265,7 @@ pub fn run() {
             supabase::sync_week_ahead,
             supabase::sync_affected_dates,
             supabase::delete_booking_tasks,
+            supabase::cleanup_cleaning_tasks,
             supabase::get_cleaning_stats,
             supabase::migrate_cleaning_tasks_schema,
             supabase::test_emoji_sync,

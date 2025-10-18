@@ -10,7 +10,7 @@ interface RemindersViewProps {
 }
 
 export default function RemindersView({ onNavigateToBooking }: RemindersViewProps) {
-  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [allReminders, setAllReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'open' | 'completed'>('open');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -18,7 +18,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
 
   useEffect(() => {
     loadReminders();
-  }, [filter]);
+  }, []);
 
   useEffect(() => {
     // Event Listener für Reminder Updates
@@ -27,23 +27,14 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     };
     window.addEventListener('reminder-updated', handleReminderUpdate);
     return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
-  }, [filter]);
+  }, []);
 
   const loadReminders = async () => {
     try {
       setLoading(true);
-      const includeCompleted = filter === 'all' || filter === 'completed';
-      const data = await invoke<Reminder[]>('get_all_reminders_command', { includeCompleted });
-
-      // Filter nach Status
-      let filtered = data;
-      if (filter === 'completed') {
-        filtered = data.filter(r => r.is_completed);
-      } else if (filter === 'open') {
-        filtered = data.filter(r => !r.is_completed);
-      }
-
-      setReminders(filtered);
+      // Lade IMMER alle Reminders (inkl. completed), Filter nur für Anzeige
+      const data = await invoke<Reminder[]>('get_all_reminders_command', { includeCompleted: true });
+      setAllReminders(data);
     } catch (error) {
       console.error('Fehler beim Laden der Erinnerungen:', error);
     } finally {
@@ -165,8 +156,16 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     return date < today;
   };
 
-  const openReminders = reminders.filter(r => !r.is_completed);
-  const completedReminders = reminders.filter(r => r.is_completed);
+  // Berechne Anzahlen IMMER von ALLEN Reminders (nicht gefiltert)
+  const openReminders = allReminders.filter(r => !r.is_completed);
+  const completedReminders = allReminders.filter(r => r.is_completed);
+
+  // Filtere für Anzeige basierend auf aktivem Tab
+  const displayedReminders = filter === 'open'
+    ? openReminders
+    : filter === 'completed'
+    ? completedReminders
+    : allReminders;
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-slate-100">
@@ -224,7 +223,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
-            Alle ({reminders.length})
+            Alle ({allReminders.length})
           </button>
         </div>
       </div>
@@ -238,7 +237,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
               <p className="mt-4 text-slate-600">Lade Erinnerungen...</p>
             </div>
           </div>
-        ) : reminders.length === 0 ? (
+        ) : displayedReminders.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
               <Bell className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -254,7 +253,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
           </div>
         ) : (
           <div className="grid gap-4 max-w-4xl mx-auto">
-            {reminders.map((reminder) => (
+            {displayedReminders.map((reminder) => (
               <div
                 key={reminder.id}
                 className={`border-2 rounded-xl p-5 transition-all ${

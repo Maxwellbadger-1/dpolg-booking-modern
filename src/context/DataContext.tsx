@@ -598,24 +598,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // 3. Backend Delete
       await invoke('delete_booking_command', { id });
 
-      // 4. AUTO-SYNC zu Turso (falls Buchung gelöscht wurde)
+      // 4. 🔥 CASCADE DELETE zu Turso (falls Buchung gelöscht wurde)
+      // Professionelle Lösung: Wenn Parent-Record gelöscht wird → automatisch alle Child-Records löschen
+      // Booking (Parent) → cleaning_tasks (Child)
       if (deletedBooking) {
-        console.log('🔄 [DataContext] Buchung gelöscht - Auto-Sync zu Turso für', deletedBooking.checkout_date);
+        console.log('🗑️ [DataContext] Buchung #' + deletedBooking.id + ' gelöscht - CASCADE DELETE zu Turso');
 
         // Loading Toast
-        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
-
-        // Fire-and-forget: Sync läuft im Hintergrund
-        invoke('sync_affected_dates', {
-          oldCheckout: null,
-          newCheckout: deletedBooking.checkout_date
-        }).then((result: string) => {
-          console.log('✅ [DataContext] Auto-Sync (DELETE) erfolgreich:', result);
-          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-        }).catch((error: any) => {
-          console.error('❌ [DataContext] Auto-Sync (DELETE) Fehler:', error);
-          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        const syncToast = toast.loading('☁️ Lösche Putzplan-Aufgaben...', {
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
         });
+
+        // Fire-and-forget: CASCADE DELETE für alle Tasks dieser Booking
+        invoke('delete_booking_tasks', { bookingId: deletedBooking.id })
+          .then((result: string) => {
+            console.log('✅ [DataContext] CASCADE DELETE erfolgreich:', result);
+            toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+          })
+          .catch((error: any) => {
+            console.error('❌ [DataContext] CASCADE DELETE Fehler:', error);
+            toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+          });
       }
 
       // 5. Event für Undo-Button
@@ -647,24 +655,38 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Backend sync (fire-and-forget, runs in background)
       await invoke('update_booking_status_command', { bookingId: id, newStatus: status });
 
-      // AUTO-SYNC zu Turso (Status-Änderung, z.B. Stornierung)
-      if (oldBooking.checkout_date) {
-        console.log('🔄 [DataContext] Status-Änderung - Auto-Sync zu Turso für', oldBooking.checkout_date);
+      // 🔥 2-SCHRITT SYNC zu Turso (Status-Änderung, z.B. Stornierung)
+      // Bei Status-Änderung (reserviert → storniert oder umgekehrt) müssen Tasks neu berechnet werden
+      // Schritt 1: DELETE alte Tasks (CASCADE)
+      // Schritt 2: Full Sync erstellt neue Tasks basierend auf neuem Status
+      if (oldBooking) {
+        console.log('🔄 [DataContext] Status-Änderung: "' + oldBooking.status + '" → "' + status + '" - 2-Schritt Sync');
 
         // Loading Toast
-        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
-
-        // Fire-and-forget: Sync läuft im Hintergrund
-        invoke('sync_affected_dates', {
-          oldCheckout: oldBooking.checkout_date,
-          newCheckout: oldBooking.checkout_date
-        }).then((result: string) => {
-          console.log('✅ [DataContext] Auto-Sync (STATUS) erfolgreich:', result);
-          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-        }).catch((error: any) => {
-          console.error('❌ [DataContext] Auto-Sync (STATUS) Fehler:', error);
-          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
+          style: {
+            background: '#1e293b',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
         });
+
+        // Schritt 1: DELETE alle Tasks dieser Booking
+        invoke('delete_booking_tasks', { bookingId: id })
+          .then(() => {
+            console.log('✅ [DataContext] Booking Tasks gelöscht, starte Full Sync...');
+            // Schritt 2: Full Sync (erstellt neue Tasks falls Buchung aktiv)
+            return invoke('sync_week_ahead');
+          })
+          .then((result: string) => {
+            console.log('✅ [DataContext] Vollständiger Sync erfolgreich:', result);
+            toast.success('✅ Putzplan aktualisiert', { id: syncToast });
+          })
+          .catch((error: any) => {
+            console.error('❌ [DataContext] Sync fehlgeschlagen:', error);
+            toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
+          });
       }
     } catch (error) {
       // On error: Undo the command (instant rollback!)

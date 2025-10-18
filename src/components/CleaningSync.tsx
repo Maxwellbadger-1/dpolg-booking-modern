@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Database, Copy, CheckCircle, Lock } from 'lucide-react';
+import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Database, Copy, CheckCircle, Lock, Trash2 } from 'lucide-react';
 
 interface CleaningStats {
   today: number;
@@ -11,8 +11,10 @@ interface CleaningStats {
 
 export default function CleaningSync() {
   const [syncing, setSyncing] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
   const [migrating, setMigrating] = useState(false);
   const [message, setMessage] = useState('');
+  const [cleanupMessage, setCleanupMessage] = useState('');
   const [migrationMessage, setMigrationMessage] = useState('');
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [stats, setStats] = useState<CleaningStats>({ today: 0, tomorrow: 0, this_week: 0, total: 0 });
@@ -78,6 +80,26 @@ export default function CleaningSync() {
       setMessage(`❌ Fehler: ${error}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!confirm('🧹 PUTZPLAN BEREINIGEN\n\nDies löscht ALLE Tasks aus der Cloud und synchronisiert sie neu. \n\nAlle gelöschten Buchungen werden aus dem Putzplan entfernt.\n\nDauer: ca. 30-60 Sekunden\n\nFortfahren?')) {
+      return;
+    }
+
+    setCleaning(true);
+    setCleanupMessage('');
+    try {
+      const result = await invoke<string>('cleanup_cleaning_tasks');
+      setCleanupMessage(result);
+      setLastSync(new Date());
+      // Stats neu laden nach Cleanup
+      await loadStats();
+    } catch (error) {
+      setCleanupMessage(`❌ Fehler: ${error}`);
+    } finally {
+      setCleaning(false);
     }
   };
 
@@ -194,15 +216,27 @@ export default function CleaningSync() {
       <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
         <h3 className="text-lg font-semibold text-slate-900 mb-4">Cloud-Synchronisation</h3>
 
-        <button
-          onClick={handleSync3Months}
-          disabled={syncing}
-          className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
-        >
-          <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
-          <span>{syncing ? 'Synchronisiere...' : '3 Monate synchronisieren'}</span>
-          <span className="text-sm opacity-90">(90 Tage)</span>
-        </button>
+        <div className="space-y-3">
+          <button
+            onClick={handleSync3Months}
+            disabled={syncing || cleaning}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
+            <span>{syncing ? 'Synchronisiere...' : '3 Monate synchronisieren'}</span>
+            <span className="text-sm opacity-90">(90 Tage)</span>
+          </button>
+
+          <button
+            onClick={handleCleanup}
+            disabled={syncing || cleaning}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <Trash2 className={`w-5 h-5 ${cleaning ? 'animate-pulse' : ''}`} />
+            <span>{cleaning ? 'Bereinige...' : 'Putzplan bereinigen'}</span>
+            <span className="text-sm opacity-90">(Löscht alte Buchungen)</span>
+          </button>
+        </div>
 
         {message && (
           <div className={`mt-4 p-4 rounded-lg text-sm whitespace-pre-line ${
@@ -211,6 +245,16 @@ export default function CleaningSync() {
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {message}
+          </div>
+        )}
+
+        {cleanupMessage && (
+          <div className={`mt-4 p-4 rounded-lg text-sm whitespace-pre-line ${
+            cleanupMessage.includes('❌')
+              ? 'bg-red-50 text-red-700 border border-red-200'
+              : 'bg-green-50 text-green-700 border border-green-200'
+          }`}>
+            {cleanupMessage}
           </div>
         )}
       </div>
