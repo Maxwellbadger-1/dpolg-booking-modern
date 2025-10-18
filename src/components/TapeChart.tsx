@@ -1448,14 +1448,14 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
             </div>
 
             {/* Rows */}
-            {/* ✅ SORTIERUNG: Nach Ort (Location) + Name (alphabetisch) */}
+            {/* ✅ SORTIERUNG: Nach Ort (Location) + Name (natürlich/numerisch) */}
             {[...rooms].sort((a, b) => {
               // Erst nach Ort sortieren
               if (a.ort !== b.ort) {
                 return a.ort.localeCompare(b.ort);
               }
-              // Dann innerhalb des Orts nach Name
-              return a.name.localeCompare(b.name);
+              // Dann innerhalb des Orts nach Name (natürliche Sortierung: 1, 2, 10 statt 1, 10, 2)
+              return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
             }).map((room, roomIdx) => {
               const roomBookings = localBookings.filter((b) => b.room_id === room.id);
 
