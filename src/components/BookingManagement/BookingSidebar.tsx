@@ -222,6 +222,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [creditToApply, setCreditToApply] = useState<number>(0);
   const [loadingCredit, setLoadingCredit] = useState(false);
 
+  // Alternative Cleaning Checkout Date State
+  const [useAlternativeCleaningDate, setUseAlternativeCleaningDate] = useState(false);
+
   // Load data when sidebar opens
   useEffect(() => {
     if (isOpen) {
@@ -648,6 +651,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
+          putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
         };
 
         console.log('📤 [SIDEBAR updatePayload] Payload being sent to updateBooking:');
@@ -752,6 +756,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
+          putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
         };
 
         console.log('📤 [SIDEBAR createPayload] Payload being sent to createBooking:');
@@ -1733,6 +1738,53 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                     className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+              </div>
+
+              {/* Alternative Cleaning Checkout Date */}
+              <div className="border-2 border-blue-300 rounded-lg p-4 bg-gradient-to-br from-blue-50 to-cyan-50">
+                <label className="flex items-start gap-3 cursor-pointer mb-3">
+                  <input
+                    type="checkbox"
+                    checked={useAlternativeCleaningDate}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setUseAlternativeCleaningDate(checked);
+                      if (!checked) {
+                        setFormData({ ...formData, putzplan_checkout_date: null });
+                      }
+                    }}
+                    className="mt-0.5 w-5 h-5 accent-blue-600 bg-white border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 text-blue-900 font-semibold mb-1">
+                      <Calendar className="w-4 h-4" />
+                      Alternatives Putzplan-Checkout
+                    </div>
+                    <p className="text-sm text-blue-700">
+                      Setze ein abweichendes Checkout-Datum für die Mobile Cleaning App. Das TapeChart zeigt weiterhin das normale Checkout-Datum.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Conditional Date Picker */}
+                {useAlternativeCleaningDate && (
+                  <div className="border-t border-blue-200 pt-3 mt-1">
+                    <label className="block text-sm font-semibold text-blue-900 mb-2">
+                      Putzplan Checkout-Datum *
+                    </label>
+                    <input
+                      type="date"
+                      required={useAlternativeCleaningDate}
+                      value={formData.putzplan_checkout_date || ''}
+                      onChange={(e) => setFormData({ ...formData, putzplan_checkout_date: e.target.value })}
+                      min={formData.checkin_date}
+                      className="w-full px-4 py-2 bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+                    />
+                    <p className="text-xs text-blue-600 mt-1">
+                      📱 Dieses Datum wird in der Mobile Cleaning App als Checkout angezeigt
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Availability Status */}

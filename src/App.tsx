@@ -224,10 +224,22 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-800 to-slate-900">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Lade Daten...</p>
+          {/* MP4 Video als Ladeanimation */}
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-64 h-64 mb-4 mx-auto"
+            style={{ objectFit: 'contain' }}
+          >
+            <source src="/loading-animation.mp4" type="video/mp4" />
+            {/* Fallback wenn Video nicht verfügbar */}
+            <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500"></div>
+          </video>
+          <p className="mt-4 text-slate-300 text-lg font-semibold">Lade Buchungssystem...</p>
         </div>
       </div>
     );
@@ -235,13 +247,13 @@ function AppContent() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-800 to-slate-900">
         <div className="text-center max-w-md">
-          <div className="text-red-500 mb-4">⚠️ Fehler beim Laden</div>
-          <p className="text-sm text-gray-600">{error}</p>
+          <div className="text-red-400 mb-4 text-2xl font-bold">⚠️ Fehler beim Laden</div>
+          <p className="text-sm text-slate-300 mb-6">{error}</p>
           <button
             onClick={refreshAll}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
           >
             Erneut versuchen
           </button>

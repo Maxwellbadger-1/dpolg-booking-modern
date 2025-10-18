@@ -4,6 +4,9 @@ use crate::database::{
 };
 use crate::payment_recipients::get_payment_recipient;
 use chrono::NaiveDate;
+use qrcode::QrCode;
+use image::Luma;
+use base64::{Engine as _, engine::general_purpose};
 
 /// Generiert HTML-Rechnung für eine Buchung
 #[tauri::command]
@@ -31,6 +34,55 @@ pub fn generate_invoice_html(booking_id: i64) -> Result<String, String> {
 
     println!("✅ Invoice HTML generated successfully");
     Ok(html)
+}
+
+/// Generiert EPC QR-Code für SEPA-Zahlungen
+/// Format: European Payment Council Standard
+fn generate_payment_qr_code(
+    iban: &str,
+    bic: &str,
+    account_holder: &str,
+    amount: f64,
+    reference: &str,
+) -> Result<String, String> {
+    // EPC QR Code Format (European Payment Council)
+    // https://www.europeanpaymentscouncil.eu/document-library/guidance-documents/quick-response-code-guidelines-enable-data-capture-initiation
+    let epc_data = format!(
+        "BCD\n002\n1\nSCT\n{}\n{}\n{}\nEUR{:.2}\n\n\n{}",
+        bic,
+        account_holder,
+        iban,
+        amount,
+        reference
+    );
+
+    println!("🔧 [QR] Generating EPC QR Code:");
+    println!("   IBAN: {}", iban);
+    println!("   BIC: {}", bic);
+    println!("   Amount: {:.2} EUR", amount);
+    println!("   Reference: {}", reference);
+
+    // Generiere QR Code
+    let qr_code = QrCode::new(epc_data.as_bytes())
+        .map_err(|e| format!("Fehler beim Erstellen des QR-Codes: {}", e))?;
+
+    // Rendere als PNG Bild (5px pro Modul für bessere Lesbarkeit)
+    let image = qr_code.render::<Luma<u8>>()
+        .min_dimensions(200, 200)
+        .max_dimensions(300, 300)
+        .build();
+
+    // Konvertiere zu PNG Bytes
+    let mut png_bytes = Vec::new();
+    image.write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+        .map_err(|e| format!("Fehler beim Kodieren des PNG: {}", e))?;
+
+    // Encode als Base64
+    let base64_image = general_purpose::STANDARD.encode(&png_bytes);
+
+    println!("✅ [QR] QR Code generated successfully ({} bytes)", png_bytes.len());
+
+    Ok(format!("data:image/png;base64,{}", base64_image))
 }
 
 fn generate_html_from_booking(
@@ -310,6 +362,24 @@ fn generate_html_from_booking(
 
     let payment_reference = format!("{} / {}", invoice_number, booking.reservierungsnummer);
     html = html.replace("{{PAYMENT_REFERENCE}}", &payment_reference);
+
+    // ============================================================================
+    // QR CODE - Generate EPC QR Code für SEPA-Zahlungen
+    // ============================================================================
+    let qr_code_data_url = generate_payment_qr_code(
+        &payment.iban,
+        &payment.bic,
+        &payment.account_holder,
+        grand_total,
+        &payment_reference,
+    )?;
+
+    // Ersetze [QR CODE] Platzhalter mit echtem QR-Code Bild
+    let qr_code_html = format!(
+        r#"<img src="{}" alt="QR Code für Zahlung" style="width: 100%; height: 100%; object-fit: contain;" />"#,
+        qr_code_data_url
+    );
+    html = html.replace("[QR CODE]<br>für Zahlung", &qr_code_html);
 
     Ok(html)
 }
