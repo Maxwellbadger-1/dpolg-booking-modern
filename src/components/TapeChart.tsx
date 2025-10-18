@@ -1161,8 +1161,13 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     console.log('🎨 Drag-to-Create END:', createDragPreview);
 
     // Calculate dates
+    // FIX: endDay ist der letzte Aufenthaltstag (inklusiv in Preview)
+    // checkout_date = Tag NACH dem letzten Aufenthaltstag (Standard Hotel-Logik)
+    // Beispiel: Drag von Tag 0 bis Tag 1 (2 Zellen) = 1 Nacht
+    //   - checkin_date = Tag 0
+    //   - checkout_date = Tag 1 (KEIN +1, weil endDay schon der Abreisetag ist!)
     const startDate = format(addDays(defaultStart, createDragPreview.startDay), 'yyyy-MM-dd');
-    const endDate = format(addDays(defaultStart, createDragPreview.endDay + 1), 'yyyy-MM-dd');
+    const endDate = format(addDays(defaultStart, createDragPreview.endDay), 'yyyy-MM-dd');
 
     // Call create callback
     onCreateBooking(createDragPreview.roomId, startDate, endDate);
