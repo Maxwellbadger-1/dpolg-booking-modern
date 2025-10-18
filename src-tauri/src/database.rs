@@ -72,6 +72,8 @@ pub struct Booking {
     pub ist_stiftungsfall: bool,
     // Externer Rechnungsempfänger
     pub payment_recipient_id: Option<i64>,
+    // Putzplan: Alternatives Checkout-Datum (falls abweichend vom normalen Checkout)
+    pub putzplan_checkout_date: Option<String>,
 }
 
 // Externer Rechnungsempfänger (für dienstliche Buchungen, etc.)
@@ -356,6 +358,8 @@ pub struct BookingWithDetails {
     pub ist_stiftungsfall: bool,
     // Payment Recipient (optional)
     pub payment_recipient_id: Option<i64>,
+    // Putzplan: Alternatives Checkout-Datum (falls abweichend vom normalen Checkout)
+    pub putzplan_checkout_date: Option<String>,
     pub room: Room,
     pub guest: Guest,
     // Services & Discounts mit Emoji & Visualisierung
@@ -482,6 +486,9 @@ pub fn init_database() -> Result<()> {
     // Phase 6.5: Rechnungsversand-Tracking
     add_column_if_not_exists(&conn, "bookings", "rechnung_versendet_am", "TEXT")?;
     add_column_if_not_exists(&conn, "bookings", "rechnung_versendet_an", "TEXT")?;
+
+    // Putzplan: Alternatives Checkout-Datum
+    add_column_if_not_exists(&conn, "bookings", "putzplan_checkout_date", "TEXT")?;
 
     // Phase 1.6: Erweiterte Preisstruktur (Nebensaison/Hauptsaison + Endreinigung)
     add_column_if_not_exists(&conn, "rooms", "nebensaison_preis", "REAL DEFAULT 0.0")?;
@@ -1394,6 +1401,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id,
+            b.putzplan_checkout_date,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
@@ -1428,38 +1436,39 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             rechnung_versendet_an: row.get(20)?,
             ist_stiftungsfall: row.get::<_, i32>(21)? != 0,
             payment_recipient_id: row.get(22)?,
+            putzplan_checkout_date: row.get(23)?,
             room: Room {
-                id: row.get(23)?,
-                name: row.get(24)?,
-                gebaeude_typ: row.get(25)?,
-                capacity: row.get(26)?,
-                price_member: row.get(27)?,
-                price_non_member: row.get(28)?,
-                nebensaison_preis: row.get(29)?,
-                hauptsaison_preis: row.get(30)?,
-                endreinigung: row.get(31)?,
-                ort: row.get(32)?,
-                schluesselcode: row.get(33)?,
-                street_address: row.get(34)?,
-                postal_code: row.get(35)?,
-                city: row.get(36)?,
+                id: row.get(24)?,
+                name: row.get(25)?,
+                gebaeude_typ: row.get(26)?,
+                capacity: row.get(27)?,
+                price_member: row.get(28)?,
+                price_non_member: row.get(29)?,
+                nebensaison_preis: row.get(30)?,
+                hauptsaison_preis: row.get(31)?,
+                endreinigung: row.get(32)?,
+                ort: row.get(33)?,
+                schluesselcode: row.get(34)?,
+                street_address: row.get(35)?,
+                postal_code: row.get(36)?,
+                city: row.get(37)?,
             },
             guest: Guest {
-                id: row.get(37)?,
-                vorname: row.get(38)?,
-                nachname: row.get(39)?,
-                email: row.get(40)?,
-                telefon: row.get(41)?,
-                dpolg_mitglied: row.get(42)?,
-                strasse: row.get(43)?,
-                plz: row.get(44)?,
-                ort: row.get(45)?,
-                mitgliedsnummer: row.get(46)?,
-                notizen: row.get(47)?,
-                beruf: row.get(48)?,
-                bundesland: row.get(49)?,
-                dienststelle: row.get(50)?,
-                created_at: row.get(51)?,
+                id: row.get(38)?,
+                vorname: row.get(39)?,
+                nachname: row.get(40)?,
+                email: row.get(41)?,
+                telefon: row.get(42)?,
+                dpolg_mitglied: row.get(43)?,
+                strasse: row.get(44)?,
+                plz: row.get(45)?,
+                ort: row.get(46)?,
+                mitgliedsnummer: row.get(47)?,
+                notizen: row.get(48)?,
+                beruf: row.get(49)?,
+                bundesland: row.get(50)?,
+                dienststelle: row.get(51)?,
+                created_at: row.get(52)?,
             },
             // Initiale leere Vektoren (werden unten befüllt)
             services: Vec::new(),
@@ -1978,6 +1987,8 @@ pub fn create_booking(
     rabatt_preis: f64,
     anzahl_naechte: i32,
     ist_stiftungsfall: bool,
+    payment_recipient_id: Option<i64>,
+    putzplan_checkout_date: Option<String>,
 ) -> Result<BookingWithDetails> {
     println!("🔍 create_booking() aufgerufen - Transaction Logging aktiviert");
     let conn = Connection::open(get_db_path())?;
@@ -1987,8 +1998,8 @@ pub fn create_booking(
     conn.execute(
         "INSERT INTO bookings (room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
          anzahl_gaeste, status, gesamtpreis, bemerkungen, anzahl_begleitpersonen,
-         grundpreis, services_preis, rabatt_preis, anzahl_naechte, ist_stiftungsfall)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+         grundpreis, services_preis, rabatt_preis, anzahl_naechte, ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         rusqlite::params![
             room_id,
             guest_id,
@@ -2004,7 +2015,9 @@ pub fn create_booking(
             services_preis,
             rabatt_preis,
             anzahl_naechte,
-            ist_stiftungsfall
+            ist_stiftungsfall,
+            payment_recipient_id,
+            putzplan_checkout_date
         ],
     )?;
 
@@ -2063,11 +2076,13 @@ pub fn update_booking(
     anzahl_naechte: i32,
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
+    putzplan_checkout_date: Option<String>,
 ) -> Result<BookingWithDetails> {
     println!("═══════════════════════════════════════════════════════════════");
     println!("🔍 [DEBUG] update_booking CALLED");
     println!("   Booking ID: {}", id);
     println!("   payment_recipient_id: {:?}", payment_recipient_id);
+    println!("   putzplan_checkout_date: {:?}", putzplan_checkout_date);
     println!("   ist_stiftungsfall: {}", ist_stiftungsfall);
     println!("   status: {}", status);
     println!("═══════════════════════════════════════════════════════════════");
@@ -2080,17 +2095,18 @@ pub fn update_booking(
     let old_data_json = serde_json::to_string(&old_booking).unwrap_or_default();
 
     println!("📝 [DEBUG] Executing SQL UPDATE...");
-    println!("   SQL: UPDATE bookings SET payment_recipient_id = ?15 WHERE id = ?16");
+    println!("   SQL: UPDATE bookings SET payment_recipient_id = ?15, putzplan_checkout_date = ?16 WHERE id = ?17");
     println!("   Param ?15 (payment_recipient_id): {:?}", payment_recipient_id);
-    println!("   Param ?16 (id): {}", id);
+    println!("   Param ?16 (putzplan_checkout_date): {:?}", putzplan_checkout_date);
+    println!("   Param ?17 (id): {}", id);
 
     let rows_affected = conn.execute(
         "UPDATE bookings SET
          room_id = ?1, guest_id = ?2, checkin_date = ?3, checkout_date = ?4,
          anzahl_gaeste = ?5, status = ?6, gesamtpreis = ?7, bemerkungen = ?8,
          anzahl_begleitpersonen = ?9, grundpreis = ?10, services_preis = ?11,
-         rabatt_preis = ?12, anzahl_naechte = ?13, ist_stiftungsfall = ?14, payment_recipient_id = ?15, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?16",
+         rabatt_preis = ?12, anzahl_naechte = ?13, ist_stiftungsfall = ?14, payment_recipient_id = ?15, putzplan_checkout_date = ?16, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?17",
         rusqlite::params![
             room_id,
             guest_id,
@@ -2107,6 +2123,7 @@ pub fn update_booking(
             anzahl_naechte,
             ist_stiftungsfall,
             payment_recipient_id,
+            putzplan_checkout_date,
             id
         ],
     )?;
@@ -4070,6 +4087,7 @@ pub fn update_template(
 // ============================================================================
 
 /// Gibt alle Buchungen zurück, die an einem bestimmten Datum auschecken
+/// WICHTIG: Nutzt putzplan_checkout_date falls gesetzt, sonst checkout_date
 pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetails>> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -4083,6 +4101,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             b.rabatt_preis, b.anzahl_naechte, b.updated_at,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id,
+            b.putzplan_checkout_date,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -4091,7 +4110,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
          FROM bookings b
          INNER JOIN rooms r ON b.room_id = r.id
          INNER JOIN guests g ON b.guest_id = g.id
-         WHERE b.checkout_date = ?1 AND b.status != 'storniert'
+         WHERE COALESCE(b.putzplan_checkout_date, b.checkout_date) = ?1 AND b.status != 'storniert'
          ORDER BY r.name",
     )?;
 
@@ -4122,38 +4141,39 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             rechnung_versendet_an: row.get(22)?,
             ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
             payment_recipient_id: row.get(24)?,
+            putzplan_checkout_date: row.get(25)?,
             room: Room {
-                id: row.get(25)?,
-                name: row.get(26)?,
-                gebaeude_typ: row.get(27)?,
-                capacity: row.get(28)?,
-                price_member: row.get(29)?,
-                price_non_member: row.get(30)?,
-                nebensaison_preis: row.get(31)?,
-                hauptsaison_preis: row.get(32)?,
-                endreinigung: row.get(33)?,
-                ort: row.get(34)?,
-                schluesselcode: row.get(35)?,
-                street_address: row.get(36)?,
-                postal_code: row.get(37)?,
-                city: row.get(38)?,
+                id: row.get(26)?,
+                name: row.get(27)?,
+                gebaeude_typ: row.get(28)?,
+                capacity: row.get(29)?,
+                price_member: row.get(30)?,
+                price_non_member: row.get(31)?,
+                nebensaison_preis: row.get(32)?,
+                hauptsaison_preis: row.get(33)?,
+                endreinigung: row.get(34)?,
+                ort: row.get(35)?,
+                schluesselcode: row.get(36)?,
+                street_address: row.get(37)?,
+                postal_code: row.get(38)?,
+                city: row.get(39)?,
             },
             guest: Guest {
-                id: row.get(39)?,
-                vorname: row.get(40)?,
-                nachname: row.get(41)?,
-                email: row.get(42)?,
-                telefon: row.get(43)?,
-                dpolg_mitglied: row.get(44)?,
-                strasse: row.get(45)?,
-                plz: row.get(46)?,
-                ort: row.get(47)?,
-                mitgliedsnummer: row.get(48)?,
-                notizen: row.get(49)?,
-                beruf: row.get(50)?,
-                bundesland: row.get(51)?,
-                dienststelle: row.get(52)?,
-                created_at: row.get(53)?,
+                id: row.get(40)?,
+                vorname: row.get(41)?,
+                nachname: row.get(42)?,
+                email: row.get(43)?,
+                telefon: row.get(44)?,
+                dpolg_mitglied: row.get(45)?,
+                strasse: row.get(46)?,
+                plz: row.get(47)?,
+                ort: row.get(48)?,
+                mitgliedsnummer: row.get(49)?,
+                notizen: row.get(50)?,
+                beruf: row.get(51)?,
+                bundesland: row.get(52)?,
+                dienststelle: row.get(53)?,
+                created_at: row.get(54)?,
             },
             // Services und Discounts werden unten befüllt
             services: Vec::new(),

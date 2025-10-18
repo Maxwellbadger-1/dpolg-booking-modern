@@ -289,11 +289,15 @@ fn create_booking_command(
     rabatt_preis: f64,
     anzahl_naechte: i32,
     ist_stiftungsfall: bool,
+    payment_recipient_id: Option<i64>,
+    putzplan_checkout_date: Option<String>,
 ) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: create_booking_command aufgerufen");
     println!("   room_id: {}", room_id);
     println!("   guest_id: {}", guest_id);
     println!("   ist_stiftungsfall: {}", ist_stiftungsfall);
+    println!("   payment_recipient_id: {:?}", payment_recipient_id);
+    println!("   putzplan_checkout_date: {:?}", putzplan_checkout_date);
 
     match database::create_booking(
         room_id,
@@ -311,6 +315,8 @@ fn create_booking_command(
         rabatt_preis,
         anzahl_naechte,
         ist_stiftungsfall,
+        payment_recipient_id,
+        putzplan_checkout_date,
     ) {
         Ok(booking) => {
             println!("✅ DEBUG: create_booking_command - Buchung erfolgreich erstellt");
@@ -348,6 +354,7 @@ fn update_booking_command(
     anzahl_naechte: i32,
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
+    putzplan_checkout_date: Option<String>,
 ) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: update_booking_command called");
     println!("  id: {}", id);
@@ -366,6 +373,7 @@ fn update_booking_command(
     println!("  anzahl_naechte: {}", anzahl_naechte);
     println!("  ist_stiftungsfall: {}", ist_stiftungsfall);
     println!("  payment_recipient_id: {:?}", payment_recipient_id);
+    println!("  putzplan_checkout_date: {:?}", putzplan_checkout_date);
 
     database::update_booking(
         id,
@@ -384,6 +392,7 @@ fn update_booking_command(
         anzahl_naechte,
         ist_stiftungsfall,
         payment_recipient_id,
+        putzplan_checkout_date,
     )
     .map_err(|e| format!("Fehler beim Aktualisieren der Buchung: {}", e))
 }

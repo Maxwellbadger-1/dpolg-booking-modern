@@ -47,6 +47,7 @@ interface Booking {
   bemerkungen?: string;
   ist_stiftungsfall?: boolean;
   payment_recipient_id?: number | null;
+  putzplan_checkout_date?: string | null;
 }
 
 interface PaymentRecipient {
@@ -167,6 +168,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
   const [creditToApply, setCreditToApply] = useState<number>(0);
   const [loadingCredit, setLoadingCredit] = useState(false);
 
+  // Putzplan Checkout State
+  const [useAlternativeCleaningDate, setUseAlternativeCleaningDate] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       loadGuestsAndRooms();
@@ -180,7 +184,10 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         ...booking,
         bemerkungen: booking.bemerkungen || '',
         payment_recipient_id: booking.payment_recipient_id || null,
+        putzplan_checkout_date: booking.putzplan_checkout_date || null,
       });
+      // Set checkbox state based on whether alternative date exists
+      setUseAlternativeCleaningDate(!!booking.putzplan_checkout_date);
       // Load accompanying guests, services and discounts if editing
       if (booking.id) {
         loadAccompanyingGuests(booking.id);
@@ -198,7 +205,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         status: 'bestaetigt',
         bemerkungen: '',
         payment_recipient_id: null, // FIX: Initialize to null (not undefined!)
+        putzplan_checkout_date: null,
       });
+      setUseAlternativeCleaningDate(false);
       setAccompanyingGuests([]);
       setAdditionalServices([]);
       setDiscounts([]);
@@ -212,7 +221,9 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
         status: 'bestaetigt',
         bemerkungen: '',
         payment_recipient_id: null, // FIX: Initialize to null (not undefined!)
+        putzplan_checkout_date: null,
       });
+      setUseAlternativeCleaningDate(false);
       setAccompanyingGuests([]);
       setAdditionalServices([]);
       setDiscounts([]);
@@ -706,6 +717,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id || null, // ✅ FIX: camelCase for Tauri auto-conversion
+          putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
         };
 
         console.log('📤 [updatePayload] Payload being sent to updateBooking:');
@@ -766,6 +778,7 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id || null,
+          putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
         };
 
         const result = await createBooking(bookingData) as any;
@@ -1277,6 +1290,54 @@ export default function BookingDialog({ isOpen, onClose, onSuccess, booking, pre
                   className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+            </div>
+
+            {/* Alternative Cleaning Checkout Date */}
+            <div className="border-2 border-blue-300 rounded-lg p-4 bg-gradient-to-br from-blue-50 to-cyan-50">
+              <label className="flex items-start gap-3 cursor-pointer mb-3">
+                <input
+                  type="checkbox"
+                  checked={useAlternativeCleaningDate}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setUseAlternativeCleaningDate(checked);
+                    if (!checked) {
+                      // Clear alternative date when checkbox is unchecked
+                      setFormData({ ...formData, putzplan_checkout_date: null });
+                    }
+                  }}
+                  className="mt-0.5 w-5 h-5 accent-blue-600 bg-white border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 text-blue-900 font-semibold mb-1">
+                    <Calendar className="w-4 h-4" />
+                    Alternatives Putzplan-Checkout
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    Setze ein abweichendes Checkout-Datum für die Mobile Cleaning App. Das TapeChart zeigt weiterhin das normale Checkout-Datum.
+                  </p>
+                </div>
+              </label>
+
+              {/* Conditional Date Picker */}
+              {useAlternativeCleaningDate && (
+                <div className="border-t border-blue-200 pt-3 mt-1">
+                  <label className="block text-sm font-semibold text-blue-900 mb-2">
+                    Putzplan Checkout-Datum *
+                  </label>
+                  <input
+                    type="date"
+                    required={useAlternativeCleaningDate}
+                    value={formData.putzplan_checkout_date || ''}
+                    onChange={(e) => setFormData({ ...formData, putzplan_checkout_date: e.target.value })}
+                    min={formData.checkin_date}
+                    className="w-full px-4 py-2 bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
+                  />
+                  <p className="text-xs text-blue-600 mt-1">
+                    📱 Dieses Datum wird in der Mobile Cleaning App als Checkout angezeigt
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Availability Status */}

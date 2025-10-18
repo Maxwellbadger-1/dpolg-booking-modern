@@ -51,6 +51,8 @@ export interface Booking {
   rechnung_versendet_an?: string | null;
   ist_stiftungsfall: boolean;
   payment_recipient_id?: number | null;
+  // Putzplan: Alternatives Checkout-Datum (optional, falls abweichend)
+  putzplan_checkout_date?: string | null;
   created_at?: string;
 }
 
