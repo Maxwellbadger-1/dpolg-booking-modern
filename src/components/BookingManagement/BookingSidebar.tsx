@@ -79,6 +79,7 @@ interface Booking {
   mahnung_gesendet_am?: string | null;
   ist_stiftungsfall?: boolean;
   payment_recipient_id?: number | null;
+  putzplan_checkout_date?: string | null;
   room?: Room;
   guest?: Guest;
 }
@@ -1121,6 +1122,26 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                     <p className="font-semibold text-slate-900">{booking.anzahl_naechte} Nächte</p>
                   </div>
                 </div>
+
+                {/* Alternative Putzplan-Checkout (wenn gesetzt) */}
+                {booking.putzplan_checkout_date && (
+                  <div className="mt-4 pt-4 border-t border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50 -mx-5 -mb-5 px-5 pb-5 rounded-b-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <Calendar className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-blue-900 mb-1">Alternative Putzplan-Checkout</p>
+                        <p className="font-bold text-blue-700">
+                          {format(new Date(booking.putzplan_checkout_date), 'dd. MMMM yyyy', { locale: de })}
+                        </p>
+                        <p className="text-xs text-blue-600 mt-1">
+                          Dieses Datum wird für die Mobile Cleaning App verwendet
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Accompanying Guests */}
