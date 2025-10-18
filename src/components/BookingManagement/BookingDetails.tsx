@@ -121,8 +121,6 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
   const [paymentRecipient, setPaymentRecipient] = useState<PaymentRecipient | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [showErrorDialog, setShowErrorDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
@@ -210,6 +208,28 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       setShowCancelDialog(false);
       loadBookingDetails(); // Reload to show updated status
       setShowSuccessDialog({ show: true, message: 'Buchung erfolgreich storniert!' });
+
+      // 🔄 SYNC zu Turso (Mobile App) - Entferne stornierte Buchung
+      // Wichtig: Backend filtert automatisch stornierte Buchungen (WHERE status != 'storniert')
+      // Wir müssen nur beide Dates (checkin + checkout) synchronisieren
+      console.log('🔄 [BookingDetails] Buchung storniert - Sync zu Mobile App für checkin + checkout');
+
+      // Sync checkout_date (entfernt end-Emojis und Putz-Task)
+      if (booking.checkout_date) {
+        invoke('sync_affected_dates', {
+          oldCheckout: booking.checkout_date,
+          newCheckout: booking.checkout_date
+        });
+      }
+
+      // Sync checkin_date (entfernt start-Emojis)
+      if (booking.checkin_date) {
+        invoke('sync_cleaning_tasks', {
+          date: booking.checkin_date
+        });
+      }
+
+      console.log('✅ [BookingDetails] Mobile App Sync getriggert - stornierte Buchung wird entfernt');
     } catch (error) {
       console.error('Fehler beim Stornieren der Buchung:', error);
       setShowCancelDialog(false);
@@ -220,87 +240,171 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const handleSendConfirmationEmail = async () => {
     if (!booking) return;
 
-    setSendingEmail(true);
-    try {
-      const result = await invoke<string>('send_confirmation_email_command', { bookingId });
-      setShowSuccessDialog({ show: true, message: result });
-    } catch (error) {
-      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
-    } finally {
-      setSendingEmail(false);
-    }
+    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: {
+        message: '📧 Bestätigung wird versendet...',
+        type: 'info',
+        duration: 2000
+      }
+    }));
+
+    // ✅ ASYNC BACKGROUND PROCESS
+    const sendEmailInBackground = async () => {
+      try {
+        const result = await invoke<string>('send_confirmation_email_command', { bookingId });
+
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `✅ ${result}`,
+            type: 'success',
+            duration: 3000
+          }
+        }));
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `❌ Fehler beim Senden: ${error}`,
+            type: 'error',
+            duration: 5000
+          }
+        }));
+      }
+    };
+
+    // Start background process (no await!)
+    sendEmailInBackground();
   };
 
   const handleSendReminderEmail = async () => {
     if (!booking) return;
 
-    setSendingEmail(true);
-    try {
-      const result = await invoke<string>('send_reminder_email_command', { bookingId });
-      setShowSuccessDialog({ show: true, message: result });
-    } catch (error) {
-      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
-    } finally {
-      setSendingEmail(false);
-    }
+    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: {
+        message: '📧 Erinnerung wird versendet...',
+        type: 'info',
+        duration: 2000
+      }
+    }));
+
+    // ✅ ASYNC BACKGROUND PROCESS
+    const sendEmailInBackground = async () => {
+      try {
+        const result = await invoke<string>('send_reminder_email_command', { bookingId });
+
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `✅ ${result}`,
+            type: 'success',
+            duration: 3000
+          }
+        }));
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `❌ Fehler beim Senden: ${error}`,
+            type: 'error',
+            duration: 5000
+          }
+        }));
+      }
+    };
+
+    // Start background process (no await!)
+    sendEmailInBackground();
   };
 
   const handleSendInvoiceEmail = async () => {
     if (!booking) return;
 
-    setSendingEmail(true);
-    try {
-      // Verwende generate_and_send_invoice_command statt send_invoice_email_command
-      // damit PDF automatisch generiert und angehängt wird
-      const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
-      setShowSuccessDialog({ show: true, message: result });
+    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: {
+        message: '📧 Rechnung wird generiert und versendet...',
+        type: 'info',
+        duration: 2000
+      }
+    }));
 
-      // Backend markiert Rechnung automatisch als versendet
-      // Refresh globale BookingList und lokale Details
-      await refreshBookings();
-      await loadBookingDetails();
-    } catch (error) {
-      setShowErrorDialog({ show: true, message: `Fehler beim Senden: ${error}` });
-    } finally {
-      setSendingEmail(false);
-    }
+    // ✅ ASYNC BACKGROUND PROCESS
+    const sendInvoiceInBackground = async () => {
+      try {
+        // Verwende generate_and_send_invoice_command statt send_invoice_email_command
+        // damit PDF automatisch generiert und angehängt wird
+        const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
+
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `✅ ${result}`,
+            type: 'success',
+            duration: 3000
+          }
+        }));
+
+        // Backend markiert Rechnung automatisch als versendet
+        // Refresh globale BookingList und lokale Details (auch im Hintergrund)
+        await refreshBookings();
+        await loadBookingDetails();
+      } catch (error) {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `❌ Fehler beim Senden: ${error}`,
+            type: 'error',
+            duration: 5000
+          }
+        }));
+      }
+    };
+
+    // Start background process (no await!)
+    sendInvoiceInBackground();
   };
 
   const handleGeneratePdf = async () => {
-    console.log('🔵 handleGeneratePdf CALLED');
-    console.log('🔵 booking:', booking);
-    console.log('🔵 bookingId:', bookingId);
+    if (!booking) return;
 
-    if (!booking) {
-      console.log('❌ NO BOOKING - ABORT');
-      return;
-    }
+    // ✅ INSTANT FEEDBACK - Toast zeigt sofort
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: {
+        message: '📄 PDF-Rechnung wird erstellt...',
+        type: 'info',
+        duration: 2000
+      }
+    }));
 
-    console.log('🟡 Setting generatingPdf to TRUE');
-    setGeneratingPdf(true);
+    // ✅ ASYNC BACKGROUND PROCESS
+    const generatePdfInBackground = async () => {
+      try {
+        const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
 
-    try {
-      console.log('🟢 Calling generate_invoice_pdf_command with bookingId:', bookingId);
-      const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId });
-      console.log('✅ PDF CREATED:', pdfPath);
-      setShowSuccessDialog({ show: true, message: `PDF-Rechnung erfolgreich erstellt: ${pdfPath}` });
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `✅ PDF-Rechnung erfolgreich erstellt`,
+            type: 'success',
+            duration: 3000
+          }
+        }));
 
-      // Reload PDFs to show newly generated one
-      console.log('🔵 Reloading PDFs list...');
-      const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
-        bookingId,
-      });
-      console.log('✅ PDFs loaded:', pdfsData);
-      setInvoicePdfs(pdfsData);
-    } catch (error) {
-      console.error('❌ ERROR generating PDF:', error);
-      console.error('Error type:', typeof error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
-      setShowErrorDialog({ show: true, message: `Fehler beim Erstellen der PDF: ${error}` });
-    } finally {
-      console.log('🟡 Setting generatingPdf to FALSE');
-      setGeneratingPdf(false);
-    }
+        // Reload PDFs to show newly generated one (auch im Hintergrund)
+        const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
+          bookingId,
+        });
+        setInvoicePdfs(pdfsData);
+      } catch (error) {
+        console.error('❌ ERROR generating PDF:', error);
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `❌ Fehler beim Erstellen der PDF: ${error}`,
+            type: 'error',
+            duration: 5000
+          }
+        }));
+      }
+    };
+
+    // Start background process (no await!)
+    generatePdfInBackground();
   };
 
   const handleOpenPdf = async (pdfPath: string) => {
@@ -797,11 +901,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   <div className="flex gap-2">
                     <button
                       onClick={handleGeneratePdf}
-                      disabled={generatingPdf}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 text-white rounded-lg font-semibold transition-colors text-sm"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-colors text-sm"
                     >
                       <Download className="w-4 h-4" />
-                      {generatingPdf ? 'Erstellt...' : 'PDF erstellen'}
+                      PDF erstellen
                     </button>
                     <button
                       onClick={handleOpenInvoicesFolder}
@@ -873,16 +976,16 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
           <div className="flex items-center gap-2">
             <button
               onClick={handleSendConfirmationEmail}
-              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              disabled={!booking || booking.ist_stiftungsfall}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
               title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >
               <Send className="w-4 h-4" />
-              {sendingEmail ? 'Sendet...' : 'Bestätigung'}
+              Bestätigung
             </button>
             <button
               onClick={handleSendReminderEmail}
-              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              disabled={!booking || booking.ist_stiftungsfall}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
               title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >
@@ -891,7 +994,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
             </button>
             <button
               onClick={handleSendInvoiceEmail}
-              disabled={sendingEmail || !booking || booking.ist_stiftungsfall}
+              disabled={!booking || booking.ist_stiftungsfall}
               className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
               title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}
             >

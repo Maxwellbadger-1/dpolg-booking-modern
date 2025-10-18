@@ -118,6 +118,33 @@ function AppContent() {
     return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
   }, []);
 
+  // ✅ Event Listener für Toast-Notifications (von Background-Prozessen)
+  useEffect(() => {
+    const handleShowToast = (event: CustomEvent) => {
+      const { message, type, duration } = event.detail;
+
+      switch (type) {
+        case 'success':
+          toast.success(message, { duration: duration || 4000 });
+          break;
+        case 'error':
+          toast.error(message, { duration: duration || 5000 });
+          break;
+        case 'info':
+          toast(message, { duration: duration || 3000, icon: '📧' });
+          break;
+        case 'warning':
+          toast(message, { duration: duration || 4000, icon: '⚠️' });
+          break;
+        default:
+          toast(message, { duration: duration || 3000 });
+      }
+    };
+
+    window.addEventListener('show-toast', handleShowToast as EventListener);
+    return () => window.removeEventListener('show-toast', handleShowToast as EventListener);
+  }, []);
+
   const loadUrgentReminderCount = async () => {
     try {
       const reminders = await invoke<any[]>('get_urgent_reminders_command');

@@ -72,47 +72,104 @@ export default function EmailSelectionDialog({ isOpen, onClose, bookingId, guest
       return;
     }
 
-    setSending(true);
-    setShowResults(false);
-    const newResults: { id: string; success: boolean; message: string }[] = [];
-    let hasInvoiceEmail = false;
+    // ✅ INSTANT CLOSE - Dialog schließt sofort, Emails im Hintergrund
+    const emailsToSend = [...selectedEmails];
+    const emailCount = emailsToSend.length;
 
-    for (const emailId of selectedEmails) {
-      const option = emailOptions.find(o => o.id === emailId);
-      if (!option) continue;
+    // Close dialog immediately
+    handleClose();
 
-      try {
-        await invoke(option.command, { bookingId });
-        newResults.push({
-          id: emailId,
-          success: true,
-          message: `${option.name} erfolgreich versendet`,
-        });
+    // Show initial toast
+    const toastMessage = emailCount === 1
+      ? '📧 Email wird im Hintergrund versendet...'
+      : `📧 ${emailCount} Emails werden im Hintergrund versendet...`;
 
-        // Track if invoice email was sent
-        if (emailId === 'invoice') {
-          hasInvoiceEmail = true;
-        }
-      } catch (error) {
-        newResults.push({
-          id: emailId,
-          success: false,
-          message: error instanceof Error ? error.message : String(error),
-        });
+    // Dispatch custom event to show toast (handled by App.tsx or similar)
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: {
+        message: toastMessage,
+        type: 'info',
+        duration: 2000
       }
-    }
+    }));
 
-    setResults(newResults);
-    setShowResults(true);
-    setSending(false);
+    // ✅ ASYNC BACKGROUND PROCESS - Emails versenden ohne UI zu blockieren
+    const sendEmailsInBackground = async () => {
+      let successCount = 0;
+      let failCount = 0;
+      let hasInvoiceEmail = false;
 
-    // Trigger data refresh if invoice email was successfully sent
-    // This ensures the rechnung_versendet_am field and emoji are updated in the UI
-    if (hasInvoiceEmail && newResults.some(r => r.id === 'invoice' && r.success)) {
-      window.dispatchEvent(new CustomEvent('refresh-invoice-status', {
-        detail: { bookingId }
-      }));
-    }
+      for (const emailId of emailsToSend) {
+        const option = emailOptions.find(o => o.id === emailId);
+        if (!option) continue;
+
+        try {
+          await invoke(option.command, { bookingId });
+          successCount++;
+
+          // Track if invoice email was sent
+          if (emailId === 'invoice') {
+            hasInvoiceEmail = true;
+          }
+
+          // Show individual success toast (optional - can be removed if too many toasts)
+          // window.dispatchEvent(new CustomEvent('show-toast', {
+          //   detail: {
+          //     message: `✅ ${option.name} versendet`,
+          //     type: 'success',
+          //     duration: 2000
+          //   }
+          // }));
+
+        } catch (error) {
+          failCount++;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+
+          // Show error toast for failed emails
+          window.dispatchEvent(new CustomEvent('show-toast', {
+            detail: {
+              message: `❌ ${option.name}: ${errorMsg}`,
+              type: 'error',
+              duration: 5000
+            }
+          }));
+        }
+      }
+
+      // Show final summary toast
+      if (successCount > 0 && failCount === 0) {
+        const summaryMessage = successCount === 1
+          ? '✅ Email erfolgreich versendet'
+          : `✅ ${successCount} Emails erfolgreich versendet`;
+
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: summaryMessage,
+            type: 'success',
+            duration: 3000
+          }
+        }));
+      } else if (successCount > 0 && failCount > 0) {
+        window.dispatchEvent(new CustomEvent('show-toast', {
+          detail: {
+            message: `⚠️ ${successCount} erfolgreich, ${failCount} fehlgeschlagen`,
+            type: 'warning',
+            duration: 4000
+          }
+        }));
+      }
+
+      // Trigger data refresh if invoice email was successfully sent
+      // This ensures the rechnung_versendet_am field and emoji are updated in the UI
+      if (hasInvoiceEmail) {
+        window.dispatchEvent(new CustomEvent('refresh-invoice-status', {
+          detail: { bookingId }
+        }));
+      }
+    };
+
+    // Start background process (no await!)
+    sendEmailsInBackground();
   };
 
   const handleClose = () => {
