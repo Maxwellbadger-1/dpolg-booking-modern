@@ -79,16 +79,11 @@ export interface ServiceTemplate {
   description?: string;
   price: number;
   is_active: boolean;
-  // Emoji & Visualisierung
+  // Emoji
   emoji?: string;
-  color_hex?: string;
   // Putzplan-Integration
   show_in_cleaning_plan: boolean;
   cleaning_plan_position: 'start' | 'end';
-  // Professional Cleaning Flags (Boolean-based, keine Emoji-Varianten!)
-  requires_dog_cleaning: boolean;
-  requires_bedding_change: boolean;
-  requires_deep_cleaning: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -100,9 +95,8 @@ export interface DiscountTemplate {
   discount_type: 'percent' | 'fixed';
   discount_value: number;
   is_active: boolean;
-  // Emoji & Visualisierung
+  // Emoji
   emoji?: string;
-  color_hex?: string;
   // Putzplan-Integration
   show_in_cleaning_plan: boolean;
   cleaning_plan_position: 'start' | 'end';

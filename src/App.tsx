@@ -11,7 +11,6 @@ import GuestDialog from './components/GuestManagement/GuestDialog';
 import SettingsDialog from './components/Settings/SettingsDialog';
 import EmailHistoryView from './components/Email/EmailHistoryView';
 import TemplatesManagement from './components/TemplatesManagement/TemplatesManagement';
-import BookingDialog from './components/BookingManagement/BookingDialog';
 import BookingSidebar from './components/BookingManagement/BookingSidebar';
 import EmailSelectionDialog from './components/BookingManagement/EmailSelectionDialog';
 import CancellationConfirmDialog from './components/BookingManagement/CancellationConfirmDialog';
@@ -66,11 +65,8 @@ function AppContent() {
   const [error, setError] = useState<string | null>(null);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
-  const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [showEmailDialog, setShowEmailDialog] = useState(false);
-  const [selectedBookingId, setSelectedBookingId] = useState<number | undefined>(undefined);
   const [emailBookingId, setEmailBookingId] = useState<number | undefined>(undefined);
-  const [prefillData, setPrefillData] = useState<{ roomId?: number; checkinDate?: string; checkoutDate?: string } | undefined>(undefined);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | undefined>(undefined);
@@ -530,25 +526,6 @@ function AppContent() {
           console.log('Gast erfolgreich gespeichert');
           setShowGuestDialog(false);
         }}
-      />
-
-      {/* Booking Dialog */}
-      <BookingDialog
-        isOpen={showBookingDialog}
-        onClose={() => {
-          setShowBookingDialog(false);
-          setSelectedBookingId(undefined);
-          setPrefillData(undefined);
-        }}
-        onSuccess={() => {
-          console.log('Buchung erfolgreich gespeichert');
-          setShowBookingDialog(false);
-          setSelectedBookingId(undefined);
-          setPrefillData(undefined);
-          // BookingDialog already calls createBooking/updateBooking which auto-refreshes!
-        }}
-        booking={selectedBookingId ? bookings.find(b => b.id === selectedBookingId) : undefined}
-        prefillData={prefillData}
       />
 
       {/* Email Selection Dialog */}

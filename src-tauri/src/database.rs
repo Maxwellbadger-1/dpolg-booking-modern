@@ -167,15 +167,11 @@ pub struct ServiceTemplate {
     pub description: Option<String>,
     pub price: f64,
     pub is_active: bool,
-    // Emoji & Visualisierung (nur für Display!)
+    // Emoji
     pub emoji: Option<String>,
-    pub color_hex: Option<String>,
     // Putzplan-Integration
     pub show_in_cleaning_plan: bool,
     pub cleaning_plan_position: String, // 'start' oder 'end'
-    pub requires_dog_cleaning: bool,
-    pub requires_bedding_change: bool,
-    pub requires_deep_cleaning: bool,
     // Timestamps
     pub created_at: String,
     pub updated_at: String,
@@ -190,9 +186,8 @@ pub struct DiscountTemplate {
     pub discount_type: String, // 'percent' oder 'fixed'
     pub discount_value: f64,
     pub is_active: bool,
-    // Emoji & Visualisierung
+    // Emoji
     pub emoji: Option<String>,
-    pub color_hex: Option<String>,
     // Putzplan-Integration (falls Rabatt mit Zusatzleistung verbunden)
     pub show_in_cleaning_plan: bool,
     pub cleaning_plan_position: String, // 'start' oder 'end'
@@ -3493,7 +3488,6 @@ pub fn create_service_template(
     description: Option<String>,
     price: f64,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<ServiceTemplate, String> {
@@ -3521,14 +3515,13 @@ pub fn create_service_template(
     }
 
     conn.execute(
-        "INSERT INTO service_templates (name, description, price, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO service_templates (name, description, price, emoji, show_in_cleaning_plan, cleaning_plan_position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         rusqlite::params![
             name,
             description,
             price,
             emoji,
-            color_hex,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position
         ],
@@ -3538,8 +3531,8 @@ pub fn create_service_template(
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position,
-         requires_dog_cleaning, requires_bedding_change, requires_deep_cleaning, created_at, updated_at
+        "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+         created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3550,14 +3543,10 @@ pub fn create_service_template(
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i64>(9)? == 1,
-                requires_bedding_change: row.get::<_, i64>(10)? == 1,
-                requires_deep_cleaning: row.get::<_, i64>(11)? == 1,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         },
     )
@@ -3570,8 +3559,8 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position,
-             requires_dog_cleaning, requires_bedding_change, requires_deep_cleaning, created_at, updated_at
+            "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+             created_at, updated_at
              FROM service_templates ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3585,14 +3574,10 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i64>(9)? == 1,
-                requires_bedding_change: row.get::<_, i64>(10)? == 1,
-                requires_deep_cleaning: row.get::<_, i64>(11)? == 1,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3608,8 +3593,8 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position,
-             requires_dog_cleaning, requires_bedding_change, requires_deep_cleaning, created_at, updated_at
+            "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+             created_at, updated_at
              FROM service_templates WHERE is_active = 1 ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3623,14 +3608,10 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i64>(9)? == 1,
-                requires_bedding_change: row.get::<_, i64>(10)? == 1,
-                requires_deep_cleaning: row.get::<_, i64>(11)? == 1,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3647,7 +3628,6 @@ pub fn update_service_template(
     price: f64,
     is_active: bool,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<ServiceTemplate, String> {
@@ -3677,16 +3657,15 @@ pub fn update_service_template(
     conn.execute(
         "UPDATE service_templates
          SET name = ?1, description = ?2, price = ?3, is_active = ?4,
-             emoji = ?5, color_hex = ?6, show_in_cleaning_plan = ?7, cleaning_plan_position = ?8,
+             emoji = ?5, show_in_cleaning_plan = ?6, cleaning_plan_position = ?7,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?9",
+         WHERE id = ?8",
         rusqlite::params![
             name,
             description,
             price,
             if is_active { 1 } else { 0 },
             emoji,
-            color_hex,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position,
             id
@@ -3695,8 +3674,8 @@ pub fn update_service_template(
     .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position,
-         requires_dog_cleaning, requires_bedding_change, requires_deep_cleaning, created_at, updated_at
+        "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+         created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3707,14 +3686,10 @@ pub fn update_service_template(
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i64>(9)? == 1,
-                requires_bedding_change: row.get::<_, i64>(10)? == 1,
-                requires_deep_cleaning: row.get::<_, i64>(11)? == 1,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         },
     )
@@ -3743,7 +3718,6 @@ pub fn create_discount_template(
     discount_type: String,
     discount_value: f64,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
     applies_to: String,
@@ -3782,15 +3756,14 @@ pub fn create_discount_template(
     }
 
     conn.execute(
-        "INSERT INTO discount_templates (name, description, discount_type, discount_value, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "INSERT INTO discount_templates (name, description, discount_type, discount_value, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             name,
             description,
             discount_type,
             discount_value,
             emoji,
-            color_hex,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position,
             applies_to
@@ -3801,7 +3774,7 @@ pub fn create_discount_template(
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
+        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
          FROM discount_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3813,12 +3786,11 @@ pub fn create_discount_template(
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )

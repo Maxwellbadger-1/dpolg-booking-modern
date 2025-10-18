@@ -1433,11 +1433,10 @@ fn create_service_template_command(
     description: Option<String>,
     price: f64,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::create_service_template(name, description, price, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
+    database::create_service_template(name, description, price, emoji, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]
@@ -1458,11 +1457,10 @@ fn update_service_template_command(
     price: f64,
     is_active: bool,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::update_service_template(id, name, description, price, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position)
+    database::update_service_template(id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]
@@ -1481,12 +1479,11 @@ fn create_discount_template_command(
     discount_type: String,
     discount_value: f64,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
     applies_to: String,
 ) -> Result<database::DiscountTemplate, String> {
-    database::create_discount_template(name, description, discount_type, discount_value, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
+    database::create_discount_template(name, description, discount_type, discount_value, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to)
 }
 
 #[tauri::command]
@@ -1508,12 +1505,11 @@ fn update_discount_template_command(
     discount_value: f64,
     is_active: bool,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
     applies_to: String,
 ) -> Result<database::DiscountTemplate, String> {
-    database::update_discount_template(id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to)
+    database::update_discount_template(id, name, description, discount_type, discount_value, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to)
 }
 
 #[tauri::command]

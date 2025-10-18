@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Tag, Euro, Percent, FileText, Smile, Palette, ClipboardList } from 'lucide-react';
+import { X, Tag, Euro, Percent, FileText, Smile, ClipboardList } from 'lucide-react';
 import { DiscountTemplate } from '../../types/booking';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
@@ -25,7 +25,6 @@ export default function DiscountTemplateDialog({
     discount_value: 0,
     is_active: true,
     emoji: '',
-    color_hex: '#3b82f6',
     show_in_cleaning_plan: false,
     cleaning_plan_position: 'start' as 'start' | 'end',
     applies_to: 'total_price' as 'overnight_price' | 'total_price',
@@ -44,7 +43,6 @@ export default function DiscountTemplateDialog({
         discount_value: template.discount_value,
         is_active: template.is_active,
         emoji: template.emoji || '',
-        color_hex: template.color_hex || '#3b82f6',
         show_in_cleaning_plan: template.show_in_cleaning_plan,
         cleaning_plan_position: template.cleaning_plan_position,
         applies_to: template.applies_to,
@@ -57,7 +55,6 @@ export default function DiscountTemplateDialog({
         discount_value: 0,
         is_active: true,
         emoji: '',
-        color_hex: '#3b82f6',
         show_in_cleaning_plan: false,
         cleaning_plan_position: 'start',
         applies_to: 'total_price',
@@ -99,7 +96,6 @@ export default function DiscountTemplateDialog({
           discountValue: formData.discount_value,
           isActive: formData.is_active,
           emoji: formData.emoji || null,
-          colorHex: formData.color_hex || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
           appliesTo: formData.applies_to,
@@ -112,7 +108,6 @@ export default function DiscountTemplateDialog({
           discountType: formData.discount_type,
           discountValue: formData.discount_value,
           emoji: formData.emoji || null,
-          colorHex: formData.color_hex || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
           appliesTo: formData.applies_to,
@@ -255,83 +250,63 @@ export default function DiscountTemplateDialog({
             </div>
           </div>
 
-          {/* Emoji & Farbe */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* Emoji */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-slate-300">
-                Emoji (optional)
-              </label>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white hover:bg-slate-600 transition-colors flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <Smile className="w-5 h-5 text-slate-400" />
-                    <span className="text-sm">
-                      {formData.emoji ? (
-                        <span className="text-2xl">{formData.emoji}</span>
-                      ) : (
-                        'Emoji auswählen...'
-                      )}
-                    </span>
-                  </div>
-                  {formData.emoji && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFormData({ ...formData, emoji: '' });
-                      }}
-                      className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/20 transition-colors"
-                      title="Emoji entfernen"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </button>
-
-                {/* Emoji Picker Dropdown */}
-                {showEmojiPicker && (
-                  <div
-                    ref={emojiPickerRef}
-                    className="absolute top-full mt-2 z-50 shadow-2xl rounded-lg overflow-hidden"
+          {/* Emoji */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-300">
+              Emoji (optional)
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white hover:bg-slate-600 transition-colors flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Smile className="w-5 h-5 text-slate-400" />
+                  <span className="text-sm">
+                    {formData.emoji ? (
+                      <span className="text-2xl">{formData.emoji}</span>
+                    ) : (
+                      'Emoji auswählen...'
+                    )}
+                  </span>
+                </div>
+                {formData.emoji && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFormData({ ...formData, emoji: '' });
+                    }}
+                    className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/20 transition-colors"
+                    title="Emoji entfernen"
                   >
-                    <Picker
-                      data={data}
-                      onEmojiSelect={(emoji: any) => {
-                        setFormData({ ...formData, emoji: emoji.native });
-                        setShowEmojiPicker(false);
-                      }}
-                      theme="dark"
-                      previewPosition="none"
-                      searchPosition="sticky"
-                      locale="de"
-                      perLine={8}
-                      maxFrequentRows={2}
-                    />
-                  </div>
+                    <X className="w-4 h-4" />
+                  </button>
                 )}
-              </div>
-            </div>
+              </button>
 
-            {/* Farbe */}
-            <div className="space-y-2">
-              <label htmlFor="color" className="block text-sm font-medium text-slate-300">
-                Farbe (optional)
-              </label>
-              <div className="relative">
-                <Palette className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input
-                  id="color"
-                  type="color"
-                  value={formData.color_hex}
-                  onChange={(e) => setFormData({ ...formData, color_hex: e.target.value })}
-                  className="w-full pl-12 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent h-[52px]"
-                />
-              </div>
+              {/* Emoji Picker Dropdown */}
+              {showEmojiPicker && (
+                <div
+                  ref={emojiPickerRef}
+                  className="absolute top-full mt-2 z-50 shadow-2xl rounded-lg overflow-hidden"
+                >
+                  <Picker
+                    data={data}
+                    onEmojiSelect={(emoji: any) => {
+                      setFormData({ ...formData, emoji: emoji.native });
+                      setShowEmojiPicker(false);
+                    }}
+                    theme="dark"
+                    previewPosition="none"
+                    searchPosition="sticky"
+                    locale="de"
+                    perLine={8}
+                    maxFrequentRows={2}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
