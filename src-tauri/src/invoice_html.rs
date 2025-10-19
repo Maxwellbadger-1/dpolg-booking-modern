@@ -374,12 +374,12 @@ fn generate_html_from_booking(
         &payment_reference,
     )?;
 
-    // Ersetze [QR CODE] Platzhalter mit echtem QR-Code Bild
+    // Ersetze [QR CODE] Platzhalter mit echtem QR-Code Bild (zentriert im Rahmen)
     let qr_code_html = format!(
         r#"<img src="{}" alt="QR Code für Zahlung" style="width: 100%; height: 100%; object-fit: contain;" />"#,
         qr_code_data_url
     );
-    html = html.replace("[QR CODE]<br>für Zahlung", &qr_code_html);
+    html = html.replace("[QR CODE]<br>\n                        für Zahlung", &qr_code_html);
 
     Ok(html)
 }

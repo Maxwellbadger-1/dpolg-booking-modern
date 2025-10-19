@@ -20,11 +20,37 @@ export interface Guest {
   vorname: string;
   nachname: string;
   email: string;
-  telefon: string;
+  telefon?: string; // NOW OPTIONAL!
   dpolg_mitglied: boolean;
   strasse?: string;
   plz?: string;
   ort?: string;
+  mitgliedsnummer?: string;
+  notizen?: string;
+  beruf?: string;
+  bundesland?: string;
+  dienststelle?: string;
+  created_at?: string;
+  // NEW: 21 additional fields from CSV import
+  anrede?: string; // "Herr", "Frau"
+  geschlecht?: string; // "männlich", "weiblich", "divers"
+  land?: string; // Land (z.B. "Deutschland")
+  telefon_geschaeftlich?: string;
+  telefon_privat?: string;
+  telefon_mobil?: string;
+  fax?: string;
+  geburtsdatum?: string; // ISO 8601 format
+  geburtsort?: string;
+  sprache?: string; // z.B. "Deutsch", "Englisch"
+  nationalitaet?: string;
+  identifikationsnummer?: string; // Ausweisnummer o.Ä.
+  debitorenkonto?: string;
+  kennzeichen?: string; // Auto-Kennzeichen
+  rechnungs_email?: string; // Alternative Email für Rechnungen
+  marketing_einwilligung?: boolean;
+  leitweg_id?: string; // E-Rechnungs-Leitweg-ID
+  kostenstelle?: string;
+  tags?: string; // Komma-separierte Tags
 }
 
 export interface Booking {

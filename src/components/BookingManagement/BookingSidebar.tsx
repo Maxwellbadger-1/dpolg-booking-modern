@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import toast from 'react-hot-toast';
 import {
   X, Calendar, Users, MapPin, Mail, Phone, DollarSign, Tag,
   UserCheck, ShoppingBag, Percent, Edit2, XCircle, FileText,
@@ -9,7 +10,6 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import toast from 'react-hot-toast';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
@@ -1311,13 +1311,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       onClick={async () => {
                         if (!booking.id) return;
                         setGeneratingPdf(true);
+                        const toastId = toast.loading('PDF wird erstellt...');
                         try {
                           const pdfPath = await invoke<string>('generate_invoice_pdf_command', { bookingId: booking.id });
-                          setShowSuccessDialog({ show: true, message: `PDF-Rechnung erfolgreich erstellt: ${pdfPath}` });
+                          toast.success(`PDF erfolgreich erstellt!`, { id: toastId, duration: 4000 });
                           const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', { bookingId: booking.id });
                           setInvoicePdfs(pdfsData);
                         } catch (error) {
-                          setShowErrorDialog({ show: true, message: `Fehler beim Erstellen der PDF: ${error}` });
+                          toast.error(`Fehler beim Erstellen: ${error}`, { id: toastId, duration: 5000 });
                         } finally {
                           setGeneratingPdf(false);
                         }

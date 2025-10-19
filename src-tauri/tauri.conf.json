@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "dpolg-booking-modern",
+  "productName": "DPolG Buchungssystem",
   "version": "1.6.0",
   "identifier": "com.maximilianfegg.dpolg-booking-modern",
   "build": {
@@ -12,10 +12,10 @@
   "app": {
     "windows": [
       {
-        "title": "dpolg-booking-modern",
+        "title": "DPolG Buchungssystem",
         "width": 1600,
         "height": 900,
-        "devtools": true
+        "devtools": false
       }
     ],
     "security": {

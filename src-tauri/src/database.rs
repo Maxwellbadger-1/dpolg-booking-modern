@@ -1,6 +1,70 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use once_cell::sync::OnceCell;
+use std::fs;
+
+// Global database path (set once at app startup)
+static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
+
+/// Initialize database path with AppData directory (Production-ready)
+/// This function MUST be called once at app startup from main.rs
+pub fn init_database_path(app: &tauri::AppHandle) -> std::result::Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        // Development mode: Use src-tauri/booking_system.db (wie bisher)
+        let dev_path = PathBuf::from("src-tauri/booking_system.db");
+        let fallback_path = PathBuf::from("booking_system.db");
+
+        let path = if dev_path.exists() {
+            dev_path
+        } else if fallback_path.exists() {
+            fallback_path
+        } else {
+            dev_path // Wird erstellt wenn nicht existiert
+        };
+
+        DB_PATH.set(path.clone())
+            .map_err(|_| "DB_PATH already initialized".to_string())?;
+
+        println!("🔧 DEV MODE: Database path: {:?}", path);
+        return Ok(());
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        // Production mode: Use AppData directory
+        let app_data_dir = app.path().app_data_dir()
+            .map_err(|e| format!("Failed to get app_data_dir: {}", e))?;
+
+        // Erstelle AppData Verzeichnis falls nicht existiert
+        if !app_data_dir.exists() {
+            fs::create_dir_all(&app_data_dir)
+                .map_err(|e| format!("Failed to create app_data_dir: {}", e))?;
+            println!("✅ Created app data directory: {:?}", app_data_dir);
+        }
+
+        let prod_db_path = app_data_dir.join("booking_system.db");
+
+        // Migration: Kopiere DB von src-tauri/ nach AppData (nur beim ersten Start)
+        if !prod_db_path.exists() {
+            let old_db_path = PathBuf::from("src-tauri/booking_system.db");
+            if old_db_path.exists() {
+                fs::copy(&old_db_path, &prod_db_path)
+                    .map_err(|e| format!("Failed to migrate database: {}", e))?;
+                println!("✅ MIGRATION: Copied database from {:?} to {:?}", old_db_path, prod_db_path);
+            } else {
+                println!("ℹ️  No existing database found, will create new one at: {:?}", prod_db_path);
+            }
+        }
+
+        DB_PATH.set(prod_db_path.clone())
+            .map_err(|_| "DB_PATH already initialized".to_string())?;
+
+        println!("✅ PRODUCTION: Database path: {:?}", prod_db_path);
+        return Ok(());
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Room {
@@ -28,7 +92,7 @@ pub struct Guest {
     pub vorname: String,
     pub nachname: String,
     pub email: String,
-    pub telefon: String,
+    pub telefon: Option<String>,  // Jetzt optional
     pub dpolg_mitglied: bool,
     pub strasse: Option<String>,
     pub plz: Option<String>,
@@ -39,6 +103,26 @@ pub struct Guest {
     pub bundesland: Option<String>,
     pub dienststelle: Option<String>,
     pub created_at: Option<String>,
+    // Neue Person-Felder aus CSV
+    pub anrede: Option<String>,
+    pub geschlecht: Option<String>,
+    pub land: Option<String>,
+    pub telefon_geschaeftlich: Option<String>,
+    pub telefon_privat: Option<String>,
+    pub telefon_mobil: Option<String>,
+    pub fax: Option<String>,
+    pub geburtsdatum: Option<String>,
+    pub geburtsort: Option<String>,
+    pub sprache: Option<String>,
+    pub nationalitaet: Option<String>,
+    pub identifikationsnummer: Option<String>,
+    pub debitorenkonto: Option<String>,
+    pub kennzeichen: Option<String>,
+    pub rechnungs_email: Option<String>,
+    pub marketing_einwilligung: Option<bool>,
+    pub leitweg_id: Option<String>,
+    pub kostenstelle: Option<String>,
+    pub tags: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -362,24 +446,29 @@ pub struct BookingWithDetails {
     pub discounts: Vec<DiscountTemplate>,
 }
 
+/// Get database path (initialized once at app startup via init_database_path)
 pub fn get_db_path() -> PathBuf {
-    // WICHTIG: Immer die DB in src-tauri/ verwenden (unabhängig vom CWD)
-    // Das stellt sicher dass Desktop App und Playwright Tests die gleiche DB nutzen
-    let db_path = PathBuf::from("src-tauri/booking_system.db");
-
-    // Wenn src-tauri/booking_system.db existiert, verwende diese
-    if db_path.exists() {
-        return db_path;
+    // Return global DB_PATH if set (Production & Development nach init)
+    if let Some(path) = DB_PATH.get() {
+        return path.clone();
     }
 
-    // Fallback: Wenn wir bereits in src-tauri/ sind (CWD = src-tauri)
+    // Fallback für alte Code-Pfade die get_db_path() aufrufen BEVOR init_database_path()
+    // (z.B. Tests oder Import-Scripts)
+    eprintln!("⚠️  WARNING: get_db_path() called before init_database_path()! Using fallback.");
+
+    let dev_path = PathBuf::from("src-tauri/booking_system.db");
+    if dev_path.exists() {
+        return dev_path;
+    }
+
     let local_db = PathBuf::from("booking_system.db");
     if local_db.exists() {
         return local_db;
     }
 
-    // Default: src-tauri/booking_system.db (wird erstellt wenn nicht existiert)
-    db_path
+    // Default fallback
+    dev_path
 }
 
 // Helper function: Get a database connection
@@ -1464,6 +1553,12 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 bundesland: row.get(50)?,
                 dienststelle: row.get(51)?,
                 created_at: row.get(52)?,
+                anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
+                telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
+                geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
+                debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
+                marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
+                tags: None,
             },
             // Initiale leere Vektoren (werden unten befüllt)
             services: Vec::new(),
@@ -1476,8 +1571,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
         // Services laden
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
-                    st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
-                    st.requires_dog_cleaning, st.requires_bedding_change, st.requires_deep_cleaning,
+                    st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
              JOIN booking_services bs ON st.id = bs.service_template_id
@@ -1492,14 +1586,10 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i32>(9)? != 0,
-                requires_bedding_change: row.get::<_, i32>(10)? != 0,
-                requires_deep_cleaning: row.get::<_, i32>(11)? != 0,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -1508,7 +1598,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
         // Discounts laden
         let mut discount_stmt = conn.prepare(
             "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
-                    dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                    dt.emoji, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
                     dt.created_at, dt.updated_at
              FROM discount_templates dt
              JOIN booking_discounts bd ON dt.id = bd.discount_template_id
@@ -1524,12 +1614,11 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i32>(5)? != 0,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -1548,7 +1637,7 @@ pub fn create_guest(
     vorname: String,
     nachname: String,
     email: String,
-    telefon: String,
+    telefon: Option<String>,
     dpolg_mitglied: bool,
     strasse: Option<String>,
     plz: Option<String>,
@@ -1558,13 +1647,40 @@ pub fn create_guest(
     beruf: Option<String>,
     bundesland: Option<String>,
     dienststelle: Option<String>,
+    // Neue Felder
+    anrede: Option<String>,
+    geschlecht: Option<String>,
+    land: Option<String>,
+    telefon_geschaeftlich: Option<String>,
+    telefon_privat: Option<String>,
+    telefon_mobil: Option<String>,
+    fax: Option<String>,
+    geburtsdatum: Option<String>,
+    geburtsort: Option<String>,
+    sprache: Option<String>,
+    nationalitaet: Option<String>,
+    identifikationsnummer: Option<String>,
+    debitorenkonto: Option<String>,
+    kennzeichen: Option<String>,
+    rechnungs_email: Option<String>,
+    marketing_einwilligung: Option<bool>,
+    leitweg_id: Option<String>,
+    kostenstelle: Option<String>,
+    tags: Option<String>,
 ) -> Result<Guest> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
-        "INSERT INTO guests (vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort, mitgliedsnummer, notizen, beruf, bundesland, dienststelle)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO guests (
+            vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort,
+            mitgliedsnummer, notizen, beruf, bundesland, dienststelle,
+            anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
+            fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
+            debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
+            kostenstelle, tags
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)",
         rusqlite::params![
             vorname,
             nachname,
@@ -1578,7 +1694,26 @@ pub fn create_guest(
             notizen,
             beruf,
             bundesland,
-            dienststelle
+            dienststelle,
+            anrede,
+            geschlecht,
+            land,
+            telefon_geschaeftlich,
+            telefon_privat,
+            telefon_mobil,
+            fax,
+            geburtsdatum,
+            geburtsort,
+            sprache,
+            nationalitaet,
+            identifikationsnummer,
+            debitorenkonto,
+            kennzeichen,
+            rechnungs_email,
+            marketing_einwilligung.map(|v| v as i32),
+            leitweg_id,
+            kostenstelle,
+            tags
         ],
     )?;
 
@@ -1601,7 +1736,7 @@ pub fn update_guest(
     vorname: String,
     nachname: String,
     email: String,
-    telefon: String,
+    telefon: Option<String>,
     dpolg_mitglied: bool,
     strasse: Option<String>,
     plz: Option<String>,
@@ -1611,6 +1746,26 @@ pub fn update_guest(
     beruf: Option<String>,
     bundesland: Option<String>,
     dienststelle: Option<String>,
+    // Neue Felder
+    anrede: Option<String>,
+    geschlecht: Option<String>,
+    land: Option<String>,
+    telefon_geschaeftlich: Option<String>,
+    telefon_privat: Option<String>,
+    telefon_mobil: Option<String>,
+    fax: Option<String>,
+    geburtsdatum: Option<String>,
+    geburtsort: Option<String>,
+    sprache: Option<String>,
+    nationalitaet: Option<String>,
+    identifikationsnummer: Option<String>,
+    debitorenkonto: Option<String>,
+    kennzeichen: Option<String>,
+    rechnungs_email: Option<String>,
+    marketing_einwilligung: Option<bool>,
+    leitweg_id: Option<String>,
+    kostenstelle: Option<String>,
+    tags: Option<String>,
 ) -> Result<Guest> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -1623,8 +1778,14 @@ pub fn update_guest(
         "UPDATE guests SET
          vorname = ?1, nachname = ?2, email = ?3, telefon = ?4, dpolg_mitglied = ?5,
          strasse = ?6, plz = ?7, ort = ?8, mitgliedsnummer = ?9, notizen = ?10,
-         beruf = ?11, bundesland = ?12, dienststelle = ?13
-         WHERE id = ?14",
+         beruf = ?11, bundesland = ?12, dienststelle = ?13,
+         anrede = ?14, geschlecht = ?15, land = ?16, telefon_geschaeftlich = ?17,
+         telefon_privat = ?18, telefon_mobil = ?19, fax = ?20, geburtsdatum = ?21,
+         geburtsort = ?22, sprache = ?23, nationalitaet = ?24, identifikationsnummer = ?25,
+         debitorenkonto = ?26, kennzeichen = ?27, rechnungs_email = ?28,
+         marketing_einwilligung = ?29, leitweg_id = ?30, kostenstelle = ?31,
+         tags = ?32
+         WHERE id = ?33",
         rusqlite::params![
             vorname,
             nachname,
@@ -1639,6 +1800,25 @@ pub fn update_guest(
             beruf,
             bundesland,
             dienststelle,
+            anrede,
+            geschlecht,
+            land,
+            telefon_geschaeftlich,
+            telefon_privat,
+            telefon_mobil,
+            fax,
+            geburtsdatum,
+            geburtsort,
+            sprache,
+            nationalitaet,
+            identifikationsnummer,
+            debitorenkonto,
+            kennzeichen,
+            rechnungs_email,
+            marketing_einwilligung.map(|v| v as i32),
+            leitweg_id,
+            kostenstelle,
+            tags,
             id
         ],
     )?;
@@ -1690,7 +1870,12 @@ pub fn get_guest_by_id(id: i64) -> Result<Guest> {
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.query_row(
-        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort, mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at
+        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort,
+         mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at,
+         anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
+         fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
+         debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
+         kostenstelle, tags
          FROM guests WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -1710,6 +1895,25 @@ pub fn get_guest_by_id(id: i64) -> Result<Guest> {
                 bundesland: row.get(12)?,
                 dienststelle: row.get(13)?,
                 created_at: row.get(14)?,
+                anrede: row.get(15)?,
+                geschlecht: row.get(16)?,
+                land: row.get(17)?,
+                telefon_geschaeftlich: row.get(18)?,
+                telefon_privat: row.get(19)?,
+                telefon_mobil: row.get(20)?,
+                fax: row.get(21)?,
+                geburtsdatum: row.get(22)?,
+                geburtsort: row.get(23)?,
+                sprache: row.get(24)?,
+                nationalitaet: row.get(25)?,
+                identifikationsnummer: row.get(26)?,
+                debitorenkonto: row.get(27)?,
+                kennzeichen: row.get(28)?,
+                rechnungs_email: row.get(29)?,
+                marketing_einwilligung: row.get(30)?,
+                leitweg_id: row.get(31)?,
+                kostenstelle: row.get(32)?,
+                tags: row.get(33)?,
             })
         },
     )
@@ -1722,7 +1926,12 @@ pub fn search_guests(query: String) -> Result<Vec<Guest>> {
 
     let pattern = format!("%{}%", query);
     let mut stmt = conn.prepare(
-        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort, mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at
+        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort,
+         mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at,
+         anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
+         fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
+         debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
+         kostenstelle, tags
          FROM guests
          WHERE vorname LIKE ?1 OR nachname LIKE ?1 OR email LIKE ?1
          ORDER BY nachname, vorname",
@@ -1745,6 +1954,25 @@ pub fn search_guests(query: String) -> Result<Vec<Guest>> {
             bundesland: row.get(12)?,
             dienststelle: row.get(13)?,
             created_at: row.get(14)?,
+            anrede: row.get(15)?,
+            geschlecht: row.get(16)?,
+            land: row.get(17)?,
+            telefon_geschaeftlich: row.get(18)?,
+            telefon_privat: row.get(19)?,
+            telefon_mobil: row.get(20)?,
+            fax: row.get(21)?,
+            geburtsdatum: row.get(22)?,
+            geburtsort: row.get(23)?,
+            sprache: row.get(24)?,
+            nationalitaet: row.get(25)?,
+            identifikationsnummer: row.get(26)?,
+            debitorenkonto: row.get(27)?,
+            kennzeichen: row.get(28)?,
+            rechnungs_email: row.get(29)?,
+            marketing_einwilligung: row.get(30)?,
+            leitweg_id: row.get(31)?,
+            kostenstelle: row.get(32)?,
+            tags: row.get(33)?,
         })
     })?;
 
@@ -1757,7 +1985,12 @@ pub fn get_all_guests() -> Result<Vec<Guest>> {
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     let mut stmt = conn.prepare(
-        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort, mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at
+        "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied, strasse, plz, ort,
+         mitgliedsnummer, notizen, beruf, bundesland, dienststelle, created_at,
+         anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
+         fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
+         debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
+         kostenstelle, tags
          FROM guests
          ORDER BY nachname, vorname",
     )?;
@@ -1779,6 +2012,25 @@ pub fn get_all_guests() -> Result<Vec<Guest>> {
             bundesland: row.get(12)?,
             dienststelle: row.get(13)?,
             created_at: row.get(14)?,
+            anrede: row.get(15)?,
+            geschlecht: row.get(16)?,
+            land: row.get(17)?,
+            telefon_geschaeftlich: row.get(18)?,
+            telefon_privat: row.get(19)?,
+            telefon_mobil: row.get(20)?,
+            fax: row.get(21)?,
+            geburtsdatum: row.get(22)?,
+            geburtsort: row.get(23)?,
+            sprache: row.get(24)?,
+            nationalitaet: row.get(25)?,
+            identifikationsnummer: row.get(26)?,
+            debitorenkonto: row.get(27)?,
+            kennzeichen: row.get(28)?,
+            rechnungs_email: row.get(29)?,
+            marketing_einwilligung: row.get(30)?,
+            leitweg_id: row.get(31)?,
+            kostenstelle: row.get(32)?,
+            tags: row.get(33)?,
         })
     })?;
 
@@ -2526,6 +2778,12 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
                     bundesland: row.get(50)?,
                     dienststelle: row.get(51)?,
                     created_at: row.get(52)?,
+                    anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
+                    telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
+                    geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
+                    debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
+                    marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
+                    tags: None,
                 },
                 // Services und Discounts werden leer initialisiert (werden unten befüllt)
                 services: Vec::new(),
@@ -2537,8 +2795,7 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
     // Services für diese Buchung laden (aus Junction-Table)
     let mut service_stmt = conn.prepare(
         "SELECT st.id, st.name, st.description, st.price, st.is_active,
-                st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
-                st.requires_dog_cleaning, st.requires_bedding_change, st.requires_deep_cleaning,
+                st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                 st.created_at, st.updated_at
          FROM service_templates st
          JOIN booking_services bs ON st.id = bs.service_template_id
@@ -2553,21 +2810,17 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             price: row.get(3)?,
             is_active: row.get::<_, i32>(4)? != 0,
             emoji: row.get(5)?,
-            color_hex: row.get(6)?,
-            show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
-            cleaning_plan_position: row.get(8)?,
-            requires_dog_cleaning: row.get::<_, i32>(9)? != 0,
-            requires_bedding_change: row.get::<_, i32>(10)? != 0,
-            requires_deep_cleaning: row.get::<_, i32>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
+            show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
+            cleaning_plan_position: row.get(7)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
         })
     })?.collect::<Result<Vec<_>, _>>()?;
 
     // Discounts für diese Buchung laden (aus Junction-Table)
     let mut discount_stmt = conn.prepare(
         "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
-                dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                dt.emoji, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
                 dt.created_at, dt.updated_at
          FROM discount_templates dt
          JOIN booking_discounts bd ON dt.id = bd.discount_template_id
@@ -2583,12 +2836,11 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             discount_value: row.get(4)?,
             is_active: row.get::<_, i32>(5)? != 0,
             emoji: row.get(6)?,
-            color_hex: row.get(7)?,
-            show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
-            cleaning_plan_position: row.get(9)?,
-            applies_to: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
+            show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+            cleaning_plan_position: row.get(8)?,
+            applies_to: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -3803,7 +4055,7 @@ pub fn get_all_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
+            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
              FROM discount_templates ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3818,12 +4070,11 @@ pub fn get_all_discount_templates() -> Result<Vec<DiscountTemplate>, String> {
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3839,7 +4090,7 @@ pub fn get_active_discount_templates() -> Result<Vec<DiscountTemplate>, String> 
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
+            "SELECT id, name, description, discount_type, discount_value, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
              FROM discount_templates WHERE is_active = 1 ORDER BY name",
         )
         .map_err(|e| format!("SQL Fehler: {}", e))?;
@@ -3854,12 +4105,11 @@ pub fn get_active_discount_templates() -> Result<Vec<DiscountTemplate>, String> 
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i64>(7)? == 1,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -3877,7 +4127,6 @@ pub fn update_discount_template(
     discount_value: f64,
     is_active: bool,
     emoji: Option<String>,
-    color_hex: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
     applies_to: String,
@@ -3918,9 +4167,9 @@ pub fn update_discount_template(
     conn.execute(
         "UPDATE discount_templates
          SET name = ?1, description = ?2, discount_type = ?3, discount_value = ?4,
-             is_active = ?5, emoji = ?6, color_hex = ?7, show_in_cleaning_plan = ?8,
-             cleaning_plan_position = ?9, applies_to = ?10, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?11",
+             is_active = ?5, emoji = ?6, show_in_cleaning_plan = ?7,
+             cleaning_plan_position = ?8, applies_to = ?9, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?10",
         rusqlite::params![
             name,
             description,
@@ -3928,7 +4177,6 @@ pub fn update_discount_template(
             discount_value,
             if is_active { 1 } else { 0 },
             emoji,
-            color_hex,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position,
             applies_to,
@@ -3938,7 +4186,7 @@ pub fn update_discount_template(
     .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
 
     conn.query_row(
-        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, color_hex, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
+        "SELECT id, name, description, discount_type, discount_value, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position, applies_to, created_at, updated_at
          FROM discount_templates WHERE id = ?1",
         [id],
         |row| {
@@ -3950,7 +4198,6 @@ pub fn update_discount_template(
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i64>(5)? == 1,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
                 show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
                 cleaning_plan_position: row.get(9)?,
                 applies_to: row.get(10)?,
@@ -4149,6 +4396,12 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
                 bundesland: row.get(52)?,
                 dienststelle: row.get(53)?,
                 created_at: row.get(54)?,
+                anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
+                telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
+                geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
+                debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
+                marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
+                tags: None,
             },
             // Services und Discounts werden unten befüllt
             services: Vec::new(),
@@ -4163,8 +4416,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
         // Services laden (Templates mit emoji, show_in_cleaning_plan, etc.)
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
-                    st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
-                    st.requires_dog_cleaning, st.requires_bedding_change, st.requires_deep_cleaning,
+                    st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
              JOIN booking_services bs ON st.id = bs.service_template_id
@@ -4179,14 +4431,10 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i32>(9)? != 0,
-                requires_bedding_change: row.get::<_, i32>(10)? != 0,
-                requires_deep_cleaning: row.get::<_, i32>(11)? != 0,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -4195,7 +4443,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
         // Discounts laden
         let mut discount_stmt = conn.prepare(
             "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
-                    dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                    dt.emoji, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
                     dt.created_at, dt.updated_at
              FROM discount_templates dt
              JOIN booking_discounts bd ON dt.id = bd.discount_template_id
@@ -4211,12 +4459,11 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i32>(5)? != 0,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -4325,6 +4572,12 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
                 bundesland: row.get(52)?,
                 dienststelle: row.get(53)?,
                 created_at: row.get(54)?,
+                anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
+                telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
+                geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
+                debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
+                marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
+                tags: None,
             },
             services: Vec::new(),
             discounts: Vec::new(),
@@ -4338,8 +4591,7 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
         // Services laden (Templates mit emoji, show_in_cleaning_plan, etc.)
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
-                    st.emoji, st.color_hex, st.show_in_cleaning_plan, st.cleaning_plan_position,
-                    st.requires_dog_cleaning, st.requires_bedding_change, st.requires_deep_cleaning,
+                    st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
              JOIN booking_services bs ON st.id = bs.service_template_id
@@ -4354,14 +4606,10 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
                 emoji: row.get(5)?,
-                color_hex: row.get(6)?,
-                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
-                cleaning_plan_position: row.get(8)?,
-                requires_dog_cleaning: row.get::<_, i32>(9)? != 0,
-                requires_bedding_change: row.get::<_, i32>(10)? != 0,
-                requires_deep_cleaning: row.get::<_, i32>(11)? != 0,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
+                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
+                cleaning_plan_position: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -4370,7 +4618,7 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
         // Discounts laden
         let mut discount_stmt = conn.prepare(
             "SELECT dt.id, dt.name, dt.description, dt.discount_type, dt.discount_value, dt.is_active,
-                    dt.emoji, dt.color_hex, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
+                    dt.emoji, dt.show_in_cleaning_plan, dt.cleaning_plan_position, dt.applies_to,
                     dt.created_at, dt.updated_at
              FROM discount_templates dt
              JOIN booking_discounts bd ON dt.id = bd.discount_template_id
@@ -4386,12 +4634,11 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
                 discount_value: row.get(4)?,
                 is_active: row.get::<_, i32>(5)? != 0,
                 emoji: row.get(6)?,
-                color_hex: row.get(7)?,
-                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
-                cleaning_plan_position: row.get(9)?,
-                applies_to: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                show_in_cleaning_plan: row.get::<_, i32>(7)? != 0,
+                cleaning_plan_position: row.get(8)?,
+                applies_to: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 

@@ -224,23 +224,17 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-slate-800 to-slate-900">
-        <div className="text-center">
-          {/* MP4 Video als Ladeanimation */}
-          <video
-            autoPlay
-            loop
-            muted
-            playsInline
-            className="w-64 h-64 mb-4 mx-auto"
-            style={{ objectFit: 'contain' }}
-          >
-            <source src="/loading-animation.mp4" type="video/mp4" />
-            {/* Fallback wenn Video nicht verfügbar */}
-            <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-blue-500"></div>
-          </video>
-          <p className="mt-4 text-slate-300 text-lg font-semibold">Lade Buchungssystem...</p>
-        </div>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-800 to-slate-900">
+        {/* MP4 Video als Ladeanimation - Fullscreen */}
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full h-full object-cover"
+        >
+          <source src="/loading-animation.mp4" type="video/mp4" />
+        </video>
       </div>
     );
   }

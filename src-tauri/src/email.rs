@@ -8,25 +8,114 @@ use lettre::{
 use crate::database::{EmailConfig, EmailTemplate, EmailLog, get_db_path};
 use base64::{Engine as _, engine::general_purpose};
 use std::path::PathBuf;
+use aes_gcm::{
+    aead::{Aead, KeyInit, OsRng},
+    Aes256Gcm, Nonce,
+};
+use aes_gcm::aead::generic_array::GenericArray;
 
 // ============================================================================
 // EMAIL CONFIGURATION FUNCTIONS
 // ============================================================================
 
-/// Verschlüsselt ein Passwort (Base64 - für Production sollte AES-256 verwendet werden)
-pub fn encrypt_password(password: &str) -> String {
-    general_purpose::STANDARD.encode(password.as_bytes())
+/// Generiert einen deterministischen AES-256 Schlüssel aus einer Passphrase
+/// WICHTIG: In Production sollte dieser Schlüssel aus einem sicheren Keyring geladen werden
+fn get_encryption_key() -> [u8; 32] {
+    use sha2::{Sha256, Digest};
+
+    // Hardcoded Passphrase + App-spezifische Salt
+    // In Production: Aus System-Keyring laden oder User-spezifisch generieren
+    let passphrase = b"DPolG_Booking_System_2025_Email_Encryption_Key_v1";
+    let salt = b"dpolg_stiftung_booking_salt_2025";
+
+    // Kombiniere Passphrase + Salt und hashe mit SHA-256 für 32-byte Key
+    let mut hasher = Sha256::new();
+    hasher.update(passphrase);
+    hasher.update(salt);
+    let result = hasher.finalize();
+
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result);
+    key
 }
 
-/// Entschlüsselt ein Passwort
+/// Verschlüsselt ein Passwort mit AES-256-GCM
+/// Format: Base64(nonce + ciphertext)
+pub fn encrypt_password(password: &str) -> String {
+    use rand::Rng;
+
+    // Generiere Encryption Key
+    let key_bytes = get_encryption_key();
+    let key = GenericArray::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+
+    // Generiere zufällige Nonce (12 bytes für GCM)
+    let mut rng = rand::thread_rng();
+    let nonce_bytes: [u8; 12] = rng.gen();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    // Verschlüssele Passwort
+    let ciphertext = cipher
+        .encrypt(nonce, password.as_bytes())
+        .expect("Verschlüsselung fehlgeschlagen");
+
+    // Kombiniere Nonce + Ciphertext und encode als Base64
+    let mut result = Vec::new();
+    result.extend_from_slice(&nonce_bytes);
+    result.extend_from_slice(&ciphertext);
+
+    general_purpose::STANDARD.encode(&result)
+}
+
+/// Entschlüsselt ein Passwort (AES-256-GCM oder Fallback auf altes Base64)
 pub fn decrypt_password(encrypted: &str) -> Result<String, String> {
-    general_purpose::STANDARD
+    // Decode Base64
+    let encrypted_bytes = general_purpose::STANDARD
         .decode(encrypted.as_bytes())
-        .map_err(|e| format!("Fehler beim Entschlüsseln: {}", e))
-        .and_then(|bytes| {
-            String::from_utf8(bytes)
-                .map_err(|e| format!("Fehler beim Konvertieren: {}", e))
-        })
+        .map_err(|e| format!("Fehler beim Base64-Dekodieren: {}", e))?;
+
+    // Prüfe ob Daten lang genug für AES-GCM (mindestens 12 bytes Nonce + 16 bytes Auth Tag)
+    if encrypted_bytes.len() >= 28 {
+        // Versuche AES-256-GCM Entschlüsselung
+        match decrypt_aes(&encrypted_bytes) {
+            Ok(password) => return Ok(password),
+            Err(_) => {
+                // AES fehlgeschlagen, versuche Legacy Base64 Fallback
+                // (für Migration von alten Passwörtern)
+            }
+        }
+    }
+
+    // Fallback: Legacy Base64-only Entschlüsselung
+    // (für Passwörter die vor dem AES-Upgrade gespeichert wurden)
+    String::from_utf8(encrypted_bytes)
+        .map_err(|e| format!("Fehler beim Konvertieren (Legacy-Format): {}", e))
+}
+
+/// Hilfsfunktion: AES-256-GCM Entschlüsselung
+fn decrypt_aes(encrypted_bytes: &[u8]) -> Result<String, String> {
+    if encrypted_bytes.len() < 28 {
+        return Err("Daten zu kurz für AES-GCM".to_string());
+    }
+
+    // Extrahiere Nonce (erste 12 bytes) und Ciphertext (Rest)
+    let nonce_bytes = &encrypted_bytes[0..12];
+    let ciphertext = &encrypted_bytes[12..];
+
+    // Generiere Encryption Key
+    let key_bytes = get_encryption_key();
+    let key = GenericArray::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    // Entschlüssele
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("AES-Entschlüsselung fehlgeschlagen: {}", e))?;
+
+    // Konvertiere zu String
+    String::from_utf8(plaintext)
+        .map_err(|e| format!("Fehler beim Konvertieren: {}", e))
 }
 
 /// Speichert oder aktualisiert die Email-Konfiguration
@@ -364,6 +453,16 @@ pub fn update_template(
 // EMAIL SENDING FUNCTIONS
 // ============================================================================
 
+/// Wählt die richtige Email-Adresse für den Versand
+/// Verwendet rechnungs_email falls vorhanden und nicht leer, sonst guest.email
+fn get_recipient_email(guest: &crate::database::Guest) -> String {
+    guest.rechnungs_email
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&guest.email)
+        .clone()
+}
+
 /// Platzhalter in Template ersetzen
 fn replace_placeholders(text: &str, placeholders: &std::collections::HashMap<String, String>) -> String {
     let mut result = text.to_string();
@@ -386,8 +485,9 @@ fn create_all_placeholders(
     // Gast-Daten (Basis)
     placeholders.insert("gast_vorname".to_string(), guest.vorname.clone());
     placeholders.insert("gast_nachname".to_string(), guest.nachname.clone());
-    placeholders.insert("gast_email".to_string(), guest.email.clone());
-    placeholders.insert("gast_telefon".to_string(), guest.telefon.clone());
+    // Verwende rechnungs_email falls vorhanden, sonst guest.email
+    placeholders.insert("gast_email".to_string(), get_recipient_email(guest));
+    placeholders.insert("gast_telefon".to_string(), guest.telefon.clone().unwrap_or_default());
 
     // Gast-Adresse (NEU)
     placeholders.insert("gast_strasse".to_string(), guest.strasse.clone().unwrap_or_default());
@@ -566,8 +666,9 @@ pub async fn send_confirmation_email(booking_id: i64) -> Result<String, String> 
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    // Sende Email
-    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "confirmation").await
+    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "confirmation").await
 }
 
 /// Reminder-Email senden
@@ -584,7 +685,9 @@ pub async fn send_reminder_email(booking_id: i64) -> Result<String, String> {
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "reminder").await
+    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "reminder").await
 }
 
 /// Rechnungs-Email senden (ohne PDF-Anhang - Legacy)
@@ -601,7 +704,9 @@ pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "invoice").await
+    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "invoice").await
 }
 
 /// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
@@ -618,10 +723,13 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
+    // Wähle korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+
     // Email versenden
     let result = send_email_with_attachment_internal(
         &config,
-        &booking_details.guest.email,
+        &recipient_email,
         &subject,
         &body,
         &pdf_path,
@@ -630,9 +738,9 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
         "invoice"
     ).await;
 
-    // Bei Erfolg: Rechnung als versendet markieren
+    // Bei Erfolg: Rechnung als versendet markieren (mit der tatsächlich verwendeten Email-Adresse)
     if result.is_ok() {
-        let _ = mark_invoice_sent(booking_id, booking_details.guest.email.clone())
+        let _ = mark_invoice_sent(booking_id, recipient_email.clone())
             .map_err(|e| eprintln!("⚠️  Konnte Rechnung-Versendet-Status nicht setzen: {}", e));
     }
 
@@ -653,7 +761,9 @@ pub async fn send_payment_reminder_email(booking_id: i64) -> Result<String, Stri
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "payment_reminder").await
+    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "payment_reminder").await
 }
 
 /// Stornierungsbestätigungs-Email senden
@@ -670,7 +780,9 @@ pub async fn send_cancellation_email(booking_id: i64) -> Result<String, String> 
     let subject = replace_placeholders(&template.subject, &placeholders);
     let body = replace_placeholders(&template.body, &placeholders);
 
-    send_email_internal(&config, &booking_details.guest.email, &subject, &body, booking_id, booking_details.guest.id, "cancellation").await
+    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
+    let recipient_email = get_recipient_email(&booking_details.guest);
+    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "cancellation").await
 }
 
 /// Erstellt HTML-Email-Body mit Logo-Header
@@ -1085,6 +1197,40 @@ pub fn get_all_email_logs() -> Result<Vec<EmailLog>, String> {
     ).map_err(|e| format!("Fehler beim Vorbereiten der Abfrage: {}", e))?;
 
     let logs = stmt.query_map([], |row| {
+        Ok(EmailLog {
+            id: row.get(0)?,
+            booking_id: row.get(1)?,
+            guest_id: row.get(2)?,
+            template_name: row.get(3)?,
+            recipient_email: row.get(4)?,
+            subject: row.get(5)?,
+            status: row.get(6)?,
+            error_message: row.get(7)?,
+            sent_at: row.get(8)?,
+        })
+    }).map_err(|e| format!("Fehler beim Abrufen der Logs: {}", e))?;
+
+    let mut result = Vec::new();
+    for log in logs {
+        result.push(log.map_err(|e| format!("Fehler beim Verarbeiten: {}", e))?);
+    }
+
+    Ok(result)
+}
+
+/// Lädt die letzten N Email-Logs (für Performance - Standard-Filter)
+pub fn get_recent_email_logs(limit: i32) -> Result<Vec<EmailLog>, String> {
+    let conn = Connection::open(get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, booking_id, guest_id, template_name, recipient_email, subject, status, error_message, sent_at
+         FROM email_logs
+         ORDER BY sent_at DESC
+         LIMIT ?"
+    ).map_err(|e| format!("Fehler beim Vorbereiten der Abfrage: {}", e))?;
+
+    let logs = stmt.query_map([limit], |row| {
         Ok(EmailLog {
             id: row.get(0)?,
             booking_id: row.get(1)?,

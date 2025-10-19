@@ -30,6 +30,8 @@ once_cell = "1.20"
 rand = "0.8"
 lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder", "tokio1-native-tls"] }
 base64 = "0.22"
+aes-gcm = "0.10"
+sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 pdf-writer = "0.12"
 image = { version = "0.25", features = ["png", "jpeg"] }
@@ -39,4 +41,18 @@ tera = "1.20"
 headless_chrome = "1.0"
 reqwest = { version = "0.11", features = ["json"] }
 dirs = "5.0"
+csv = "1.3"
+
+# Release Profile Optimization (Production Build)
+[profile.release]
+# Link-Time Optimization: 10-20% faster runtime, smaller binary
+lto = true
+# Optimize for size and speed
+opt-level = 3
+# Single codegen unit for better optimization
+codegen-units = 1
+# Strip debug symbols for smaller binary
+strip = true
+# Panic = abort for smaller binary (no unwinding)
+panic = "abort"
 

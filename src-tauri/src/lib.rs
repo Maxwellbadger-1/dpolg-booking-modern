@@ -58,7 +58,7 @@ fn create_guest_command(
     vorname: String,
     nachname: String,
     email: String,
-    telefon: String,
+    telefon: Option<String>,
     dpolg_mitglied: bool,
     strasse: Option<String>,
     plz: Option<String>,
@@ -68,6 +68,26 @@ fn create_guest_command(
     beruf: Option<String>,
     bundesland: Option<String>,
     dienststelle: Option<String>,
+    // NEW: 21 additional fields from CSV import
+    anrede: Option<String>,
+    geschlecht: Option<String>,
+    land: Option<String>,
+    telefon_geschaeftlich: Option<String>,
+    telefon_privat: Option<String>,
+    telefon_mobil: Option<String>,
+    fax: Option<String>,
+    geburtsdatum: Option<String>,
+    geburtsort: Option<String>,
+    sprache: Option<String>,
+    nationalitaet: Option<String>,
+    identifikationsnummer: Option<String>,
+    debitorenkonto: Option<String>,
+    kennzeichen: Option<String>,
+    rechnungs_email: Option<String>,
+    marketing_einwilligung: Option<bool>,
+    leitweg_id: Option<String>,
+    kostenstelle: Option<String>,
+    tags: Option<String>,
 ) -> Result<database::Guest, String> {
     database::create_guest(
         vorname,
@@ -83,6 +103,25 @@ fn create_guest_command(
         beruf,
         bundesland,
         dienststelle,
+        anrede,
+        geschlecht,
+        land,
+        telefon_geschaeftlich,
+        telefon_privat,
+        telefon_mobil,
+        fax,
+        geburtsdatum,
+        geburtsort,
+        sprache,
+        nationalitaet,
+        identifikationsnummer,
+        debitorenkonto,
+        kennzeichen,
+        rechnungs_email,
+        marketing_einwilligung,
+        leitweg_id,
+        kostenstelle,
+        tags,
     )
     .map_err(|e| format!("Fehler beim Erstellen des Gastes: {}", e))
 }
@@ -93,7 +132,7 @@ fn update_guest_command(
     vorname: String,
     nachname: String,
     email: String,
-    telefon: String,
+    telefon: Option<String>,
     dpolg_mitglied: bool,
     strasse: Option<String>,
     plz: Option<String>,
@@ -103,6 +142,26 @@ fn update_guest_command(
     beruf: Option<String>,
     bundesland: Option<String>,
     dienststelle: Option<String>,
+    // NEW: 21 additional fields from CSV import
+    anrede: Option<String>,
+    geschlecht: Option<String>,
+    land: Option<String>,
+    telefon_geschaeftlich: Option<String>,
+    telefon_privat: Option<String>,
+    telefon_mobil: Option<String>,
+    fax: Option<String>,
+    geburtsdatum: Option<String>,
+    geburtsort: Option<String>,
+    sprache: Option<String>,
+    nationalitaet: Option<String>,
+    identifikationsnummer: Option<String>,
+    debitorenkonto: Option<String>,
+    kennzeichen: Option<String>,
+    rechnungs_email: Option<String>,
+    marketing_einwilligung: Option<bool>,
+    leitweg_id: Option<String>,
+    kostenstelle: Option<String>,
+    tags: Option<String>,
 ) -> Result<database::Guest, String> {
     database::update_guest(
         id,
@@ -119,6 +178,25 @@ fn update_guest_command(
         beruf,
         bundesland,
         dienststelle,
+        anrede,
+        geschlecht,
+        land,
+        telefon_geschaeftlich,
+        telefon_privat,
+        telefon_mobil,
+        fax,
+        geburtsdatum,
+        geburtsort,
+        sprache,
+        nationalitaet,
+        identifikationsnummer,
+        debitorenkonto,
+        kennzeichen,
+        rechnungs_email,
+        marketing_einwilligung,
+        leitweg_id,
+        kostenstelle,
+        tags,
     )
     .map_err(|e| format!("Fehler beim Aktualisieren des Gastes: {}", e))
 }
@@ -887,6 +965,11 @@ fn get_all_email_logs_command() -> Result<Vec<database::EmailLog>, String> {
 }
 
 #[tauri::command]
+fn get_recent_email_logs_command(limit: i32) -> Result<Vec<database::EmailLog>, String> {
+    email::get_recent_email_logs(limit)
+}
+
+#[tauri::command]
 fn delete_email_log_command(log_id: i64) -> Result<(), String> {
     email::delete_email_log(log_id)
 }
@@ -1221,6 +1304,7 @@ pub fn run() {
             send_invoice_email_command,
             get_email_logs_for_booking_command,
             get_all_email_logs_command,
+            get_recent_email_logs_command,
             delete_email_log_command,
             send_payment_reminder_email_command,
             send_cancellation_email_command,
@@ -1309,6 +1393,13 @@ pub fn run() {
             database::use_guest_credit_for_booking,
         ])
         .setup(|app| {
+            // KRITISCH: Database Path ZUERST initialisieren (BEVOR irgendwelche DB-Operationen!)
+            println!("📁 Initialisiere Datenbank-Pfad...");
+            if let Err(e) = database::init_database_path(&app.handle()) {
+                eprintln!("❌ FEHLER beim Initialisieren des Datenbank-Pfads: {}", e);
+                // App trotzdem starten für Debugging
+            }
+
             // Starte Email-Scheduler im Hintergrund
             println!("🚀 Starte Email-Scheduler...");
             email_scheduler::start_email_scheduler();

@@ -43,6 +43,7 @@ export default function EmailHistoryView() {
   // Common State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showingAllEmails, setShowingAllEmails] = useState(false);
 
   // Resend Dialog State
   const [resendDialog, setResendDialog] = useState<{ show: boolean; log: EmailLog | null }>({ show: false, log: null });
@@ -54,9 +55,9 @@ export default function EmailHistoryView() {
   const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; log: EmailLog | null }>({ show: false, log: null });
   const [deleting, setDeleting] = useState(false);
 
-  // Initial load: Load both lists
+  // Initial load: Load recent emails (default 20) and scheduled emails
   useEffect(() => {
-    loadAllEmailLogs();
+    loadRecentEmailLogs();
     loadScheduledEmails();
   }, []);
 
@@ -68,12 +69,27 @@ export default function EmailHistoryView() {
     }
   }, [activeTab]);
 
+  const loadRecentEmailLogs = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const logs = await invoke<EmailLog[]>('get_recent_email_logs_command', { limit: 20 });
+      setEmailLogs(logs);
+      setShowingAllEmails(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadAllEmailLogs = async () => {
     setLoading(true);
     setError(null);
     try {
       const logs = await invoke<EmailLog[]>('get_all_email_logs_command');
       setEmailLogs(logs);
+      setShowingAllEmails(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -232,7 +248,11 @@ export default function EmailHistoryView() {
 
   const handleRefresh = () => {
     if (activeTab === 'history') {
-      loadAllEmailLogs();
+      if (showingAllEmails) {
+        loadAllEmailLogs();
+      } else {
+        loadRecentEmailLogs();
+      }
     } else {
       loadScheduledEmails();
     }
@@ -270,16 +290,36 @@ export default function EmailHistoryView() {
           </div>
           <div>
             <h2 className="text-2xl font-bold text-slate-800">Email-Übersicht</h2>
-            <p className="text-xs text-slate-600">Versendete und geplante Emails</p>
+            <p className="text-xs text-slate-600">
+              {showingAllEmails ? 'Alle Emails' : 'Letzte 20 Emails'}
+            </p>
           </div>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Aktualisieren
-        </button>
+        <div className="flex items-center gap-2">
+          {!showingAllEmails && (
+            <button
+              onClick={loadAllEmailLogs}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg transition-colors text-sm"
+            >
+              Alle anzeigen
+            </button>
+          )}
+          {showingAllEmails && (
+            <button
+              onClick={loadRecentEmailLogs}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-lg transition-colors text-sm"
+            >
+              Nur letzte 20
+            </button>
+          )}
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Aktualisieren
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

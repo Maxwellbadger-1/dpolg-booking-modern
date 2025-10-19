@@ -68,7 +68,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [paymentRecipients, setPaymentRecipients] = useState<PaymentRecipient[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Initial Load = true (für Splash Screen)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false); // Track ob Initial Load fertig
 
   // Refresh Functions
   const refreshRooms = useCallback(async () => {
@@ -112,13 +113,30 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshAll = useCallback(async () => {
-    setLoading(true);
+    // NUR beim Initial Load (erster Aufruf) loading = true setzen
+    if (!hasLoadedOnce) {
+      setLoading(true);
+    }
+
     try {
       await Promise.all([refreshRooms(), refreshGuests(), refreshBookings(), refreshPaymentRecipients()]);
-    } finally {
+
+      // Nach Initial Load: Warte 3 Sekunden für Splash Screen, dann deaktivieren
+      if (!hasLoadedOnce) {
+        setTimeout(() => {
+          setLoading(false);
+          setHasLoadedOnce(true);
+        }, 3000); // 3 Sekunden Splash Screen
+      }
+    } catch (error) {
+      // Bei Fehler: Sofort deaktivieren
       setLoading(false);
+      if (!hasLoadedOnce) {
+        setHasLoadedOnce(true);
+      }
+      throw error;
     }
-  }, [refreshRooms, refreshGuests, refreshBookings, refreshPaymentRecipients]);
+  }, [refreshRooms, refreshGuests, refreshBookings, refreshPaymentRecipients, hasLoadedOnce]);
 
   // Initial data load on mount
   useEffect(() => {
