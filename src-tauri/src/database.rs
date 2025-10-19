@@ -2,13 +2,13 @@ use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use once_cell::sync::OnceCell;
-use std::fs;
 
 // Global database path (set once at app startup)
 static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
 
 /// Initialize database path with AppData directory (Production-ready)
 /// This function MUST be called once at app startup from main.rs
+#[cfg_attr(debug_assertions, allow(unused_variables))] // app is only used in production mode
 pub fn init_database_path(app: &tauri::AppHandle) -> std::result::Result<(), String> {
     #[cfg(debug_assertions)]
     {
@@ -1318,65 +1318,6 @@ fn insert_default_settings(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn insert_sample_data(conn: &Connection) -> Result<()> {
-    // Check if data already exists
-    let room_count: i64 = conn.query_row("SELECT COUNT(*) FROM rooms", [], |row| row.get(0))?;
-
-    if room_count == 0 {
-        // Insert sample rooms
-        let rooms = vec![
-            ("Zimmer 101", "Hauptgebäude", 2, 45.0, 65.0, "Berlin"),
-            ("Zimmer 102", "Hauptgebäude", 2, 45.0, 65.0, "Berlin"),
-            ("Zimmer 103", "Hauptgebäude", 1, 35.0, 55.0, "Berlin"),
-            ("Zimmer 201", "Nebengebäude", 3, 55.0, 75.0, "München"),
-            ("Zimmer 202", "Nebengebäude", 2, 45.0, 65.0, "München"),
-            ("Suite 301", "Hauptgebäude", 4, 85.0, 110.0, "Berlin"),
-        ];
-
-        for (name, typ, capacity, price_m, price_nm, ort) in rooms {
-            conn.execute(
-                "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, ort, schluesselcode)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                [name, typ, &capacity.to_string(), &price_m.to_string(), &price_nm.to_string(), ort, "1234"],
-            )?;
-        }
-
-        // Insert sample guests
-        let guests = vec![
-            ("Max", "Mustermann", "max@example.com", "+49 123 456789", true),
-            ("Anna", "Schmidt", "anna@example.com", "+49 987 654321", true),
-            ("Peter", "Müller", "peter@example.com", "+49 555 123456", false),
-            ("Lisa", "Weber", "lisa@example.com", "+49 444 567890", true),
-        ];
-
-        for (vorname, nachname, email, telefon, mitglied) in guests {
-            conn.execute(
-                "INSERT INTO guests (vorname, nachname, email, telefon, dpolg_mitglied)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![vorname, nachname, email, telefon, mitglied as i32],
-            )?;
-        }
-
-        // Insert sample bookings
-        let bookings = vec![
-            (1, 1, "RES-2025-001", "2025-10-01", "2025-10-05", 2, "bestaetigt", 180.0),
-            (2, 2, "RES-2025-002", "2025-10-03", "2025-10-07", 2, "bestaetigt", 180.0),
-            (3, 3, "RES-2025-003", "2025-10-10", "2025-10-12", 1, "reserviert", 70.0),
-            (4, 4, "RES-2025-004", "2025-10-15", "2025-10-20", 2, "bestaetigt", 225.0),
-        ];
-
-        for (room_id, guest_id, res_nr, checkin, checkout, gaeste, status, preis) in bookings {
-            conn.execute(
-                "INSERT INTO bookings (room_id, guest_id, reservierungsnummer, checkin_date, checkout_date, anzahl_gaeste, status, gesamtpreis)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                [&room_id.to_string(), &guest_id.to_string(), res_nr, checkin, checkout, &gaeste.to_string(), status, &preis.to_string()],
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
 /// Migration: Lösche alle Zimmer und erstelle Zimmer aus Preisliste 2025
 pub fn migrate_to_price_list_2025() -> Result<()> {
     let conn = Connection::open(get_db_path())?;
@@ -2221,7 +2162,7 @@ pub fn get_room_by_id(id: i64) -> Result<Room> {
 pub fn create_booking(
     room_id: i64,
     guest_id: i64,
-    reservierungsnummer: String,
+    _reservierungsnummer: String,  // IGNORED - wird automatisch generiert
     checkin_date: String,
     checkout_date: String,
     anzahl_gaeste: i32,

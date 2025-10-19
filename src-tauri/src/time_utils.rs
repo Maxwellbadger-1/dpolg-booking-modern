@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, FixedOffset, NaiveDate, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Utc};
 
 /// Timezone offset für UTC+2 (Deutschland Winterzeit / CEST Sommerzeit simuliert als festes UTC+2)
 const TIMEZONE_OFFSET_HOURS: i32 = 2;
@@ -7,11 +7,6 @@ const TIMEZONE_OFFSET_HOURS: i32 = 2;
 pub fn now_utc_plus_2() -> DateTime<FixedOffset> {
     let offset = FixedOffset::east_opt(TIMEZONE_OFFSET_HOURS * 3600).unwrap();
     Utc::now().with_timezone(&offset)
-}
-
-/// Gibt das heutige Datum in UTC+2 als NaiveDate zurück
-pub fn today_utc_plus_2() -> NaiveDate {
-    now_utc_plus_2().date_naive()
 }
 
 /// Formatiert das aktuelle Datum in UTC+2 als String (DD.MM.YYYY)

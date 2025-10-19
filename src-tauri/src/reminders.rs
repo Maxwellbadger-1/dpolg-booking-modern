@@ -3,7 +3,6 @@
 // ============================================================================
 
 use rusqlite::{Connection, Result};
-use serde::{Deserialize, Serialize};
 use crate::database::{get_db_path, Reminder, ReminderSettings};
 
 // ============================================================================

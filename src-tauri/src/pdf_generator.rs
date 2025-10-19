@@ -1,10 +1,9 @@
 // Wrapper für neuen HTML-PDF Generator
 // Behält alte Command-Names für Kompatibilität mit Frontend
 
-use crate::database::{get_booking_with_details_by_id, BookingWithDetails};
+use crate::database::get_booking_with_details_by_id;
 use crate::pdf_generator_html::generate_invoice_pdf_html;
 use tauri::AppHandle;
-use std::path::PathBuf;
 
 #[derive(serde::Serialize)]
 pub struct InvoicePdf {

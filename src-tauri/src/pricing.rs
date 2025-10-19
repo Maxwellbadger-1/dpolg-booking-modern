@@ -172,18 +172,6 @@ pub fn is_hauptsaison_with_settings(date: &str, conn: &Connection) -> Result<boo
     Ok(is_in_season)
 }
 
-/// Fallback für is_hauptsaison ohne DB-Zugriff (für alte Tests)
-/// DEPRECATED: Verwende is_hauptsaison_with_settings stattdessen
-pub fn is_hauptsaison(date: &str) -> Result<bool, String> {
-    let date_parsed = NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map_err(|_| format!("Ungültiges Datum: {}. Erwartetes Format: YYYY-MM-DD", date))?;
-
-    // Standard-Hauptsaison: 01.06 - 31.08 (Sommersaison)
-    let is_in_season = is_date_in_season(date_parsed, 6, 1, 8, 31);
-
-    Ok(is_in_season)
-}
-
 /// Hilfsfunktion: Parst MM-DD Format zu (Monat, Tag)
 fn parse_mmdd(mmdd: &str) -> Result<(u32, u32), String> {
     let parts: Vec<&str> = mmdd.split('-').collect();

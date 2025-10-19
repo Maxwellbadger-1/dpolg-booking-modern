@@ -1,7 +1,6 @@
 use rusqlite::{Connection, Result};
 use crate::database::get_db_path;
 use serde::{Serialize, Deserialize};
-use chrono::Local;
 
 // ============================================================================
 // TRANSACTION LOG STRUCTURES

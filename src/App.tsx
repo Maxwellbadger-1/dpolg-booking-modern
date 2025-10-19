@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 import { DataProvider, useData } from './context/DataContext';
@@ -112,6 +114,68 @@ function AppContent() {
     };
     window.addEventListener('reminder-updated', handleReminderUpdate);
     return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
+  }, []);
+
+  // Auto-Update Check beim App-Start
+  useEffect(() => {
+    async function checkForUpdates() {
+      try {
+        console.log('🔍 Checking for updates...');
+        const update = await check();
+
+        if (update?.available) {
+          console.log(`✅ Update available: ${update.version}`);
+
+          // Zeige Confirmation Dialog
+          const shouldUpdate = window.confirm(
+            `Update verfügbar: Version ${update.version}\n\n${update.body || 'Neue Version verfügbar'}\n\nJetzt installieren? Die App wird nach der Installation neu gestartet.`
+          );
+
+          if (shouldUpdate) {
+            toast.loading('Update wird heruntergeladen...', { id: 'update-download' });
+
+            // Download und installiere Update
+            let downloaded = 0;
+            let contentLength = 0;
+            await update.downloadAndInstall((event) => {
+              switch (event.event) {
+                case 'Started':
+                  contentLength = event.data.contentLength || 0;
+                  console.log(`Download started (${Math.round(contentLength / 1024 / 1024)} MB)`);
+                  break;
+                case 'Progress':
+                  downloaded += event.data.chunkLength;
+                  const percent = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
+                  toast.loading(`Update wird heruntergeladen... ${percent}%`, { id: 'update-download' });
+                  break;
+                case 'Finished':
+                  toast.success('Update erfolgreich heruntergeladen!', { id: 'update-download' });
+                  console.log('Download finished');
+                  break;
+              }
+            });
+
+            console.log('✅ Update installed, restarting app...');
+            toast.success('Update installiert! App wird neu gestartet...', { duration: 2000 });
+
+            // App neu starten (nach 2 Sekunden)
+            setTimeout(() => {
+              relaunch();
+            }, 2000);
+          }
+        } else {
+          console.log('✅ App ist auf dem neuesten Stand');
+        }
+      } catch (error) {
+        console.error('❌ Fehler beim Update-Check:', error);
+        // Fehler wird nicht dem User angezeigt (nur console)
+      }
+    }
+
+    // Nur im Production Build nach Updates suchen
+    if (import.meta.env.PROD) {
+      checkForUpdates();
+    }
   }, []);
 
   // ✅ Event Listener für Toast-Notifications (von Background-Prozessen)

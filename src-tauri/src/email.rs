@@ -9,7 +9,7 @@ use crate::database::{EmailConfig, EmailTemplate, EmailLog, get_db_path};
 use base64::{Engine as _, engine::general_purpose};
 use std::path::PathBuf;
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use aes_gcm::aead::generic_array::GenericArray;
@@ -353,37 +353,6 @@ pub async fn test_email_connection(
 // EMAIL TEMPLATE FUNCTIONS
 // ============================================================================
 
-/// Alle Email-Templates abrufen
-pub fn get_all_templates() -> Result<Vec<EmailTemplate>, String> {
-    let conn = Connection::open(get_db_path())
-        .map_err(|e| format!("Datenbankfehler: {}", e))?;
-
-    let mut stmt = conn.prepare(
-        "SELECT id, template_name, subject, body, description, created_at, updated_at
-         FROM email_templates
-         ORDER BY template_name"
-    ).map_err(|e| format!("Fehler beim Vorbereiten der Abfrage: {}", e))?;
-
-    let templates = stmt.query_map([], |row| {
-        Ok(EmailTemplate {
-            id: row.get(0)?,
-            template_name: row.get(1)?,
-            subject: row.get(2)?,
-            body: row.get(3)?,
-            description: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        })
-    }).map_err(|e| format!("Fehler beim Abrufen der Templates: {}", e))?;
-
-    let mut result = Vec::new();
-    for template in templates {
-        result.push(template.map_err(|e| format!("Fehler beim Verarbeiten: {}", e))?);
-    }
-
-    Ok(result)
-}
-
 /// Ein spezifisches Template abrufen
 pub fn get_template_by_name(template_name: &str) -> Result<EmailTemplate, String> {
     let conn = Connection::open(get_db_path())
@@ -406,45 +375,6 @@ pub fn get_template_by_name(template_name: &str) -> Result<EmailTemplate, String
             updated_at: row.get(6)?,
         })
     }).map_err(|e| format!("Template '{}' nicht gefunden: {}", template_name, e))?;
-
-    Ok(template)
-}
-
-/// Template aktualisieren
-pub fn update_template(
-    id: i64,
-    subject: String,
-    body: String,
-    description: Option<String>,
-) -> Result<EmailTemplate, String> {
-    let conn = Connection::open(get_db_path())
-        .map_err(|e| format!("Datenbankfehler: {}", e))?;
-
-    conn.execute(
-        "UPDATE email_templates
-         SET subject = ?1, body = ?2, description = ?3, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?4",
-        [&subject, &body, &description.unwrap_or_default(), &id.to_string()],
-    ).map_err(|e| format!("Fehler beim Aktualisieren des Templates: {}", e))?;
-
-    // Lade aktualisiertes Template
-    let mut stmt = conn.prepare(
-        "SELECT id, template_name, subject, body, description, created_at, updated_at
-         FROM email_templates
-         WHERE id = ?1"
-    ).map_err(|e| format!("Fehler beim Abrufen: {}", e))?;
-
-    let template = stmt.query_row([id], |row| {
-        Ok(EmailTemplate {
-            id: row.get(0)?,
-            template_name: row.get(1)?,
-            subject: row.get(2)?,
-            body: row.get(3)?,
-            description: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        })
-    }).map_err(|e| format!("Template nicht gefunden: {}", e))?;
 
     Ok(template)
 }
@@ -690,25 +620,6 @@ pub async fn send_reminder_email(booking_id: i64) -> Result<String, String> {
     send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "reminder").await
 }
 
-/// Rechnungs-Email senden (ohne PDF-Anhang - Legacy)
-pub async fn send_invoice_email(booking_id: i64) -> Result<String, String> {
-    use crate::database::get_booking_with_details_by_id;
-
-    let booking_details = get_booking_with_details_by_id(booking_id)
-        .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
-
-    let config = get_email_config()?;
-    let template = get_template_by_name("invoice")?;
-
-    let placeholders = create_all_placeholders(&booking_details, &booking_details.guest, &booking_details.room);
-    let subject = replace_placeholders(&template.subject, &placeholders);
-    let body = replace_placeholders(&template.body, &placeholders);
-
-    // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
-    let recipient_email = get_recipient_email(&booking_details.guest);
-    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "invoice").await
-}
-
 /// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
 pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
     use crate::database::{get_booking_with_details_by_id, mark_invoice_sent};
@@ -787,7 +698,7 @@ pub async fn send_cancellation_email(booking_id: i64) -> Result<String, String> 
 
 /// Erstellt HTML-Email-Body mit Logo-Header
 fn create_html_email_body(body_text: &str, logo_path: Option<&str>) -> String {
-    let logo_html = if let Some(path) = logo_path {
+    let logo_html = if let Some(_path) = logo_path {  // path not used, logo is embedded via CID
         format!(r#"
             <div style="text-align: center; margin-bottom: 30px;">
                 <img src="cid:company_logo" alt="Logo" style="max-width: 200px; height: auto;" />

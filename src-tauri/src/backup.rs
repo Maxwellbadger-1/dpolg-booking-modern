@@ -68,11 +68,6 @@ pub fn create_backup(app: &tauri::AppHandle) -> Result<BackupInfo, String> {
     create_backup_internal(app, "manual")
 }
 
-/// Erstellt ein Auto-Backup vor kritischen Operationen
-pub fn create_auto_backup(app: &tauri::AppHandle, reason: &str) -> Result<BackupInfo, String> {
-    create_backup_internal(app, reason)
-}
-
 /// Interne Backup-Erstellung (gemeinsame Logik)
 fn create_backup_internal(app: &tauri::AppHandle, backup_type: &str) -> Result<BackupInfo, String> {
     println!("┌─────────────────────────────────────────────────────┐");
@@ -175,7 +170,7 @@ pub fn list_backups(app: &tauri::AppHandle) -> Result<Vec<BackupInfo>, String> {
             let created_at = metadata.modified()
                 .ok()
                 .and_then(|time| {
-                    use std::time::SystemTime;
+                    
                     let datetime: chrono::DateTime<Local> = time.into();
                     Some(datetime.format("%Y-%m-%d %H:%M:%S").to_string())
                 })

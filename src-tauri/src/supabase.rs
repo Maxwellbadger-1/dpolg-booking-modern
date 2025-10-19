@@ -1,28 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use reqwest::Client;
 
 // TODO: In Config auslagern oder Umgebungsvariablen
 const TURSO_URL: &str = "https://dpolg-cleaning-maxwellbadger-1.aws-eu-west-1.turso.io";
 const TURSO_TOKEN: &str = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTk4NDI1MzcsImlkIjoiZjY1ZWY2YzMtYWNhMS00NjZiLWExYjgtODU0MTlmYjlmNDNiIiwicmlkIjoiMTRjNDc4YjAtYTAwMy00ZmZmLThiYTUtYTZhOWIwYjZiODdmIn0.JSyu72rlp3pQ_vFxozglKoV-XMHW12j_hVfhTKjbEGwSyWnWBq2kziJNx2WwvvwD09NU-TMoLLszq2Mm9OlLDw";
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CleaningTask {
-    pub booking_id: i64,    // NEU: Booking ID für eindeutige Identifikation!
-    pub date: String,
-    pub room_name: String,
-    pub room_id: i64,
-    pub room_location: Option<String>, // 🏔️ Ort (Fall, Langenprozelten, etc.)
-    pub guest_name: String,
-    pub checkout_time: String,
-    pub checkin_time: Option<String>,
-    pub priority: String, // "high", "normal", "low"
-    pub notes: Option<String>,
-    pub status: String, // "pending", "done"
-    pub guest_count: i32,
-    pub extras: String, // JSON als String
-    pub emojis_start: String, // Komma-separierte Emojis für Anfang
-    pub emojis_end: String, // Komma-separierte Emojis für Ende
-}
 
 #[derive(Debug, Serialize)]
 struct TursoStmt {
@@ -452,7 +433,6 @@ pub async fn get_cleaning_stats() -> Result<CleaningStats, String> {
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tomorrow = (chrono::Local::now() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
     let week_end = (chrono::Local::now() + chrono::Duration::days(7)).format("%Y-%m-%d").to_string();
-    let three_months_end = (chrono::Local::now() + chrono::Duration::days(90)).format("%Y-%m-%d").to_string();
 
     // Query für alle Stats auf einmal
     let sql = format!(
