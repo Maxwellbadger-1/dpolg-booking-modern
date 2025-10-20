@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock, Trash2 } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { SELECT_SMALL_STYLES, SELECT_SMALL_BACKGROUND_STYLE } from '../../lib/selectStyles';
 import { commandManager, DeleteEmailLogCommand } from '../../lib/commandManager';
 
@@ -54,6 +55,26 @@ export default function EmailHistoryView() {
   // Delete Dialog State
   const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; log: EmailLog | null }>({ show: false, log: null });
   const [deleting, setDeleting] = useState(false);
+
+  // Refs for virtualization
+  const historyParentRef = useRef<HTMLDivElement>(null);
+  const scheduledParentRef = useRef<HTMLDivElement>(null);
+
+  // TanStack Virtual - History Tab
+  const historyVirtualizer = useVirtualizer({
+    count: filteredLogs.length,
+    getScrollElement: () => historyParentRef.current,
+    estimateSize: () => 70, // Estimated row height in pixels
+    overscan: 5,
+  });
+
+  // TanStack Virtual - Scheduled Tab
+  const scheduledVirtualizer = useVirtualizer({
+    count: scheduledEmails.length,
+    getScrollElement: () => scheduledParentRef.current,
+    estimateSize: () => 70, // Estimated row height in pixels
+    overscan: 5,
+  });
 
   // Initial load: Load recent emails (default 20) and scheduled emails
   useEffect(() => {
@@ -452,96 +473,129 @@ export default function EmailHistoryView() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-auto flex-1">
-                <table className="w-full">
-                  <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Datum & Zeit
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Empfänger
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Template
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Betreff
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        Aktionen
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex items-center gap-2 text-sm text-slate-600">
-                            <Clock className="w-4 h-4 text-slate-400" />
-                            {formatDateTime(log.sent_at)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-slate-800 font-semibold">{log.recipient_email}</div>
-                          <div className="text-xs text-slate-500 mt-0.5">Buchung #{log.booking_id}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(log.template_name)}`}>
-                            <FileText className="w-3.5 h-3.5" />
-                            {getTemplateDisplayName(log.template_name)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-slate-700 max-w-md truncate">
-                            {log.subject}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {log.status === 'gesendet' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              Gesendet
-                            </span>
-                          ) : (
-                            <div className="space-y-1">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                Fehler
-                              </span>
-                              {log.error_message && (
-                                <p className="text-xs text-red-600">{log.error_message}</p>
-                              )}
+              <>
+                {/* Table Header - Sticky */}
+                <div className="bg-slate-50 border-b border-slate-200 grid grid-cols-12 gap-3 px-4 py-3 sticky top-0 z-10">
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Datum & Zeit
+                  </div>
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Empfänger
+                  </div>
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Template
+                  </div>
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Betreff
+                  </div>
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Status
+                  </div>
+                  <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Aktionen
+                  </div>
+                </div>
+
+                {/* Virtualized Scrollable Email List */}
+                <div
+                  ref={historyParentRef}
+                  className="overflow-y-auto flex-1"
+                >
+                  <div
+                    style={{
+                      height: `${historyVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                  >
+                    {historyVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const log = filteredLogs[virtualRow.index];
+                      return (
+                        <div
+                          key={log.id}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: `${virtualRow.size}px`,
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                          className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                        >
+                          {/* Datum & Zeit */}
+                          <div className="col-span-2 flex items-center">
+                            <div className="flex items-center gap-2 text-sm text-slate-600">
+                              <Clock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              <span className="truncate">{formatDateTime(log.sent_at)}</span>
                             </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
+                          </div>
+
+                          {/* Empfänger */}
+                          <div className="col-span-2">
+                            <div className="text-sm text-slate-800 font-semibold truncate">{log.recipient_email}</div>
+                            <div className="text-xs text-slate-500 mt-0.5">Buchung #{log.booking_id}</div>
+                          </div>
+
+                          {/* Template */}
+                          <div className="col-span-2 flex items-center">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(log.template_name)}`}>
+                              <FileText className="w-3.5 h-3.5" />
+                              <span className="truncate">{getTemplateDisplayName(log.template_name)}</span>
+                            </span>
+                          </div>
+
+                          {/* Betreff */}
+                          <div className="col-span-2 flex items-center">
+                            <div className="text-sm text-slate-700 truncate">
+                              {log.subject}
+                            </div>
+                          </div>
+
+                          {/* Status */}
+                          <div className="col-span-2 flex items-center">
+                            {log.status === 'gesendet' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                Gesendet
+                              </span>
+                            ) : (
+                              <div className="space-y-1">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                                  <AlertCircle className="w-3.5 h-3.5" />
+                                  Fehler
+                                </span>
+                                {log.error_message && (
+                                  <p className="text-xs text-red-600 truncate">{log.error_message}</p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Aktionen */}
+                          <div className="col-span-2 flex items-center gap-2">
                             <button
                               onClick={() => handleResend(log)}
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
                               title="Email erneut senden"
                             >
                               <Send className="w-3.5 h-3.5" />
-                              Erneut senden
+                              <span className="hidden xl:inline">Erneut senden</span>
                             </button>
                             <button
                               onClick={() => setDeleteDialog({ show: true, log })}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors"
+                              className="flex items-center gap-1.5 px-2 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors"
                               title="Löschen"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </>
@@ -561,58 +615,91 @@ export default function EmailHistoryView() {
               </p>
             </div>
           ) : (
-            <div className="overflow-auto flex-1">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Reservierung
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Gast
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Email-Typ
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Geplant für
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">
-                      Grund
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {scheduledEmails.map((email, index) => (
-                    <tr key={index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm font-semibold text-slate-800">{email.reservierungsnummer}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">ID: {email.booking_id}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-slate-800 font-semibold">{email.guest_name}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">{email.guest_email}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(email.email_type)}`}>
-                          <FileText className="w-3.5 h-3.5" />
-                          {getTemplateDisplayName(email.email_type)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 text-sm text-slate-600">
-                          <CalendarClock className="w-4 h-4 text-slate-400" />
-                          {email.scheduled_date}
+            <>
+              {/* Table Header - Sticky */}
+              <div className="bg-slate-50 border-b border-slate-200 grid grid-cols-12 gap-3 px-4 py-3 sticky top-0 z-10">
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Reservierung
+                </div>
+                <div className="col-span-3 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Gast
+                </div>
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Email-Typ
+                </div>
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Geplant für
+                </div>
+                <div className="col-span-3 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Grund
+                </div>
+              </div>
+
+              {/* Virtualized Scrollable Scheduled Emails List */}
+              <div
+                ref={scheduledParentRef}
+                className="overflow-y-auto flex-1"
+              >
+                <div
+                  style={{
+                    height: `${scheduledVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {scheduledVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const email = scheduledEmails[virtualRow.index];
+                    return (
+                      <div
+                        key={virtualRow.index}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                        className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                      >
+                        {/* Reservierung */}
+                        <div className="col-span-2">
+                          <div className="text-sm font-semibold text-slate-800">{email.reservierungsnummer}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">ID: {email.booking_id}</div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-slate-700">{email.reason}</div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+
+                        {/* Gast */}
+                        <div className="col-span-3">
+                          <div className="text-sm text-slate-800 font-semibold truncate">{email.guest_name}</div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">{email.guest_email}</div>
+                        </div>
+
+                        {/* Email-Typ */}
+                        <div className="col-span-2 flex items-center">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(email.email_type)}`}>
+                            <FileText className="w-3.5 h-3.5" />
+                            <span className="truncate">{getTemplateDisplayName(email.email_type)}</span>
+                          </span>
+                        </div>
+
+                        {/* Geplant für */}
+                        <div className="col-span-2 flex items-center">
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <CalendarClock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{email.scheduled_date}</span>
+                          </div>
+                        </div>
+
+                        {/* Grund */}
+                        <div className="col-span-3 flex items-center">
+                          <div className="text-sm text-slate-700 truncate">{email.reason}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Bell, Plus, CheckCircle, Clock, AlertTriangle, Calendar, Trash2, Edit2, Filter, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Reminder, CreateReminderData, UpdateReminderData } from '../../types/reminder';
 
 interface RemindersViewProps {
@@ -15,6 +16,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
   const [filter, setFilter] = useState<'all' | 'open' | 'completed'>('open');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
+  const [deleteDialogReminder, setDeleteDialogReminder] = useState<Reminder | null>(null);
 
   useEffect(() => {
     loadReminders();
@@ -89,12 +91,18 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Erinnerung wirklich löschen?')) return;
+  const handleDelete = async (reminder: Reminder) => {
+    // Zeige Custom Delete Dialog
+    setDeleteDialogReminder(reminder);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteDialogReminder) return;
 
     try {
-      await invoke('delete_reminder_command', { id });
+      await invoke('delete_reminder_command', { id: deleteDialogReminder.id });
       await loadReminders();
+      setDeleteDialogReminder(null);
       window.dispatchEvent(new CustomEvent('reminder-updated'));
     } catch (error) {
       console.error('Fehler beim Löschen der Erinnerung:', error);
@@ -167,6 +175,16 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     ? completedReminders
     : allReminders;
 
+  // 🚀 Virtual Scrolling Setup (Performance-Optimierung)
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: displayedReminders.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 180, // Geschätzte Höhe pro Reminder-Card in px
+    overscan: 5, // Rendere 5 Items außerhalb des sichtbaren Bereichs
+  });
+
   return (
     <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
@@ -229,7 +247,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div ref={parentRef} className="flex-1 overflow-y-auto p-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-center">
@@ -252,16 +270,38 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 max-w-4xl mx-auto">
-            {displayedReminders.map((reminder) => (
-              <div
-                key={reminder.id}
-                className={`border-2 rounded-xl p-5 transition-all ${
-                  reminder.is_completed
-                    ? 'bg-slate-50 border-slate-200 opacity-60'
-                    : getPriorityColor(reminder.priority)
-                }`}
-              >
+          <div className="max-w-4xl mx-auto">
+            {/* Virtual Scrolling Container */}
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualItem) => {
+                const reminder = displayedReminders[virtualItem.index];
+                return (
+                  <div
+                    key={reminder.id}
+                    data-index={virtualItem.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualItem.start}px)`,
+                      paddingBottom: '16px', // gap-4
+                    }}
+                  >
+                    <div
+                      className={`border-2 rounded-xl p-5 transition-all ${
+                        reminder.is_completed
+                          ? 'bg-slate-50 border-slate-200 opacity-60'
+                          : getPriorityColor(reminder.priority)
+                      }`}
+                    >
                 <div className="flex items-start gap-4">
                   {/* Priority Icon */}
                   <div className="flex-shrink-0 mt-1">
@@ -338,7 +378,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
                               <Edit2 className="w-5 h-5 text-blue-600" />
                             </button>
                             <button
-                              onClick={() => handleDelete(reminder.id)}
+                              onClick={() => handleDelete(reminder)}
                               className="p-2 hover:bg-white rounded-lg transition-colors"
                               title="Löschen"
                             >
@@ -355,7 +395,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
                               <Clock className="w-5 h-5 text-slate-600" />
                             </button>
                             <button
-                              onClick={() => handleDelete(reminder.id)}
+                              onClick={() => handleDelete(reminder)}
                               className="p-2 hover:bg-white rounded-lg transition-colors"
                               title="Löschen"
                             >
@@ -367,8 +407,11 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -388,6 +431,15 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
             setShowCreateDialog(false);
             setEditingReminder(null);
           }}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteDialogReminder && (
+        <DeleteConfirmDialog
+          reminder={deleteDialogReminder}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteDialogReminder(null)}
         />
       )}
     </div>
@@ -568,6 +620,63 @@ function ReminderDialog({ reminder, onSave, onClose }: ReminderDialogProps) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+interface DeleteConfirmDialogProps {
+  reminder: Reminder;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteConfirmDialog({ reminder, onConfirm, onCancel }: DeleteConfirmDialogProps) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[70]">
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+        {/* Header */}
+        <div className="flex items-start gap-4 mb-6">
+          <div className="p-3 bg-red-500/10 rounded-full flex-shrink-0">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-xl font-bold text-white mb-2">Erinnerung löschen?</h3>
+            <p className="text-slate-300 text-sm">
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </p>
+          </div>
+        </div>
+
+        {/* Reminder Details */}
+        <div className="mb-6 p-4 bg-slate-700/50 rounded-lg border border-slate-600">
+          <p className="text-white font-semibold mb-1">{reminder.title}</p>
+          {reminder.description && (
+            <p className="text-slate-300 text-sm mb-2">{reminder.description}</p>
+          )}
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Calendar className="w-3 h-3" />
+            <span>{format(new Date(reminder.due_date), 'dd.MM.yyyy', { locale: de })}</span>
+            <span>•</span>
+            <span className="capitalize">{reminder.priority} Priorität</span>
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+          >
+            Abbrechen
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+          >
+            Löschen
+          </button>
+        </div>
       </div>
     </div>
   );

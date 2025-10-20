@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Database, Copy, CheckCircle, Lock, Trash2 } from 'lucide-react';
+import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Copy, CheckCircle, Lock, Trash2 } from 'lucide-react';
 
 interface CleaningStats {
   today: number;
@@ -12,10 +12,8 @@ interface CleaningStats {
 export default function CleaningSync() {
   const [syncing, setSyncing] = useState(false);
   const [cleaning, setCleaning] = useState(false);
-  const [migrating, setMigrating] = useState(false);
   const [message, setMessage] = useState('');
   const [cleanupMessage, setCleanupMessage] = useState('');
-  const [migrationMessage, setMigrationMessage] = useState('');
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [stats, setStats] = useState<CleaningStats>({ today: 0, tomorrow: 0, this_week: 0, total: 0 });
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile');
@@ -45,25 +43,6 @@ export default function CleaningSync() {
         this_week: 0,
         total: 0
       });
-    }
-  };
-
-  const handleMigrateSchema = async () => {
-    if (!confirm('⚠️ ACHTUNG: Dies löscht alle existierenden Daten in der Cloud-Datenbank und erstellt ein neues Schema mit booking_id.\n\nDanach MUSS ein 3-Monats-Sync durchgeführt werden!\n\nFortfahren?')) {
-      return;
-    }
-
-    setMigrating(true);
-    setMigrationMessage('');
-    try {
-      const result = await invoke<string>('migrate_cleaning_tasks_schema');
-      setMigrationMessage(result);
-      // Stats auf 0 setzen (Tabelle ist leer nach Migration)
-      setStats({ today: 0, tomorrow: 0, this_week: 0, total: 0 });
-    } catch (error) {
-      setMigrationMessage(`❌ Fehler: ${error}`);
-    } finally {
-      setMigrating(false);
     }
   };
 
@@ -175,40 +154,6 @@ export default function CleaningSync() {
             <span className="text-3xl font-bold">{stats.total}</span>
           </div>
           <p className="text-sm opacity-90">3 Monate</p>
-        </div>
-      </div>
-
-      {/* Migration Warning */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <div className="flex items-start gap-3">
-          <div className="p-2 bg-amber-100 rounded-lg">
-            <Database className="w-5 h-5 text-amber-600" />
-          </div>
-          <div className="flex-1">
-            <h4 className="font-semibold text-amber-900 mb-1">Schema-Migration erforderlich</h4>
-            <p className="text-sm text-amber-700 mb-3">
-              Das Duplicate-Highlighting-Problem wird durch ein fehlendes <code className="px-1 py-0.5 bg-amber-100 rounded">booking_id</code> Feld in der Cloud-Datenbank verursacht.
-              Die Migration fügt dieses Feld hinzu und behebt das Problem.
-            </p>
-            <button
-              onClick={handleMigrateSchema}
-              disabled={migrating}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white font-medium rounded-lg transition-colors shadow-sm"
-            >
-              <Database className={`w-4 h-4 ${migrating ? 'animate-pulse' : ''}`} />
-              <span>{migrating ? 'Migriere...' : 'Schema migrieren'}</span>
-            </button>
-
-            {migrationMessage && (
-              <div className={`mt-3 p-3 rounded-lg text-sm ${
-                migrationMessage.includes('❌')
-                  ? 'bg-red-50 text-red-700 border border-red-200'
-                  : 'bg-green-50 text-green-700 border border-green-200'
-              }`}>
-                {migrationMessage}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 

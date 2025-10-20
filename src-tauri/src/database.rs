@@ -84,6 +84,7 @@ pub struct Room {
     #[serde(rename = "postalCode")]
     pub postal_code: Option<String>,
     pub city: Option<String>,
+    pub notizen: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,6 +124,8 @@ pub struct Guest {
     pub leitweg_id: Option<String>,
     pub kostenstelle: Option<String>,
     pub tags: Option<String>,
+    pub automail: Option<bool>,
+    pub automail_sprache: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -553,6 +556,10 @@ pub fn init_database() -> Result<()> {
     add_column_if_not_exists(&conn, "guests", "dienststelle", "TEXT")?;
     add_column_if_not_exists(&conn, "guests", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")?;
 
+    // CSV Import Fields - Auto-mail Spalten
+    add_column_if_not_exists(&conn, "guests", "automail", "INTEGER")?;
+    add_column_if_not_exists(&conn, "guests", "automail_sprache", "TEXT")?;
+
     // Phase 1.1: Erweitere bookings Tabelle mit neuen Feldern für Preiskalkulation
     add_column_if_not_exists(&conn, "bookings", "anzahl_begleitpersonen", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "bookings", "grundpreis", "REAL DEFAULT 0")?;
@@ -583,6 +590,7 @@ pub fn init_database() -> Result<()> {
     add_column_if_not_exists(&conn, "rooms", "street_address", "TEXT")?;
     add_column_if_not_exists(&conn, "rooms", "postal_code", "TEXT")?;
     add_column_if_not_exists(&conn, "rooms", "city", "TEXT")?;
+    add_column_if_not_exists(&conn, "rooms", "notizen", "TEXT")?;
 
     // Phase 1.6: DPolG-Rabatt in payment_settings
     add_column_if_not_exists(&conn, "payment_settings", "dpolg_rabatt", "REAL DEFAULT 15.0")?;
@@ -1071,6 +1079,18 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
 
+    // Zusätzliche Performance-Indexes (2025 Best Practices)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_priority ON reminders(priority)",
+        [],
+    )?;
+
+    // Composite Index für häufige Filter-Queries (is_completed + due_date)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_completed_due ON reminders(is_completed, due_date)",
+        [],
+    )?;
+
     // Erweitere service_templates um Emoji- und Putzplan-Felder
     add_column_if_not_exists(&conn, "service_templates", "emoji", "TEXT")?;
     add_column_if_not_exists(&conn, "service_templates", "color_hex", "TEXT")?;
@@ -1407,6 +1427,7 @@ pub fn get_rooms() -> Result<Vec<Room>> {
             street_address: row.get(11)?,
             postal_code: row.get(12)?,
             city: row.get(13)?,
+            notizen: None,
         })
     })?;
 
@@ -1477,6 +1498,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 street_address: row.get(35)?,
                 postal_code: row.get(36)?,
                 city: row.get(37)?,
+                notizen: None,
             },
             guest: Guest {
                 id: row.get(38)?,
@@ -1489,17 +1511,17 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 plz: row.get(45)?,
                 ort: row.get(46)?,
                 mitgliedsnummer: row.get(47)?,
-                notizen: row.get(48)?,
-                beruf: row.get(49)?,
-                bundesland: row.get(50)?,
-                dienststelle: row.get(51)?,
-                created_at: row.get(52)?,
+                notizen: None,
+                beruf: row.get(48)?,
+                bundesland: row.get(49)?,
+                dienststelle: row.get(50)?,
+                created_at: row.get(51)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
                 debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
                 marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
-                tags: None,
+                tags: None, automail: None, automail_sprache: None,
             },
             // Initiale leere Vektoren (werden unten befüllt)
             services: Vec::new(),
@@ -1816,7 +1838,7 @@ pub fn get_guest_by_id(id: i64) -> Result<Guest> {
          anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
          fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
          debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
-         kostenstelle, tags
+         kostenstelle, tags, automail, automail_sprache
          FROM guests WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -1855,6 +1877,8 @@ pub fn get_guest_by_id(id: i64) -> Result<Guest> {
                 leitweg_id: row.get(31)?,
                 kostenstelle: row.get(32)?,
                 tags: row.get(33)?,
+                automail: row.get(34)?,
+                automail_sprache: row.get(35)?,
             })
         },
     )
@@ -1872,7 +1896,7 @@ pub fn search_guests(query: String) -> Result<Vec<Guest>> {
          anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
          fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
          debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
-         kostenstelle, tags
+         kostenstelle, tags, automail, automail_sprache
          FROM guests
          WHERE vorname LIKE ?1 OR nachname LIKE ?1 OR email LIKE ?1
          ORDER BY nachname, vorname",
@@ -1914,6 +1938,8 @@ pub fn search_guests(query: String) -> Result<Vec<Guest>> {
             leitweg_id: row.get(31)?,
             kostenstelle: row.get(32)?,
             tags: row.get(33)?,
+            automail: row.get(34)?,
+            automail_sprache: row.get(35)?,
         })
     })?;
 
@@ -1931,7 +1957,7 @@ pub fn get_all_guests() -> Result<Vec<Guest>> {
          anrede, geschlecht, land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
          fax, geburtsdatum, geburtsort, sprache, nationalitaet, identifikationsnummer,
          debitorenkonto, kennzeichen, rechnungs_email, marketing_einwilligung, leitweg_id,
-         kostenstelle, tags
+         kostenstelle, tags, automail, automail_sprache
          FROM guests
          ORDER BY nachname, vorname",
     )?;
@@ -1972,6 +1998,8 @@ pub fn get_all_guests() -> Result<Vec<Guest>> {
             leitweg_id: row.get(31)?,
             kostenstelle: row.get(32)?,
             tags: row.get(33)?,
+            automail: row.get(34)?,
+            automail_sprache: row.get(35)?,
         })
     })?;
 
@@ -1997,13 +2025,14 @@ pub fn create_room(
     street_address: Option<String>,
     postal_code: Option<String>,
     city: Option<String>,
+    notizen: Option<String>,
 ) -> Result<Room> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
-        "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city, notizen)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         rusqlite::params![
             name,
             gebaeude_typ,
@@ -2017,7 +2046,8 @@ pub fn create_room(
             schluesselcode,
             street_address,
             postal_code,
-            city
+            city,
+            notizen
         ],
     )?;
 
@@ -2050,6 +2080,7 @@ pub fn update_room(
     street_address: Option<String>,
     postal_code: Option<String>,
     city: Option<String>,
+    notizen: Option<String>,
 ) -> Result<Room> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -2063,8 +2094,8 @@ pub fn update_room(
          name = ?1, gebaeude_typ = ?2, capacity = ?3, price_member = ?4,
          price_non_member = ?5, nebensaison_preis = ?6, hauptsaison_preis = ?7,
          endreinigung = ?8, ort = ?9, schluesselcode = ?10,
-         street_address = ?11, postal_code = ?12, city = ?13
-         WHERE id = ?14",
+         street_address = ?11, postal_code = ?12, city = ?13, notizen = ?14
+         WHERE id = ?15",
         rusqlite::params![
             name,
             gebaeude_typ,
@@ -2079,6 +2110,7 @@ pub fn update_room(
             street_address,
             postal_code,
             city,
+            notizen,
             id
         ],
     )?;
@@ -2130,7 +2162,7 @@ pub fn get_room_by_id(id: i64) -> Result<Room> {
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.query_row(
-        "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city
+        "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city, notizen
          FROM rooms WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -2149,6 +2181,7 @@ pub fn get_room_by_id(id: i64) -> Result<Room> {
                 street_address: row.get(11)?,
                 postal_code: row.get(12)?,
                 city: row.get(13)?,
+                notizen: row.get(14)?,
             })
         },
     )
@@ -2653,7 +2686,7 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
-            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
+            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
          FROM bookings b
@@ -2702,29 +2735,30 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
                     street_address: row.get(35)?,
                     postal_code: row.get(36)?,
                     city: row.get(37)?,
+                    notizen: row.get(38)?,
                 },
                 guest: Guest {
-                    id: row.get(38)?,
-                    vorname: row.get(39)?,
-                    nachname: row.get(40)?,
-                    email: row.get(41)?,
-                    telefon: row.get(42)?,
-                    dpolg_mitglied: row.get(43)?,
-                    strasse: row.get(44)?,
-                    plz: row.get(45)?,
-                    ort: row.get(46)?,
-                    mitgliedsnummer: row.get(47)?,
-                    notizen: row.get(48)?,
-                    beruf: row.get(49)?,
-                    bundesland: row.get(50)?,
-                    dienststelle: row.get(51)?,
-                    created_at: row.get(52)?,
+                    id: row.get(39)?,
+                    vorname: row.get(40)?,
+                    nachname: row.get(41)?,
+                    email: row.get(42)?,
+                    telefon: row.get(43)?,
+                    dpolg_mitglied: row.get(44)?,
+                    strasse: row.get(45)?,
+                    plz: row.get(46)?,
+                    ort: row.get(47)?,
+                    mitgliedsnummer: row.get(48)?,
+                    notizen: row.get(49)?,
+                    beruf: row.get(50)?,
+                    bundesland: row.get(51)?,
+                    dienststelle: row.get(52)?,
+                    created_at: row.get(53)?,
                     anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                     telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                     geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
                     debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
                     marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
-                    tags: None,
+                    tags: None, automail: None, automail_sprache: None,
                 },
                 // Services und Discounts werden leer initialisiert (werden unten befüllt)
                 services: Vec::new(),
@@ -2814,6 +2848,46 @@ pub fn add_service_to_booking(
 
     let id = conn.last_insert_rowid();
 
+    // 💰 PREISBERECHNUNG: Nach Service-Hinzufügen Preise neu berechnen!
+    println!("💰 [add_service_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
+
+    // Hole alle Services (inkl. dem neuen)
+    let all_services = get_booking_services(booking_id)?;
+    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+    // Hole alle Discounts
+    let discounts = get_booking_discounts(booking_id)?;
+
+    // Hole Buchung für Grundpreis
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+
+    // Berechne Rabatt-Summe
+    let mut rabatt_total = 0.0;
+    for discount in &discounts {
+        if discount.discount_type == "percent" {
+            rabatt_total += grundpreis * (discount.discount_value / 100.0);
+        } else {
+            rabatt_total += discount.discount_value;
+        }
+    }
+
+    // Neuer Gesamtpreis
+    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+    println!("  📊 Grundpreis: {:.2}€", grundpreis);
+    println!("  📊 Services: {:.2}€", services_total);
+    println!("  📊 Rabatt: {:.2}€", rabatt_total);
+    println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+    // Update bookings-Tabelle mit neuen Preisen
+    conn.execute(
+        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+    )?;
+
+    println!("✅ [add_service_to_booking] Preise erfolgreich aktualisiert!");
+
     conn.query_row(
         "SELECT id, booking_id, service_name, service_price, created_at
          FROM additional_services WHERE id = ?1",
@@ -2836,7 +2910,24 @@ pub fn delete_service(service_id: i64) -> Result<()> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    // Versuche zuerst aus additional_services zu löschen (manuelle Services)
+    // 1. Hole booking_id BEVOR wir löschen (für Preisberechnung)
+    let booking_id: Option<i64> = conn
+        .query_row(
+            "SELECT booking_id FROM additional_services WHERE id = ?1",
+            rusqlite::params![service_id],
+            |row| row.get(0),
+        )
+        .or_else(|_| {
+            // Falls nicht in additional_services, versuche booking_services
+            conn.query_row(
+                "SELECT booking_id FROM booking_services WHERE id = ?1",
+                rusqlite::params![service_id],
+                |row| row.get(0),
+            )
+        })
+        .ok();
+
+    // 2. Versuche zuerst aus additional_services zu löschen (manuelle Services)
     let rows_affected = conn.execute(
         "DELETE FROM additional_services WHERE id = ?1",
         rusqlite::params![service_id],
@@ -2852,6 +2943,48 @@ pub fn delete_service(service_id: i64) -> Result<()> {
         if rows_affected_junction == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
+    }
+
+    // 3. 💰 PREISBERECHNUNG: Nach Service-Löschung Preise neu berechnen!
+    if let Some(bid) = booking_id {
+        println!("💰 [delete_service] Berechne Preise neu für Buchung #{}", bid);
+
+        // Hole alle verbleibenden Services
+        let remaining_services = get_booking_services(bid)?;
+        let services_total: f64 = remaining_services.iter().map(|s| s.service_price).sum();
+
+        // Hole alle Discounts
+        let discounts = get_booking_discounts(bid)?;
+
+        // Hole Buchung für Grundpreis
+        let booking = get_booking_by_id(bid)?;
+        let grundpreis = booking.grundpreis;
+
+        // Berechne Rabatt-Summe
+        let mut rabatt_total = 0.0;
+        for discount in &discounts {
+            if discount.discount_type == "percent" {
+                rabatt_total += grundpreis * (discount.discount_value / 100.0);
+            } else {
+                rabatt_total += discount.discount_value;
+            }
+        }
+
+        // Neuer Gesamtpreis
+        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+        println!("  📊 Grundpreis: {:.2}€", grundpreis);
+        println!("  📊 Services: {:.2}€", services_total);
+        println!("  📊 Rabatt: {:.2}€", rabatt_total);
+        println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+        // Update bookings-Tabelle mit neuen Preisen
+        conn.execute(
+            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, bid],
+        )?;
+
+        println!("✅ [delete_service] Preise erfolgreich aktualisiert!");
     }
 
     Ok(())
@@ -2919,6 +3052,46 @@ pub fn link_service_template_to_booking(
         rusqlite::params![booking_id, service_template_id],
     )?;
 
+    // 💰 PREISBERECHNUNG: Nach Service-Template-Verknüpfung Preise neu berechnen!
+    println!("💰 [link_service_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
+
+    // Hole alle Services (inkl. dem neuen Template-Service)
+    let all_services = get_booking_services(booking_id)?;
+    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+    // Hole alle Discounts
+    let discounts = get_booking_discounts(booking_id)?;
+
+    // Hole Buchung für Grundpreis
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+
+    // Berechne Rabatt-Summe
+    let mut rabatt_total = 0.0;
+    for discount in &discounts {
+        if discount.discount_type == "percent" {
+            rabatt_total += grundpreis * (discount.discount_value / 100.0);
+        } else {
+            rabatt_total += discount.discount_value;
+        }
+    }
+
+    // Neuer Gesamtpreis
+    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+    println!("  📊 Grundpreis: {:.2}€", grundpreis);
+    println!("  📊 Services: {:.2}€", services_total);
+    println!("  📊 Rabatt: {:.2}€", rabatt_total);
+    println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+    // Update bookings-Tabelle mit neuen Preisen
+    conn.execute(
+        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+    )?;
+
+    println!("✅ [link_service_template_to_booking] Preise erfolgreich aktualisiert!");
+
     Ok(())
 }
 
@@ -2935,6 +3108,46 @@ pub fn link_discount_template_to_booking(
          VALUES (?1, ?2)",
         rusqlite::params![booking_id, discount_template_id],
     )?;
+
+    // 💰 PREISBERECHNUNG: Nach Discount-Template-Verknüpfung Preise neu berechnen!
+    println!("💰 [link_discount_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
+
+    // Hole alle Services
+    let all_services = get_booking_services(booking_id)?;
+    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+    // Hole alle Discounts (inkl. dem neuen Template-Discount)
+    let discounts = get_booking_discounts(booking_id)?;
+
+    // Hole Buchung für Grundpreis
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+
+    // Berechne Rabatt-Summe
+    let mut rabatt_total = 0.0;
+    for discount in &discounts {
+        if discount.discount_type == "percent" {
+            rabatt_total += grundpreis * (discount.discount_value / 100.0);
+        } else {
+            rabatt_total += discount.discount_value;
+        }
+    }
+
+    // Neuer Gesamtpreis
+    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+    println!("  📊 Grundpreis: {:.2}€", grundpreis);
+    println!("  📊 Services: {:.2}€", services_total);
+    println!("  📊 Rabatt: {:.2}€", rabatt_total);
+    println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+    // Update bookings-Tabelle mit neuen Preisen
+    conn.execute(
+        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+    )?;
+
+    println!("✅ [link_discount_template_to_booking] Preise erfolgreich aktualisiert!");
 
     Ok(())
 }
@@ -3184,6 +3397,46 @@ pub fn add_discount_to_booking(
 
     let id = conn.last_insert_rowid();
 
+    // 💰 PREISBERECHNUNG: Nach Discount-Hinzufügen Preise neu berechnen!
+    println!("💰 [add_discount_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
+
+    // Hole alle Services
+    let all_services = get_booking_services(booking_id)?;
+    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+    // Hole alle Discounts (inkl. dem neuen)
+    let discounts = get_booking_discounts(booking_id)?;
+
+    // Hole Buchung für Grundpreis
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+
+    // Berechne Rabatt-Summe
+    let mut rabatt_total = 0.0;
+    for discount in &discounts {
+        if discount.discount_type == "percent" {
+            rabatt_total += grundpreis * (discount.discount_value / 100.0);
+        } else {
+            rabatt_total += discount.discount_value;
+        }
+    }
+
+    // Neuer Gesamtpreis
+    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+    println!("  📊 Grundpreis: {:.2}€", grundpreis);
+    println!("  📊 Services: {:.2}€", services_total);
+    println!("  📊 Rabatt: {:.2}€", rabatt_total);
+    println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+    // Update bookings-Tabelle mit neuen Preisen
+    conn.execute(
+        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+    )?;
+
+    println!("✅ [add_discount_to_booking] Preise erfolgreich aktualisiert!");
+
     conn.query_row(
         "SELECT id, booking_id, discount_name, discount_type, discount_value, created_at
          FROM discounts WHERE id = ?1",
@@ -3206,6 +3459,16 @@ pub fn delete_discount(discount_id: i64) -> Result<()> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
+    // 1. Hole booking_id BEVOR wir löschen (für Preisberechnung)
+    let booking_id: Option<i64> = conn
+        .query_row(
+            "SELECT booking_id FROM discounts WHERE id = ?1",
+            rusqlite::params![discount_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    // 2. Löschen
     let rows_affected = conn.execute(
         "DELETE FROM discounts WHERE id = ?1",
         rusqlite::params![discount_id],
@@ -3213,6 +3476,48 @@ pub fn delete_discount(discount_id: i64) -> Result<()> {
 
     if rows_affected == 0 {
         return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    // 3. 💰 PREISBERECHNUNG: Nach Discount-Löschung Preise neu berechnen!
+    if let Some(bid) = booking_id {
+        println!("💰 [delete_discount] Berechne Preise neu für Buchung #{}", bid);
+
+        // Hole alle Services
+        let all_services = get_booking_services(bid)?;
+        let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+        // Hole alle verbleibenden Discounts
+        let remaining_discounts = get_booking_discounts(bid)?;
+
+        // Hole Buchung für Grundpreis
+        let booking = get_booking_by_id(bid)?;
+        let grundpreis = booking.grundpreis;
+
+        // Berechne Rabatt-Summe
+        let mut rabatt_total = 0.0;
+        for discount in &remaining_discounts {
+            if discount.discount_type == "percent" {
+                rabatt_total += grundpreis * (discount.discount_value / 100.0);
+            } else {
+                rabatt_total += discount.discount_value;
+            }
+        }
+
+        // Neuer Gesamtpreis
+        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+        println!("  📊 Grundpreis: {:.2}€", grundpreis);
+        println!("  📊 Services: {:.2}€", services_total);
+        println!("  📊 Rabatt: {:.2}€", rabatt_total);
+        println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
+
+        // Update bookings-Tabelle mit neuen Preisen
+        conn.execute(
+            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, bid],
+        )?;
+
+        println!("✅ [delete_discount] Preise erfolgreich aktualisiert!");
     }
 
     Ok(())
@@ -4266,7 +4571,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id,
             b.putzplan_checkout_date,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
-            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
+            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf,
             g.bundesland, g.dienststelle, g.created_at
@@ -4320,29 +4625,30 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
                 street_address: row.get(37)?,
                 postal_code: row.get(38)?,
                 city: row.get(39)?,
+                notizen: row.get(40)?,
             },
             guest: Guest {
-                id: row.get(40)?,
-                vorname: row.get(41)?,
-                nachname: row.get(42)?,
-                email: row.get(43)?,
-                telefon: row.get(44)?,
-                dpolg_mitglied: row.get(45)?,
-                strasse: row.get(46)?,
-                plz: row.get(47)?,
-                ort: row.get(48)?,
-                mitgliedsnummer: row.get(49)?,
-                notizen: row.get(50)?,
-                beruf: row.get(51)?,
-                bundesland: row.get(52)?,
-                dienststelle: row.get(53)?,
-                created_at: row.get(54)?,
+                id: row.get(41)?,
+                vorname: row.get(42)?,
+                nachname: row.get(43)?,
+                email: row.get(44)?,
+                telefon: row.get(45)?,
+                dpolg_mitglied: row.get(46)?,
+                strasse: row.get(47)?,
+                plz: row.get(48)?,
+                ort: row.get(49)?,
+                mitgliedsnummer: row.get(50)?,
+                notizen: row.get(51)?,
+                beruf: row.get(52)?,
+                bundesland: row.get(53)?,
+                dienststelle: row.get(54)?,
+                created_at: row.get(55)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
                 debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
                 marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
-                tags: None,
+                tags: None, automail: None, automail_sprache: None,
             },
             // Services und Discounts werden unten befüllt
             services: Vec::new(),
@@ -4444,7 +4750,7 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
-            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
+            r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf,
             g.bundesland, g.dienststelle, g.created_at
@@ -4496,29 +4802,30 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
                 street_address: row.get(37)?,
                 postal_code: row.get(38)?,
                 city: row.get(39)?,
+                notizen: row.get(40)?,
             },
             guest: Guest {
-                id: row.get(40)?,
-                vorname: row.get(41)?,
-                nachname: row.get(42)?,
-                email: row.get(43)?,
-                telefon: row.get(44)?,
-                dpolg_mitglied: row.get(45)?,
-                strasse: row.get(46)?,
-                plz: row.get(47)?,
-                ort: row.get(48)?,
-                mitgliedsnummer: row.get(49)?,
-                notizen: row.get(50)?,
-                beruf: row.get(51)?,
-                bundesland: row.get(52)?,
-                dienststelle: row.get(53)?,
-                created_at: row.get(54)?,
+                id: row.get(41)?,
+                vorname: row.get(42)?,
+                nachname: row.get(43)?,
+                email: row.get(44)?,
+                telefon: row.get(45)?,
+                dpolg_mitglied: row.get(46)?,
+                strasse: row.get(47)?,
+                plz: row.get(48)?,
+                ort: row.get(49)?,
+                mitgliedsnummer: row.get(50)?,
+                notizen: row.get(51)?,
+                beruf: row.get(52)?,
+                bundesland: row.get(53)?,
+                dienststelle: row.get(54)?,
+                created_at: row.get(55)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
                 debitorenkonto: None, kennzeichen: None, rechnungs_email: None,
                 marketing_einwilligung: None, leitweg_id: None, kostenstelle: None,
-                tags: None,
+                tags: None, automail: None, automail_sprache: None,
             },
             services: Vec::new(),
             discounts: Vec::new(),

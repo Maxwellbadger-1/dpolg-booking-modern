@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Calendar, Search, Edit2, X, CheckCircle, Circle, Clock, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Eye, Euro, AlertCircle } from 'lucide-react';
+import { Calendar, Search, Edit2, X, CheckCircle, Circle, Clock, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Eye, Euro, AlertCircle, MoreVertical } from 'lucide-react';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import BookingSidebar from './BookingSidebar';
 import ErrorBoundary from '../ErrorBoundary';
 import ConfirmDialog from '../ConfirmDialog';
@@ -10,6 +11,7 @@ import CancellationConfirmDialog from './CancellationConfirmDialog';
 import StatusDropdown from './StatusDropdown';
 import PaymentDropdown from './PaymentDropdown';
 import InvoiceDropdown from './InvoiceDropdown';
+import PortalDropdown from '../PortalDropdown';
 import { useData } from '../../context/DataContext';
 import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
 
@@ -77,6 +79,9 @@ export default function BookingList() {
   const [showCancellationConfirm, setShowCancellationConfirm] = useState(false);
   const [bookingToCancel, setBookingToCancel] = useState<{ id: number; reservierungsnummer: string } | null>(null);
   const [sendCancellationEmail, setSendCancellationEmail] = useState(false);
+
+  // Ref for virtualization scroll container
+  const parentRef = useRef<HTMLDivElement>(null);
 
   // Data is loaded automatically via DataContext - no need for manual loading!
 
@@ -301,6 +306,14 @@ export default function BookingList() {
     return filtered;
   })();
 
+  // TanStack Virtual - only render visible items
+  const rowVirtualizer = useVirtualizer({
+    count: filteredAndSortedBookings.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 120, // Estimated row height in pixels (taller due to complex content)
+    overscan: 3, // Render 3 extra items above/below for smooth scrolling
+  });
+
   if (contextLoading) {
     return (
       <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 p-6 flex items-center justify-center">
@@ -313,8 +326,9 @@ export default function BookingList() {
   }
 
   return (
-    <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 p-6 overflow-auto">
-      <div className="max-w-7xl mx-auto">
+    <>
+      <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 p-6 overflow-auto">
+        <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -432,7 +446,7 @@ export default function BookingList() {
         </div>
 
         {/* Bookings Table */}
-        {filteredAndSortedBookings.length === 0 ? (
+        {filteredAndSortedBookings.length === 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12">
             <div className="text-center">
               <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -445,206 +459,261 @@ export default function BookingList() {
               </p>
             </div>
           </div>
-        ) : (
+        )}
+
+        {filteredAndSortedBookings.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('reservierungsnummer')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Reservierung
-                        {getSortIcon('reservierungsnummer')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('guest')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Gast
-                        {getSortIcon('guest')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('room')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Zimmer
-                        {getSortIcon('room')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('checkin')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Check-in
-                        {getSortIcon('checkin')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('checkout')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Check-out
-                        {getSortIcon('checkout')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('status')}
-                    >
-                      <div className="flex items-center gap-2">
-                        Status
-                        {getSortIcon('status')}
-                      </div>
-                    </th>
-                    <th
-                      className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
-                      onClick={() => handleSort('price')}
-                    >
-                      <div className="flex items-center justify-end gap-2">
-                        Preis
-                        {getSortIcon('price')}
-                      </div>
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Bezahlt
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Rechnung
-                    </th>
-                    <th className="px-6 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Stiftungsfall
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Aktionen
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredAndSortedBookings.map((booking) => (
-                    <tr key={booking.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-semibold text-slate-900">{booking.reservierungsnummer}</div>
-                        <div className="text-xs text-slate-500">{booking.anzahl_gaeste} Gäste</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">
-                          {booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}` : 'Unbekannt'}
+            {/* Scroll Container with Virtualization */}
+            <div
+              ref={parentRef}
+              className="overflow-auto h-[650px]"
+            >
+              <div className="min-w-[1500px]">
+                {/* Table Header - Sticky Top with border-bottom for separation */}
+                <div className="bg-slate-50 border-b-2 border-slate-300 grid px-6 py-4 sticky top-0 z-30" style={{ gridTemplateColumns: '150px 200px 120px 110px 110px 140px 100px 120px 120px 120px 200px' }}>
+                  {/* Sticky Left Column - Reservierung */}
+                  <div
+                    className="sticky left-0 z-20 bg-slate-50 text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 -ml-6 pl-6 pr-4 text-center"
+                    onClick={() => handleSort('reservierungsnummer')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Reservierung
+                      {getSortIcon('reservierungsnummer')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('guest')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Gast
+                      {getSortIcon('guest')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('room')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Zimmer
+                      {getSortIcon('room')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('checkin')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Check-in
+                      {getSortIcon('checkin')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('checkout')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Check-out
+                      {getSortIcon('checkout')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('status')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Status
+                      {getSortIcon('status')}
+                    </div>
+                  </div>
+                  <div
+                    className="text-xs font-semibold text-slate-700 uppercase tracking-wider cursor-pointer hover:bg-slate-200 transition-colors px-2 py-1 text-center"
+                    onClick={() => handleSort('price')}
+                  >
+                    <div className="flex items-center justify-center gap-2">
+                      Preis
+                      {getSortIcon('price')}
+                    </div>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider text-center px-2 py-1">
+                    Bezahlt
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider text-center px-2 py-1">
+                    Rechnung
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider text-center px-2 py-1">
+                    Stiftung
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider text-center px-2 py-1">
+                    Aktionen
+                  </div>
+                </div>
+
+                {/* Virtualized Scrollable Booking List */}
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const booking = filteredAndSortedBookings[virtualRow.index];
+                    const isEven = virtualRow.index % 2 === 0;
+                    return (
+                      <div
+                        key={booking.id}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                          gridTemplateColumns: '150px 200px 120px 110px 110px 140px 100px 120px 120px 120px 200px',
+                        }}
+                        className={`group grid px-6 py-4 border-b border-slate-200 transition-colors hover:bg-blue-50 ${
+                          isEven ? 'bg-white' : 'bg-slate-50'
+                        }`}
+                      >
+                        {/* Reservierung - Sticky Left */}
+                        <div className="sticky left-0 z-10 bg-inherit -ml-6 pl-6 pr-4 text-center">
+                          <div className="text-sm font-semibold text-slate-900">{booking.reservierungsnummer}</div>
+                          <div className="text-xs text-slate-500">{booking.anzahl_gaeste} Gäste</div>
                         </div>
-                        <div className="text-xs text-slate-500">{booking.guest?.email || '-'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">{booking.room?.name || 'Unbekannt'}</div>
-                        <div className="text-xs text-slate-500">{booking.room?.ort || '-'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-slate-900">
-                          {format(new Date(booking.checkin_date), 'dd.MM.yyyy', { locale: de })}
+
+                        {/* Gast */}
+                        <div className="px-2 text-center">
+                          <div className="text-sm font-medium text-slate-900">
+                            {booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}` : 'Unbekannt'}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">{booking.guest?.email || '-'}</div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-slate-900">
-                          {format(new Date(booking.checkout_date), 'dd.MM.yyyy', { locale: de })}
+
+                        {/* Zimmer */}
+                        <div className="px-2 text-center">
+                          <div className="text-sm font-medium text-slate-900">{booking.room?.name || 'Unbekannt'}</div>
+                          <div className="text-xs text-slate-500">{booking.room?.ort || '-'}</div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <StatusDropdown
-                          currentStatus={booking.status}
-                          bookingId={booking.id}
-                          onStatusChange={(newStatus) => handleStatusChange(booking.id, newStatus)}
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="text-sm font-semibold text-slate-900">
-                          {booking.gesamtpreis.toFixed(2)} €
+
+                        {/* Check-in */}
+                        <div className="px-2 text-center">
+                          <div className="text-sm text-slate-900">
+                            {format(new Date(booking.checkin_date), 'dd.MM.yyyy', { locale: de })}
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <div className="inline-flex flex-col items-center">
-                          <PaymentDropdown
-                            isPaid={booking.bezahlt}
+
+                        {/* Check-out */}
+                        <div className="px-2 text-center">
+                          <div className="text-sm text-slate-900">
+                            {format(new Date(booking.checkout_date), 'dd.MM.yyyy', { locale: de })}
+                          </div>
+                        </div>
+
+                        {/* Status */}
+                        <div className="px-2 text-center">
+                          <StatusDropdown
+                            currentStatus={booking.status}
                             bookingId={booking.id}
-                            onPaymentChange={(isPaid, zahlungsmethode, paymentDate) => handlePaymentChange(booking.id, isPaid, zahlungsmethode, paymentDate)}
+                            onStatusChange={(newStatus) => handleStatusChange(booking.id, newStatus)}
                           />
-                          {booking.bezahlt && booking.bezahlt_am && (
-                            <span className="text-xs text-slate-500 mt-1">
-                              {format(new Date(booking.bezahlt_am), 'dd.MM.yyyy', { locale: de })}
+                        </div>
+
+                        {/* Preis */}
+                        <div className="px-2 text-center">
+                          <div className="text-sm font-semibold text-slate-900">
+                            {booking.gesamtpreis.toFixed(2)} €
+                          </div>
+                        </div>
+
+                        {/* Bezahlt */}
+                        <div className="px-2 text-center">
+                          <div className="inline-flex flex-col items-center">
+                            <PaymentDropdown
+                              isPaid={booking.bezahlt}
+                              bookingId={booking.id}
+                              onPaymentChange={(isPaid, zahlungsmethode, paymentDate) => handlePaymentChange(booking.id, isPaid, zahlungsmethode, paymentDate)}
+                            />
+                            {booking.bezahlt && booking.bezahlt_am && (
+                              <span className="text-xs text-slate-500 mt-1">
+                                {format(new Date(booking.bezahlt_am), 'dd.MM.yyyy', { locale: de })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Rechnung */}
+                        <div className="px-2 text-center">
+                          <InvoiceDropdown
+                            invoiceSentAt={booking.rechnung_versendet_am}
+                            invoiceSentTo={booking.rechnung_versendet_an}
+                            bookingId={booking.id}
+                            guestEmail={booking.guest?.email || ''}
+                            onInvoiceStatusChange={handleInvoiceStatusChange}
+                          />
+                        </div>
+
+                        {/* Stiftungsfall */}
+                        <div className="px-2 text-center">
+                          {booking.ist_stiftungsfall && (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 text-xs font-bold rounded-full border-2 border-amber-300 shadow-sm">
+                              <AlertCircle className="w-3 h-3" />
                             </span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        <InvoiceDropdown
-                          invoiceSentAt={booking.rechnung_versendet_am}
-                          invoiceSentTo={booking.rechnung_versendet_an}
-                          bookingId={booking.id}
-                          guestEmail={booking.guest?.email || ''}
-                          onInvoiceStatusChange={handleInvoiceStatusChange}
-                        />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-center">
-                        {booking.ist_stiftungsfall && (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-800 text-xs font-bold rounded-full border-2 border-amber-300 shadow-sm">
-                            <AlertCircle className="w-3.5 h-3.5" />
-                            Stiftungsfall
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              // Öffne Sidebar in View Mode
-                              setSidebarBookingId(booking.id);
-                              setSidebarMode('view');
-                              setSidebarPrefillData(undefined);
-                              setShowSidebar(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Details
-                          </button>
-                          <button
-                            onClick={() => {
-                              // Öffne Sidebar in Edit Mode
-                              setSidebarBookingId(booking.id);
-                              setSidebarMode('edit');
-                              setSidebarPrefillData(undefined);
-                              setShowSidebar(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            Bearbeiten
-                          </button>
-                          <button
-                            onClick={() => handleDeleteBooking(booking.id, booking.reservierungsnummer)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Löschen
-                          </button>
+
+                        {/* Aktionen */}
+                        <div className="px-2 text-center">
+                          <div className="inline-flex items-center gap-2">
+                            {/* Details anzeigen */}
+                            <button
+                              onClick={() => {
+                                setSidebarBookingId(booking.id);
+                                setSidebarMode('view');
+                                setSidebarPrefillData(undefined);
+                                setShowSidebar(true);
+                              }}
+                              title="Details anzeigen"
+                              className="inline-flex items-center justify-center w-8 h-8 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+
+                            {/* Bearbeiten */}
+                            <button
+                              onClick={() => {
+                                setSidebarBookingId(booking.id);
+                                setSidebarMode('edit');
+                                setSidebarPrefillData(undefined);
+                                setShowSidebar(true);
+                              }}
+                              title="Bearbeiten"
+                              className="inline-flex items-center justify-center w-8 h-8 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+
+                            {/* Löschen */}
+                            <button
+                              onClick={() => handleDeleteBooking(booking.id, booking.reservierungsnummer)}
+                              title="Löschen"
+                              className="inline-flex items-center justify-center w-8 h-8 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         )}
+        </div>
       </div>
 
-      {/* Booking Sidebar (Ersetzt alte BookingDialog + BookingDetails) */}
       <BookingSidebar
         bookingId={sidebarBookingId}
         isOpen={showSidebar}
@@ -730,6 +799,6 @@ export default function BookingList() {
         onConfirm={confirmCancellation}
         onCancel={cancelCancellation}
       />
-    </div>
+    </>
   );
 }

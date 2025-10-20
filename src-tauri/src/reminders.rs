@@ -236,6 +236,38 @@ pub fn delete_reminder(id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Stellt eine gelöschte Erinnerung wieder her (für Undo-Funktion)
+/// WICHTIG: Nutzt die komplette Reminder-Struktur um alle Daten wiederherzustellen
+pub fn restore_reminder(reminder: Reminder) -> Result<Reminder> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // INSERT mit spezifischer ID (SQLite erlaubt das für INTEGER PRIMARY KEY)
+    conn.execute(
+        "INSERT INTO reminders (
+            id, booking_id, reminder_type, title, description, due_date, priority,
+            is_completed, completed_at, is_snoozed, snoozed_until, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        rusqlite::params![
+            reminder.id,
+            reminder.booking_id,
+            reminder.reminder_type,
+            reminder.title,
+            reminder.description,
+            reminder.due_date,
+            reminder.priority,
+            reminder.is_completed as i32,
+            reminder.completed_at,
+            reminder.is_snoozed as i32,
+            reminder.snoozed_until,
+            reminder.created_at,
+            reminder.updated_at,
+        ],
+    )?;
+
+    get_reminder_by_id(reminder.id)
+}
+
 // ============================================================================
 // REMINDER SETTINGS (AUTO-REMINDER ON/OFF)
 // ============================================================================

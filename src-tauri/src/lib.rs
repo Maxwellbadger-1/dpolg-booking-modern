@@ -244,6 +244,7 @@ fn create_room_command(
     street_address: Option<String>,
     postal_code: Option<String>,
     city: Option<String>,
+    notizen: Option<String>,
 ) -> Result<database::Room, String> {
     database::create_room(
         name,
@@ -259,6 +260,7 @@ fn create_room_command(
         street_address,
         postal_code,
         city,
+        notizen,
     )
     .map_err(|e| format!("Fehler beim Erstellen des Raums: {}", e))
 }
@@ -279,24 +281,9 @@ fn update_room_command(
     street_address: Option<String>,
     postal_code: Option<String>,
     city: Option<String>,
+    notizen: Option<String>,
 ) -> Result<database::Room, String> {
-    println!("🔍 [update_room_command] Called with:");
-    println!("   id: {}", id);
-    println!("   name: {}", name);
-    println!("   gebaeude_typ: {}", gebaeude_typ);
-    println!("   capacity: {}", capacity);
-    println!("   price_member: {}", price_member);
-    println!("   price_non_member: {}", price_non_member);
-    println!("   nebensaison_preis: {}", nebensaison_preis);
-    println!("   hauptsaison_preis: {}", hauptsaison_preis);
-    println!("   endreinigung: {}", endreinigung);
-    println!("   ort: {}", ort);
-    println!("   schluesselcode: {:?}", schluesselcode);
-    println!("   street_address: {:?}", street_address);
-    println!("   postal_code: {:?}", postal_code);
-    println!("   city: {:?}", city);
-
-    match database::update_room(
+    database::update_room(
         id,
         name,
         gebaeude_typ,
@@ -311,21 +298,9 @@ fn update_room_command(
         street_address,
         postal_code,
         city,
-    ) {
-        Ok(room) => {
-            println!("✅ [update_room_command] Successfully updated room:");
-            println!("   room.id: {}", room.id);
-            println!("   room.name: {}", room.name);
-            println!("   room.street_address: {:?}", room.street_address);
-            println!("   room.postal_code: {:?}", room.postal_code);
-            println!("   room.city: {:?}", room.city);
-            Ok(room)
-        }
-        Err(e) => {
-            eprintln!("❌ [update_room_command] Error: {}", e);
-            Err(format!("Fehler beim Aktualisieren des Raums: {}", e))
-        }
-    }
+        notizen,
+    )
+    .map_err(|e| format!("Fehler beim Aktualisieren des Raums: {}", e))
 }
 
 #[tauri::command]
@@ -351,7 +326,7 @@ fn migrate_to_price_list_2025_command() -> Result<(), String> {
 // ============================================================================
 
 #[tauri::command]
-fn create_booking_command(
+async fn create_booking_command(
     room_id: i64,
     guest_id: i64,
     reservierungsnummer: String,
@@ -381,8 +356,8 @@ fn create_booking_command(
         room_id,
         guest_id,
         reservierungsnummer,
-        checkin_date,
-        checkout_date,
+        checkin_date.clone(),
+        checkout_date.clone(),
         anzahl_gaeste,
         status,
         gesamtpreis,
@@ -405,6 +380,11 @@ fn create_booking_command(
             println!("   booking.ist_stiftungsfall: {}", booking.ist_stiftungsfall);
             println!("📦 DEBUG: Returning BookingWithDetails to Frontend:");
             println!("   {:#?}", booking);
+
+            // ℹ️  KEIN AUTO-SYNC hier - Services sind noch nicht verknüpft!
+            // Auto-Sync erfolgt bei link_service_template_to_booking_command
+            // (wenn Services wirklich in DB verknüpft sind und Emojis gelesen werden können)
+
             Ok(booking)
         }
         Err(e) => {
@@ -568,7 +548,7 @@ fn get_booking_services_command(booking_id: i64) -> Result<Vec<database::Additio
 // ============================================================================
 
 #[tauri::command]
-fn link_service_template_to_booking_command(
+async fn link_service_template_to_booking_command(
     booking_id: i64,
     service_template_id: i64,
 ) -> Result<(), String> {
@@ -579,6 +559,44 @@ fn link_service_template_to_booking_command(
     match database::link_service_template_to_booking(booking_id, service_template_id) {
         Ok(()) => {
             println!("✅ [link_service_template_to_booking_command] Successfully linked!");
+
+            // 🔄 AUTO-SYNC: Service mit Emoji hinzugefügt → Mobile App synchronisieren
+            // Hole checkin_date UND checkout_date der Buchung für Sync
+            match database::get_booking_by_id(booking_id) {
+                Ok(booking) => {
+                    let checkin = booking.checkin_date.clone();
+                    let checkout = booking.checkout_date.clone();
+
+                    println!("🔄 [link_service_template_to_booking_command] Auto-Sync für beide Daten:");
+                    println!("   📅 CHECK-IN:  {} (für emojis_start)", checkin);
+                    println!("   📅 CHECK-OUT: {} (für emojis_end)", checkout);
+
+                    // Fire-and-forget: Sync BEIDE Daten im Hintergrund (parallel)
+                    tokio::spawn(async move {
+                        // Sync beide Daten parallel mit tokio::join!
+                        let (result_checkin, result_checkout) = tokio::join!(
+                            supabase::sync_cleaning_tasks(checkin.clone()),
+                            supabase::sync_cleaning_tasks(checkout.clone())
+                        );
+
+                        // Log Ergebnisse
+                        match result_checkin {
+                            Ok(_) => println!("✅ [link_service_template_to_booking_command] CHECK-IN Sync erfolgreich!"),
+                            Err(e) => eprintln!("❌ [link_service_template_to_booking_command] CHECK-IN Sync Error: {}", e),
+                        }
+
+                        match result_checkout {
+                            Ok(_) => println!("✅ [link_service_template_to_booking_command] CHECK-OUT Sync erfolgreich!"),
+                            Err(e) => eprintln!("❌ [link_service_template_to_booking_command] CHECK-OUT Sync Error: {}", e),
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("⚠️  [link_service_template_to_booking_command] Konnte Buchung nicht laden für Auto-Sync: {}", e);
+                    // Nicht kritisch - Service wurde trotzdem verknüpft
+                }
+            }
+
             Ok(())
         }
         Err(e) => {
@@ -1380,6 +1398,7 @@ pub fn run() {
             mark_reminder_completed_command,
             snooze_reminder_command,
             delete_reminder_command,
+            restore_reminder_command,
             get_reminder_settings_command,
             save_reminder_settings_command,
             // Payment Recipients
@@ -1502,6 +1521,12 @@ fn snooze_reminder_command(id: i64, snooze_until: String) -> Result<database::Re
 fn delete_reminder_command(id: i64) -> Result<(), String> {
     reminders::delete_reminder(id)
         .map_err(|e| format!("Fehler beim Löschen der Erinnerung: {}", e))
+}
+
+#[tauri::command]
+fn restore_reminder_command(reminder: database::Reminder) -> Result<database::Reminder, String> {
+    reminders::restore_reminder(reminder)
+        .map_err(|e| format!("Fehler beim Wiederherstellen der Erinnerung: {}", e))
 }
 
 #[tauri::command]

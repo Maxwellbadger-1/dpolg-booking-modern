@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Hotel, Search, Plus, Edit2, MapPin, Users, Euro, Trash2 } from 'lucide-react';
+import { Hotel, Search, Plus, Edit2, MapPin, Users, Euro, Trash2, FileText } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import RoomDialog from './RoomDialog';
 import ConfirmDialog from '../ConfirmDialog';
@@ -15,6 +15,7 @@ interface Room {
   endreinigung: number;
   ort: string;
   schluesselcode?: string;
+  notizen?: string;
 }
 
 export default function RoomList() {
@@ -223,6 +224,19 @@ export default function RoomList() {
                       <div className="text-xs text-slate-500">Schlüsselcode</div>
                       <div className="text-sm font-mono font-semibold text-slate-900 mt-1">
                         {room.schluesselcode}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {room.notizen && (
+                    <div className="pt-3 border-t border-slate-200">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Notizen</span>
+                      </div>
+                      <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                        {room.notizen}
                       </div>
                     </div>
                   )}

@@ -17,6 +17,7 @@ import SearchableGuestPicker from './SearchableGuestPicker';
 import SearchableRoomPicker from './SearchableRoomPicker';
 import EmailSelectionDialog from './EmailSelectionDialog';
 import CompanionSelector from './CompanionSelector';
+import CancellationConfirmDialog from './CancellationConfirmDialog';
 
 interface BookingSidebarProps {
   bookingId: number | null;
@@ -141,7 +142,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initialMode = 'view', prefillData }: BookingSidebarProps) {
-  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings } = useData();
+  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus } = useData();
 
   // Mode State
   const [mode, setMode] = useState<'view' | 'edit' | 'create'>(initialMode);
@@ -367,6 +368,31 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       setShowErrorDialog({ show: true, message: 'Fehler beim Laden der Buchungsdetails' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const confirmCancellation = async (sendEmail: boolean) => {
+    if (!booking) return;
+
+    try {
+      // Status auf "storniert" setzen mit Optimistic Update (genau wie beim Rechtsklick)
+      await updateBookingStatus(booking.id, 'storniert');
+
+      // Optional: Stornierungsbestätigung senden
+      if (sendEmail) {
+        try {
+          await invoke('send_cancellation_email_command', { bookingId: booking.id });
+          console.log('Stornierungsbestätigung gesendet');
+        } catch (emailError) {
+          console.error('Fehler beim Senden der Stornierungsbestätigung:', emailError);
+        }
+      }
+
+      setShowCancelDialog(false);
+      await loadBookingDetails(); // Reload booking details to show updated status
+    } catch (error) {
+      console.error('Fehler beim Stornieren:', error);
+      setShowErrorDialog({ show: true, message: 'Fehler beim Stornieren: ' + (error instanceof Error ? error.message : String(error)) });
     }
   };
 
@@ -2137,6 +2163,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   name: service.service_name,
                                   description: null,
                                   price: service.service_price,
+                                  emoji: null,
+                                  showInCleaningPlan: false,
+                                  cleaningPlanPosition: 'end',
                                 });
                                 await loadTemplates();
                                 setShowSuccessDialog({ show: true, message: 'Service als Vorlage gespeichert!' });
@@ -2547,7 +2576,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         </div>
 
         {/* Footer */}
-        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+        <div className="absolute bottom-0 left-0 right-0 px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between z-10">
           {mode === 'view' && booking ? (
             <>
               <div className="flex items-center gap-2">
@@ -2613,57 +2642,12 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       )}
 
       {/* Cancel Booking Confirmation Dialog */}
-      {showCancelDialog && booking && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="p-3 bg-red-500/10 rounded-full">
-                <XCircle className="w-6 h-6 text-red-400" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-white mb-2">Buchung stornieren?</h3>
-                <p className="text-slate-300 text-sm">
-                  Möchten Sie diese Buchung wirklich stornieren?
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-slate-700/30 rounded-lg p-4 mb-6">
-              <p className="text-sm text-white">
-                <span className="font-semibold">Reservierungsnummer:</span> {booking.reservierungsnummer}
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowCancelDialog(false)}
-                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={async () => {
-                  if (!booking.id) return;
-                  try {
-                    await invoke('cancel_booking_command', { id: booking.id });
-                    setShowCancelDialog(false);
-                    await loadBookingDetails();
-                    setShowSuccessDialog({ show: true, message: 'Buchung erfolgreich storniert!' });
-                  } catch (error) {
-                    console.error('Fehler beim Stornieren der Buchung:', error);
-                    setShowCancelDialog(false);
-                    setShowErrorDialog({ show: true, message: 'Fehler beim Stornieren der Buchung' });
-                  }
-                }}
-                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <XCircle className="w-4 h-4" />
-                Stornieren
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CancellationConfirmDialog
+        isOpen={showCancelDialog && booking !== null}
+        reservierungsnummer={booking?.reservierungsnummer || ''}
+        onConfirm={confirmCancellation}
+        onCancel={() => setShowCancelDialog(false)}
+      />
 
       {/* Success Dialog */}
       {showSuccessDialog.show && (

@@ -11,10 +11,10 @@ export default function TodayLine({ position, visible }: TodayLineProps) {
 
   return (
     <div
-      className="absolute inset-y-0 border-l-2 border-red-500 z-20 pointer-events-none"
+      className="absolute inset-y-0 border-l-2 border-emerald-500 z-20 pointer-events-none"
       style={{ left: `${position}px` }}
     >
-      <div className="sticky top-0 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-br shadow-lg">
+      <div className="sticky top-0 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-br shadow-lg">
         HEUTE
       </div>
     </div>

@@ -15,7 +15,7 @@
         "title": "DPolG Buchungssystem",
         "width": 1600,
         "height": 900,
-        "devtools": false
+        "devtools": true
       }
     ],
     "security": {

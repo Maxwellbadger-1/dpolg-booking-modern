@@ -17,6 +17,7 @@ interface Room {
   streetAddress?: string;
   postalCode?: string;
   city?: string;
+  notizen?: string;
 }
 
 interface RoomDialogProps {
@@ -42,10 +43,10 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
     streetAddress: '',
     postalCode: '',
     city: '',
+    notizen: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   useEffect(() => {
     if (room) {
@@ -65,6 +66,7 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
         streetAddress: '',
         postalCode: '',
         city: '',
+        notizen: '',
       });
     }
     setError(null);
@@ -76,28 +78,6 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
     setLoading(true);
 
     try {
-      // Capture debug info BEFORE sending
-      const debugData = {
-        step: 'START',
-        formData: JSON.parse(JSON.stringify(formData)),
-        formDataAddressFields: {
-          streetAddress: formData.streetAddress,
-          streetAddressType: typeof formData.streetAddress,
-          postalCode: formData.postalCode,
-          postalCodeType: typeof formData.postalCode,
-          city: formData.city,
-          cityType: typeof formData.city,
-        }
-      };
-      setDebugInfo(debugData);
-
-      console.log('═══════════════════════════════════════');
-      console.log('🔍 [RoomDialog] handleSubmit START');
-      console.log('  📦 formData RAW:', JSON.stringify(formData, null, 2));
-      console.log('  📍 formData.streetAddress:', formData.streetAddress, '(type:', typeof formData.streetAddress, ')');
-      console.log('  📍 formData.postalCode:', formData.postalCode, '(type:', typeof formData.postalCode, ')');
-      console.log('  📍 formData.city:', formData.city, '(type:', typeof formData.city, ')');
-
       const roomData = {
         name: formData.name,
         gebaeudeTyp: formData.gebaeude_typ,
@@ -112,70 +92,21 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
         streetAddress: formData.streetAddress || null,
         postalCode: formData.postalCode || null,
         city: formData.city || null,
+        notizen: formData.notizen || null,
       };
 
-      // Update debug info with roomData
-      setDebugInfo({
-        ...debugData,
-        step: 'PREPARED',
-        roomData: JSON.parse(JSON.stringify(roomData)),
-        roomDataAddressFields: {
-          streetAddress: roomData.streetAddress,
-          streetAddressType: typeof roomData.streetAddress,
-          postalCode: roomData.postalCode,
-          postalCodeType: typeof roomData.postalCode,
-          city: roomData.city,
-          cityType: typeof roomData.city,
-        }
-      });
-
-      console.log('  📤 roomData PREPARED:', JSON.stringify(roomData, null, 2));
-      console.log('  📍 roomData.streetAddress:', roomData.streetAddress, '(type:', typeof roomData.streetAddress, ')');
-      console.log('  📍 roomData.postalCode:', roomData.postalCode, '(type:', typeof roomData.postalCode, ')');
-      console.log('  📍 roomData.city:', roomData.city, '(type:', typeof roomData.city, ')');
-
-      let result;
       if (room?.id) {
         // Update existing room (Optimistic Update via DataContext)
-        console.log('  🔄 UPDATE MODE - calling updateRoom with id:', room.id);
-        setDebugInfo(prev => ({ ...prev, step: 'SENDING', mode: 'UPDATE', id: room.id }));
-        result = await updateRoom(room.id, roomData);
-        console.log('  ✅ updateRoom returned successfully');
+        await updateRoom(room.id, roomData);
       } else {
         // Create new room (Optimistic Update via DataContext)
-        console.log('  ➕ CREATE MODE - calling createRoom');
-        setDebugInfo(prev => ({ ...prev, step: 'SENDING', mode: 'CREATE' }));
-        result = await createRoom(roomData);
-        console.log('  ✅ createRoom returned successfully');
+        await createRoom(roomData);
       }
-
-      // Show result from backend
-      setDebugInfo(prev => ({
-        ...prev,
-        step: 'SUCCESS',
-        backendResult: JSON.parse(JSON.stringify(result)),
-        backendAddressFields: {
-          street_address: result.street_address,
-          postal_code: result.postal_code,
-          city: result.city,
-        }
-      }));
-
-      console.log('═══════════════════════════════════════');
-
-      // Wait 3 seconds so user can see debug info
-      await new Promise(resolve => setTimeout(resolve, 3000));
 
       onSuccess();
       onClose();
-      setDebugInfo(null);
     } catch (err) {
-      console.error('❌ [RoomDialog] Fehler beim Speichern des Zimmers:', err);
-      setDebugInfo(prev => ({
-        ...prev,
-        step: 'ERROR',
-        error: err instanceof Error ? err.message : String(err)
-      }));
+      console.error('Fehler beim Speichern des Zimmers:', err);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
@@ -422,85 +353,22 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
                 placeholder="z.B. 1234"
               />
             </div>
-          </div>
-        </form>
 
-        {/* DEBUG PANEL - VISIBLE IN UI */}
-        {debugInfo && (
-          <div className="mx-6 mb-6 p-6 bg-yellow-50 border-2 border-yellow-500 rounded-xl">
-            <h3 className="text-lg font-bold text-yellow-900 mb-4 flex items-center gap-2">
-              🐛 DEBUG INFO - {debugInfo.step}
-            </h3>
-
-            <div className="space-y-4 text-sm">
-              {/* Step Indicator */}
-              <div className="flex gap-2 mb-4">
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${debugInfo.step === 'START' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>
-                  START
-                </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${debugInfo.step === 'PREPARED' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>
-                  PREPARED
-                </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${debugInfo.step === 'SENDING' ? 'bg-blue-500 text-white' : 'bg-gray-300'}`}>
-                  SENDING
-                </span>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${debugInfo.step === 'SUCCESS' ? 'bg-green-500 text-white' : debugInfo.step === 'ERROR' ? 'bg-red-500 text-white' : 'bg-gray-300'}`}>
-                  {debugInfo.step === 'ERROR' ? 'ERROR' : 'SUCCESS'}
-                </span>
-              </div>
-
-              {/* FormData Address Fields */}
-              <div className="bg-white p-4 rounded-lg border border-yellow-400">
-                <h4 className="font-bold text-yellow-900 mb-2">📥 formData Address Fields:</h4>
-                <div className="font-mono text-xs space-y-1">
-                  <div>streetAddress: <span className="text-blue-600">"{debugInfo.formDataAddressFields?.streetAddress}"</span> (type: {debugInfo.formDataAddressFields?.streetAddressType})</div>
-                  <div>postalCode: <span className="text-blue-600">"{debugInfo.formDataAddressFields?.postalCode}"</span> (type: {debugInfo.formDataAddressFields?.postalCodeType})</div>
-                  <div>city: <span className="text-blue-600">"{debugInfo.formDataAddressFields?.city}"</span> (type: {debugInfo.formDataAddressFields?.cityType})</div>
-                </div>
-              </div>
-
-              {/* RoomData Address Fields */}
-              {debugInfo.roomDataAddressFields && (
-                <div className="bg-white p-4 rounded-lg border border-yellow-400">
-                  <h4 className="font-bold text-yellow-900 mb-2">📤 roomData Address Fields (sent to backend):</h4>
-                  <div className="font-mono text-xs space-y-1">
-                    <div>streetAddress: <span className="text-purple-600">"{debugInfo.roomDataAddressFields.streetAddress}"</span> (type: {debugInfo.roomDataAddressFields.streetAddressType})</div>
-                    <div>postalCode: <span className="text-purple-600">"{debugInfo.roomDataAddressFields.postalCode}"</span> (type: {debugInfo.roomDataAddressFields.postalCodeType})</div>
-                    <div>city: <span className="text-purple-600">"{debugInfo.roomDataAddressFields.city}"</span> (type: {debugInfo.roomDataAddressFields.cityType})</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Backend Result */}
-              {debugInfo.backendAddressFields && (
-                <div className="bg-white p-4 rounded-lg border border-green-500">
-                  <h4 className="font-bold text-green-900 mb-2">✅ Backend Returned (snake_case):</h4>
-                  <div className="font-mono text-xs space-y-1">
-                    <div>street_address: <span className="text-green-600">"{debugInfo.backendAddressFields.street_address}"</span></div>
-                    <div>postal_code: <span className="text-green-600">"{debugInfo.backendAddressFields.postal_code}"</span></div>
-                    <div>city: <span className="text-green-600">"{debugInfo.backendAddressFields.city}"</span></div>
-                  </div>
-                </div>
-              )}
-
-              {/* Mode Info */}
-              {debugInfo.mode && (
-                <div className="bg-blue-100 p-3 rounded-lg">
-                  <div className="font-bold">Mode: {debugInfo.mode}</div>
-                  {debugInfo.id && <div className="text-xs">Room ID: {debugInfo.id}</div>}
-                </div>
-              )}
-
-              {/* Error */}
-              {debugInfo.error && (
-                <div className="bg-red-100 border border-red-400 p-3 rounded-lg">
-                  <div className="font-bold text-red-900">❌ Error:</div>
-                  <div className="text-xs text-red-700">{debugInfo.error}</div>
-                </div>
-              )}
+            {/* Notizen */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">
+                Notizen (optional)
+              </label>
+              <textarea
+                value={formData.notizen || ''}
+                onChange={(e) => setFormData({ ...formData, notizen: e.target.value })}
+                rows={4}
+                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                placeholder="Zusätzliche Informationen zum Zimmer..."
+              />
             </div>
           </div>
-        )}
+        </form>
 
         {/* Footer */}
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">

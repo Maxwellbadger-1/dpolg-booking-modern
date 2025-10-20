@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Users, Search, UserPlus, Edit2, Mail, Phone, CheckCircle, X, Trash2, Eye } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useData } from '../../context/DataContext';
+import { useDebounce } from '../../hooks/useDebounce';
 import GuestDialog from './GuestDialog';
 import GuestDetails from './GuestDetails';
 import ConfirmDialog from '../ConfirmDialog';
@@ -34,6 +36,12 @@ export default function GuestList() {
   const [guestToDelete, setGuestToDelete] = useState<{ id: number; name: string } | null>(null);
   const [showErrorDialog, setShowErrorDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  // Debounce search query for better performance (300ms delay)
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Ref for virtualization scroll container
+  const parentRef = useRef<HTMLDivElement>(null);
 
   const handleDeleteGuest = (id: number, name: string) => {
     setGuestToDelete({ id, name });
@@ -73,18 +81,39 @@ export default function GuestList() {
     setGuestToDelete(null);
   };
 
-  const filteredGuests = guests.filter(guest => {
-    const matchesSearch =
-      `${guest.vorname} ${guest.nachname}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      guest.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      guest.telefon.includes(searchQuery);
+  const handleViewDetails = (guestId: number) => {
+    setDetailsGuestId(guestId);
+    setShowDetails(true);
+  };
 
-    const matchesMember =
-      memberFilter === 'all' ||
-      (memberFilter === 'member' && guest.dpolg_mitglied) ||
-      (memberFilter === 'non-member' && !guest.dpolg_mitglied);
+  const handleEdit = (guest: Guest) => {
+    setSelectedGuest(guest);
+    setShowDialog(true);
+  };
 
-    return matchesSearch && matchesMember;
+  // Memoize filtered guests - only recalculate when guests, debouncedSearchQuery, or memberFilter changes
+  const filteredGuests = useMemo(() => {
+    return guests.filter(guest => {
+      const matchesSearch =
+        `${guest.vorname} ${guest.nachname}`.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        guest.email.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        guest.telefon.includes(debouncedSearchQuery);
+
+      const matchesMember =
+        memberFilter === 'all' ||
+        (memberFilter === 'member' && guest.dpolg_mitglied) ||
+        (memberFilter === 'non-member' && !guest.dpolg_mitglied);
+
+      return matchesSearch && matchesMember;
+    });
+  }, [guests, debouncedSearchQuery, memberFilter]);
+
+  // TanStack Virtual - only render visible items
+  const rowVirtualizer = useVirtualizer({
+    count: filteredGuests.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80, // Estimated row height in pixels
+    overscan: 5, // Render 5 extra items above/below for smooth scrolling
   });
 
   if (loading) {
@@ -147,7 +176,7 @@ export default function GuestList() {
           </div>
         </div>
 
-        {/* Guests Table */}
+        {/* Guests List - Optimized with debouncing and memoization */}
         {filteredGuests.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12">
             <div className="text-center">
@@ -163,31 +192,54 @@ export default function GuestList() {
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Kontakt
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Adresse
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Mitgliedschaft
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                      Aktionen
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {filteredGuests.map((guest) => (
-                    <tr key={guest.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
+            {/* Table Header */}
+            <div className="bg-slate-50 border-b border-slate-200 grid grid-cols-12 gap-4 px-6 py-3 sticky top-0 z-10">
+              <div className="col-span-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Name
+              </div>
+              <div className="col-span-3 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Kontakt
+              </div>
+              <div className="col-span-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Adresse
+              </div>
+              <div className="col-span-2 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                Mitgliedschaft
+              </div>
+              <div className="col-span-3 text-xs font-semibold text-slate-600 uppercase tracking-wider text-right">
+                Aktionen
+              </div>
+            </div>
+
+            {/* Virtualized Scrollable Guest List */}
+            <div
+              ref={parentRef}
+              className="h-[600px] overflow-y-auto"
+            >
+              <div
+                style={{
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  width: '100%',
+                  position: 'relative',
+                }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const guest = filteredGuests[virtualRow.index];
+                  return (
+                    <div
+                      key={guest.id}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: `${virtualRow.size}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-slate-200 hover:bg-slate-50 transition-colors"
+                    >
+                      {/* Name */}
+                      <div className="col-span-2">
                         <div className="text-sm font-semibold text-slate-900">
                           {guest.vorname} {guest.nachname}
                         </div>
@@ -196,23 +248,27 @@ export default function GuestList() {
                             {guest.notizen}
                           </div>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+
+                      {/* Kontakt */}
+                      <div className="col-span-3">
                         <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1.5 text-sm text-slate-900">
-                            <Mail className="w-3.5 h-3.5 text-slate-400" />
-                            {guest.email}
+                          <div className="flex items-center gap-1.5 text-sm text-slate-900 truncate">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            <span className="truncate">{guest.email}</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                            <Phone className="w-3.5 h-3.5 text-slate-400" />
+                            <Phone className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                             {guest.telefon}
                           </div>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+
+                      {/* Adresse */}
+                      <div className="col-span-2">
                         {guest.strasse || guest.plz || guest.ort ? (
                           <div className="text-sm text-slate-900">
-                            <div>{guest.strasse}</div>
+                            <div className="truncate">{guest.strasse}</div>
                             <div className="text-xs text-slate-500">
                               {guest.plz} {guest.ort}
                             </div>
@@ -220,8 +276,10 @@ export default function GuestList() {
                         ) : (
                           <span className="text-sm text-slate-400">Keine Adresse</span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      </div>
+
+                      {/* Mitgliedschaft */}
+                      <div className="col-span-2">
                         {guest.dpolg_mitglied ? (
                           <div>
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
@@ -240,42 +298,36 @@ export default function GuestList() {
                             Kein Mitglied
                           </span>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setDetailsGuestId(guest.id);
-                              setShowDetails(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Details
-                          </button>
-                          <button
-                            onClick={() => {
-                              setSelectedGuest(guest);
-                              setShowDialog(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            Bearbeiten
-                          </button>
-                          <button
-                            onClick={() => handleDeleteGuest(guest.id, `${guest.vorname} ${guest.nachname}`)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            Löschen
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+
+                      {/* Aktionen */}
+                      <div className="col-span-3 flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => handleViewDetails(guest.id)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Details
+                        </button>
+                        <button
+                          onClick={() => handleEdit(guest)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          Bearbeiten
+                        </button>
+                        <button
+                          onClick={() => handleDeleteGuest(guest.id, `${guest.vorname} ${guest.nachname}`)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Löschen
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

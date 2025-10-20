@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Circle, CheckCircle, Clock, X, ChevronDown } from 'lucide-react';
+import PortalDropdown from '../PortalDropdown';
 
 interface StatusDropdownProps {
   currentStatus: string;
@@ -9,7 +10,7 @@ interface StatusDropdownProps {
 
 export default function StatusDropdown({ currentStatus, bookingId, onStatusChange }: StatusDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const statusOptions = [
     { value: 'reserviert', label: 'Reserviert', icon: Circle, color: 'blue' },
@@ -21,22 +22,6 @@ export default function StatusDropdown({ currentStatus, bookingId, onStatusChang
 
   const currentOption = statusOptions.find(opt => opt.value === currentStatus);
   const CurrentIcon = currentOption?.icon || Circle;
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
 
   const handleSelect = (status: string) => {
     setIsOpen(false);
@@ -57,9 +42,10 @@ export default function StatusDropdown({ currentStatus, bookingId, onStatusChang
   };
 
   return (
-    <div className="relative inline-block" ref={dropdownRef}>
+    <div className="relative inline-block">
       {/* Current Status Badge - Clickable */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${getColorClasses(currentOption?.color || 'blue')}`}
       >
@@ -68,29 +54,32 @@ export default function StatusDropdown({ currentStatus, bookingId, onStatusChang
         <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[160px]">
-          {statusOptions.map((option) => {
-            const Icon = option.icon;
-            return (
-              <button
-                key={option.value}
-                onClick={() => handleSelect(option.value)}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${
-                  option.value === currentStatus ? 'bg-slate-100 font-semibold' : ''
-                }`}
-              >
-                <Icon className={`w-4 h-4 text-${option.color}-600`} />
-                <span className={`text-${option.color}-700`}>{option.label}</span>
-                {option.value === currentStatus && (
-                  <CheckCircle className="w-3.5 h-3.5 text-blue-600 ml-auto" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* Dropdown Menu - Rendered via Portal */}
+      <PortalDropdown
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        triggerRef={buttonRef}
+        align="left"
+      >
+        {statusOptions.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button
+              key={option.value}
+              onClick={() => handleSelect(option.value)}
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${
+                option.value === currentStatus ? 'bg-slate-100 font-semibold' : ''
+              }`}
+            >
+              <Icon className={`w-4 h-4 text-${option.color}-600`} />
+              <span className={`text-${option.color}-700`}>{option.label}</span>
+              {option.value === currentStatus && (
+                <CheckCircle className="w-3.5 h-3.5 text-blue-600 ml-auto" />
+              )}
+            </button>
+          );
+        })}
+      </PortalDropdown>
     </div>
   );
 }

@@ -179,6 +179,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         streetAddress: data.streetAddress || null,
         postalCode: data.postalCode || null,
         city: data.city || null,
+        notizen: data.notizen || null,
       });
 
       console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));
@@ -243,6 +244,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         streetAddress: data.streetAddress || null,
         postalCode: data.postalCode || null,
         city: data.city || null,
+        notizen: data.notizen || null,
       });
 
       console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));

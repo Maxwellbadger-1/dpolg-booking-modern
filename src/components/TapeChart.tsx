@@ -25,7 +25,6 @@ import ContextMenu, { ContextMenuItem } from './ContextMenu';
 import { Edit2, Mail, XCircle, X, Users } from 'lucide-react';
 import ChangeConfirmationDialog from './TapeChart/ChangeConfirmationDialog';
 import TapeChartFilters from './TapeChart/TapeChartFilters';
-import TodayLine from './TapeChart/TodayLine';
 import { filterBookings, getUniqueRoomTypes } from './TapeChart/TapeChartHelpers';
 
 interface Room {
@@ -356,6 +355,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         "backdrop-blur-sm select-none", // select-none prevents text selection
         isDragging && !isOverlay && "opacity-0",
         isResizing && "border-dashed border-4 scale-[1.02]",
+        isPending && "z-50", // FIX: Elevate entire booking above sticky headers when pending (headers are z-10, z-20, z-40)
         colors.bg,
         colors.border,
         colors.text,
@@ -410,7 +410,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       </div>
       {/* Manual Save/Discard Buttons (wenn Pending) */}
       {isPending && onManualSave && onManualDiscard && (
-        <div className="absolute -top-10 right-0 flex gap-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute -top-10 right-0 flex gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -440,10 +440,12 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
   );
 }
 
-function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasOverlap, isCreateDragPreview, onCreateDragStart, onCreateDragMove, onCreateDragEnd, children }: {
+function DroppableCell({ roomId, dayIndex, isWeekend, isToday, isEvenRow, cellWidth, rowHeight, hasOverlap, isCreateDragPreview, onCreateDragStart, onCreateDragMove, onCreateDragEnd, children }: {
   roomId: number;
   dayIndex: number;
   isWeekend: boolean;
+  isToday: boolean;
+  isEvenRow: boolean;
   cellWidth: number;
   rowHeight: number;
   hasOverlap?: boolean;
@@ -480,7 +482,13 @@ function DroppableCell({ roomId, dayIndex, isWeekend, cellWidth, rowHeight, hasO
       }}
       className={cn(
         "border-r border-slate-200 transition-all duration-200 box-border relative",
-        isWeekend ? "bg-blue-50/30" : "bg-white",
+        // Zebra Striping (subtil)
+        isEvenRow ? "bg-white" : "bg-slate-50/50",
+        // Weekend Override (subtiler Blaustich)
+        isWeekend && "bg-blue-50/30",
+        // Today Highlight (sehr deutlich)
+        isToday && "bg-emerald-100/70",
+        // Drag States (höchste Priorität)
         isOver && !hasOverlap && "bg-blue-300/60 ring-2 ring-blue-400 ring-inset",
         isOver && hasOverlap && "bg-red-500/60 ring-2 ring-red-600 ring-inset",
         isCreateDragPreview && "bg-emerald-400/40 ring-2 ring-emerald-500 ring-inset"
@@ -567,10 +575,9 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   // Get unique room types for filter
   const uniqueRoomTypes = getUniqueRoomTypes(rooms);
 
-  // Calculate today's position for TodayLine
+  // Calculate today's index for column highlighting
   const today = startOfDay(new Date());
   const todayIndex = days.findIndex(day => isSameDay(day, today));
-  const todayPosition = todayIndex !== -1 ? todayIndex * density.cellWidth + 250 : -1; // +250 for room name column
 
   const goToPreviousMonth = () => {
     setCurrentMonth(prev => subMonths(prev, 1));
@@ -1395,15 +1402,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         {/* Chart Container */}
         <div ref={chartContainerRef} className="flex-1 overflow-auto">
           <div className="relative">
-            {/* Today Line */}
-            <TodayLine position={todayPosition} visible={todayPosition > 0} />
-
             {/* Header */}
-            <div className="sticky top-0 z-20 bg-white shadow-xl">
-              <div className="flex">
+            <div className="sticky top-0 z-10 bg-white">
+              <div className="flex shadow-xl" style={{ minWidth: `${SIDEBAR_WIDTH + (days.length * density.cellWidth)}px` }}>
                 {/* Top-left corner */}
                 <div
-                  className="sticky left-0 z-30 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-2xl box-border"
+                  className="sticky left-0 z-20 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-2xl box-border"
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
                     height: `${density.headerHeight}px`,
@@ -1421,33 +1425,39 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
                 {/* Date headers */}
                 <div className="flex">
-                  {days.map((day, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "flex flex-col items-center justify-center transition-all hover:bg-slate-100 border-r border-slate-200 box-border",
-                        format(day, 'i') === '6' || format(day, 'i') === '7'
-                          ? 'bg-gradient-to-b from-blue-50 to-blue-100'
-                          : 'bg-white'
-                      )}
-                      style={{
-                        width: `${density.cellWidth}px`,
-                        height: `${density.headerHeight}px`,
-                        minWidth: `${density.cellWidth}px`,
-                        maxWidth: `${density.cellWidth}px`,
-                      }}
-                    >
-                      <div className={cn("font-medium text-slate-500 uppercase tracking-wider", density.fontSize)}>
-                        {format(day, 'EEE', { locale: de })}
+                  {days.map((day, idx) => {
+                    const isToday = todayIndex === idx;
+                    return (
+                      <div
+                        key={idx}
+                        className={cn(
+                          "flex flex-col items-center justify-center transition-all hover:bg-slate-100 border-r border-slate-200 box-border",
+                          // Today Highlight (sehr deutlich)
+                          isToday && 'bg-emerald-100',
+                          // Weekend (nur wenn nicht heute)
+                          !isToday && (format(day, 'i') === '6' || format(day, 'i') === '7')
+                            ? 'bg-gradient-to-b from-blue-50 to-blue-100'
+                            : !isToday && 'bg-white'
+                        )}
+                        style={{
+                          width: `${density.cellWidth}px`,
+                          height: `${density.headerHeight}px`,
+                          minWidth: `${density.cellWidth}px`,
+                          maxWidth: `${density.cellWidth}px`,
+                        }}
+                      >
+                        <div className={cn("font-medium text-slate-500 uppercase tracking-wider", density.fontSize)}>
+                          {format(day, 'EEE', { locale: de })}
+                        </div>
+                        <div className={cn("font-bold text-slate-800 my-1", densityMode === 'compact' ? 'text-lg' : densityMode === 'comfortable' ? 'text-2xl' : 'text-3xl')}>
+                          {format(day, 'd')}
+                        </div>
+                        <div className={cn("font-semibold text-slate-600 uppercase", density.fontSize)}>
+                          {format(day, 'MMM', { locale: de })}
+                        </div>
                       </div>
-                      <div className={cn("font-bold text-slate-800 my-1", densityMode === 'compact' ? 'text-lg' : densityMode === 'comfortable' ? 'text-2xl' : 'text-3xl')}>
-                        {format(day, 'd')}
-                      </div>
-                      <div className={cn("font-semibold text-slate-600 uppercase", density.fontSize)}>
-                        {format(day, 'MMM', { locale: de })}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1465,7 +1475,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
               const roomBookings = localBookings.filter((b) => b.room_id === room.id);
 
               return (
-              <div key={room.id} className="flex hover:bg-slate-50 transition-all group">
+              <div key={room.id} className="flex transition-all group" style={{ minWidth: `${SIDEBAR_WIDTH + (days.length * density.cellWidth)}px` }}>
                 {/* Room sidebar */}
                 <div
                   className={cn("sticky left-0 z-20 bg-gradient-to-r from-slate-100 to-slate-50 flex flex-col justify-center shadow-md group-hover:shadow-lg transition-all box-border select-none", density.padding)}
@@ -1495,9 +1505,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                 </div>
 
                 {/* Timeline grid */}
-<div className="relative flex">
+                <div className="relative flex">
                   {days.map((day, dayIdx) => {
                     const isWeekend = format(day, 'i') === '6' || format(day, 'i') === '7';
+                    const isToday = todayIndex === dayIdx;
                     const hasOverlapHere = overlapDropZone?.roomId === room.id && overlapDropZone?.dayIndex === dayIdx;
                     const isInCreatePreview = createDragPreview?.roomId === room.id &&
                                               dayIdx >= (createDragPreview?.startDay ?? 0) &&
@@ -1508,6 +1519,8 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                         roomId={room.id}
                         dayIndex={dayIdx}
                         isWeekend={isWeekend}
+                        isToday={isToday}
+                        isEvenRow={roomIdx % 2 === 0}
                         cellWidth={density.cellWidth}
                         rowHeight={density.rowHeight}
                         hasOverlap={hasOverlapHere}

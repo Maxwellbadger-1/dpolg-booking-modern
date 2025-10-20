@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { CheckCircle, Circle, ChevronDown, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import PortalDropdown from '../PortalDropdown';
 
 interface InvoiceDropdownProps {
   invoiceSentAt?: string | null;
@@ -19,23 +20,7 @@ export default function InvoiceDropdown({
   onInvoiceStatusChange
 }: InvoiceDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleMarkAsSent = () => {
     setIsOpen(false);
@@ -45,9 +30,10 @@ export default function InvoiceDropdown({
   const isSent = !!invoiceSentAt;
 
   return (
-    <div className="relative inline-block" ref={dropdownRef}>
+    <div className="relative inline-block">
       {/* Current Invoice Status - Clickable */}
       <button
+        ref={buttonRef}
         onClick={() => setIsOpen(!isOpen)}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer ${
           isSent
@@ -77,44 +63,47 @@ export default function InvoiceDropdown({
         </div>
       )}
 
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-lg shadow-lg border border-slate-200 py-1 z-50 min-w-[200px]">
-          <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
-            <p className="text-xs font-semibold text-slate-600">Rechnungsstatus</p>
-          </div>
+      {/* Dropdown Menu - Rendered via Portal */}
+      <PortalDropdown
+        isOpen={isOpen}
+        onClose={() => setIsOpen(false)}
+        triggerRef={buttonRef}
+        align="center"
+      >
+        <div className="px-3 py-2 border-b border-slate-200 bg-slate-50">
+          <p className="text-xs font-semibold text-slate-600">Rechnungsstatus</p>
+        </div>
 
-          {!isSent && (
-            <button
-              onClick={handleMarkAsSent}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-emerald-50 transition-colors"
-            >
-              <Mail className="w-4 h-4 text-emerald-600" />
-              <div className="flex-1 text-left">
-                <span className="text-emerald-700 font-medium">Als versendet markieren</span>
-                <p className="text-xs text-slate-500 mt-0.5">An: {guestEmail}</p>
-              </div>
-            </button>
-          )}
+        {!isSent && (
+          <button
+            onClick={handleMarkAsSent}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-emerald-50 transition-colors"
+          >
+            <Mail className="w-4 h-4 text-emerald-600" />
+            <div className="flex-1 text-left">
+              <span className="text-emerald-700 font-medium">Als versendet markieren</span>
+              <p className="text-xs text-slate-500 mt-0.5">An: {guestEmail}</p>
+            </div>
+          </button>
+        )}
 
-          {isSent && (
-            <div className="px-3 py-2">
-              <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm text-emerald-700 font-medium">Rechnung versendet</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Am: {format(new Date(invoiceSentAt), 'dd.MM.yyyy HH:mm', { locale: de })}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    An: {invoiceSentTo || guestEmail}
-                  </p>
-                </div>
+        {isSent && (
+          <div className="px-3 py-2">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-emerald-700 font-medium">Rechnung versendet</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Am: {format(new Date(invoiceSentAt), 'dd.MM.yyyy HH:mm', { locale: de })}
+                </p>
+                <p className="text-xs text-slate-500">
+                  An: {invoiceSentTo || guestEmail}
+                </p>
               </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </PortalDropdown>
     </div>
   );
 }

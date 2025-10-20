@@ -314,24 +314,56 @@ fn generate_html_from_booking(
     html = html.replace("{{TAX_ROWS}}", &tax_rows);
 
     // Discount Rows
-    let mut discount_rows = booking.discounts.iter()
-        .map(|d| {
-            let amount = if d.discount_type == "percent" {
-                subtotal * (d.discount_value / 100.0)
-            } else {
-                d.discount_value
-            };
-            format!(
+    let mut discount_rows = String::new();
+
+    // 1. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
+    if booking.guest.dpolg_mitglied {
+        // Berechne manuelle Rabatte-Summe
+        let manual_discounts_total: f64 = booking.discounts.iter()
+            .map(|d| {
+                if d.discount_type == "percent" {
+                    subtotal * (d.discount_value / 100.0)
+                } else {
+                    d.discount_value
+                }
+            })
+            .sum();
+
+        // DPolG-Rabatt = Gesamt-Rabatt - Manuelle Rabatte
+        let dpolg_discount = booking.rabatt_preis - manual_discounts_total;
+
+        if dpolg_discount > 0.01 { // Nur anzeigen wenn > 0
+            discount_rows.push_str(&format!(
                 r#"<div class="total-row" style="color: var(--success); font-size: 13px;">
-                    <span class="total-label">{}</span>
+                    <span class="total-label">DPolG-Mitgliederrabatt</span>
                     <span>- {}</span>
                 </div>"#,
-                d.name,
-                format_currency(amount)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+                format_currency(dpolg_discount)
+            ));
+        }
+    }
+
+    // 2. Manuelle Rabatte
+    for d in &booking.discounts {
+        let amount = if d.discount_type == "percent" {
+            subtotal * (d.discount_value / 100.0)
+        } else {
+            d.discount_value
+        };
+
+        if !discount_rows.is_empty() {
+            discount_rows.push_str("\n");
+        }
+
+        discount_rows.push_str(&format!(
+            r#"<div class="total-row" style="color: var(--success); font-size: 13px;">
+                <span class="total-label">{}</span>
+                <span>- {}</span>
+            </div>"#,
+            d.name,
+            format_currency(amount)
+        ));
+    }
 
     // 💰 Credit Row (wenn Guthaben verrechnet wurde)
     if credit_used > 0.0 {
@@ -411,9 +443,30 @@ fn generate_service_rows(booking: &BookingWithDetails, nights: i32) -> Result<St
     ));
     pos += 1;
 
-    // 2. Services (Zusatzleistungen)
+    // 2. Endreinigung (immer als separate Position anzeigen)
+    if booking.room.endreinigung > 0.0 {
+        rows.push(format!(
+            r#"<tr>
+                <td>{:02}</td>
+                <td>
+                    <div class="item-description">Endreinigung</div>
+                    <div class="item-details">Zimmer {}</div>
+                </td>
+                <td>1 Pauschal</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>"#,
+            pos,
+            booking.room.name,
+            format_currency(booking.room.endreinigung),
+            format_currency(booking.room.endreinigung)
+        ));
+        pos += 1;
+    }
+
+    // 3. Services (Zusatzleistungen)
     for service in &booking.services {
-        // Aktuell werden alle Services als Pauschale behandelt (TODO: is_per_night Feature hinzufügen)
+        // Aktuell werden alle Services als Pauschale behandelt
         let quantity_label = "1 Pauschal".to_string();
         let total_price = service.price;
 

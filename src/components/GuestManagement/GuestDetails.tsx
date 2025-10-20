@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   X, User, Mail, Phone, MapPin, Calendar, CreditCard,
@@ -28,6 +28,34 @@ interface Guest {
   mitgliedsnummer?: string;
   notizen?: string;
   created_at: string;
+  // Erweiterte persönliche Daten
+  anrede?: string;
+  geschlecht?: string;
+  geburtsdatum?: string;
+  geburtsort?: string;
+  sprache?: string;
+  nationalitaet?: string;
+  land?: string;
+  identifikationsnummer?: string;
+  // Kontakt-Details
+  telefon_geschaeftlich?: string;
+  telefon_privat?: string;
+  telefon_mobil?: string;
+  fax?: string;
+  rechnungs_email?: string;
+  // Berufliche Daten
+  beruf?: string;
+  bundesland?: string;
+  dienststelle?: string;
+  // Rechnungs & Sonstige Daten
+  debitorenkonto?: string;
+  leitweg_id?: string;
+  kostenstelle?: string;
+  kennzeichen?: string;
+  tags?: string;
+  marketing_einwilligung?: boolean;
+  automail?: boolean;
+  automail_sprache?: string;
 }
 
 interface Room {
@@ -79,6 +107,13 @@ interface Discount {
   discount_value: number;
 }
 
+interface AccompanyingGuestWithBooking extends AccompanyingGuest {
+  booking_id: number;
+  reservierungsnummer: string;
+  checkin_date: string;
+  checkout_date: string;
+}
+
 export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: GuestDetailsProps) {
   const [guest, setGuest] = useState<Guest | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -91,6 +126,7 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       discounts: Discount[];
     };
   }>({});
+  const [allAccompanyingGuests, setAllAccompanyingGuests] = useState<AccompanyingGuestWithBooking[]>([]);
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -116,6 +152,31 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       const allBookings = await invoke<Booking[]>('get_all_bookings');
       const guestBookings = allBookings.filter(b => b.guest_id === guestId);
       setBookings(guestBookings);
+
+      // Load all accompanying guests for all bookings
+      const allAccompanyingGuestsData: AccompanyingGuestWithBooking[] = [];
+      for (const booking of guestBookings) {
+        try {
+          const accompanyingGuests = await invoke<AccompanyingGuest[]>(
+            'get_booking_accompanying_guests_command',
+            { bookingId: booking.id }
+          );
+
+          // Add booking info to each accompanying guest
+          accompanyingGuests.forEach(guest => {
+            allAccompanyingGuestsData.push({
+              ...guest,
+              booking_id: booking.id,
+              reservierungsnummer: booking.reservierungsnummer,
+              checkin_date: booking.checkin_date,
+              checkout_date: booking.checkout_date,
+            });
+          });
+        } catch (error) {
+          console.error(`Fehler beim Laden der Begleitpersonen für Buchung ${booking.id}:`, error);
+        }
+      }
+      setAllAccompanyingGuests(allAccompanyingGuestsData);
     } catch (error) {
       console.error('Fehler beim Laden der Gastdetails:', error);
     } finally {
@@ -181,6 +242,23 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
   const lastBooking = bookings.length > 0
     ? bookings.sort((a, b) => new Date(b.checkin_date).getTime() - new Date(a.checkin_date).getTime())[0]
     : null;
+
+  // Deduplicate accompanying guests - same person should only appear once
+  const uniqueAccompanyingGuests = useMemo(() => {
+    const uniqueMap = new Map<string, AccompanyingGuestWithBooking>();
+
+    allAccompanyingGuests.forEach(guest => {
+      // Create unique key: vorname + nachname + geburtsdatum
+      const key = `${guest.vorname}-${guest.nachname}-${guest.geburtsdatum || 'no-date'}`;
+
+      // Only add if not already in map (keeps first occurrence)
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, guest);
+      }
+    });
+
+    return Array.from(uniqueMap.values());
+  }, [allAccompanyingGuests]);
 
   if (!isOpen) return null;
 
@@ -291,6 +369,62 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                       {format(new Date(guest.created_at), 'dd. MMMM yyyy', { locale: de })}
                     </p>
                   </div>
+                  {guest.anrede && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Anrede</p>
+                      <p className="font-medium text-slate-900">{guest.anrede}</p>
+                    </div>
+                  )}
+                  {guest.geschlecht && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Geschlecht</p>
+                      <p className="font-medium text-slate-900">{guest.geschlecht}</p>
+                    </div>
+                  )}
+                  {guest.geburtsdatum && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5" />
+                        Geburtsdatum
+                      </p>
+                      <p className="font-medium text-slate-900">
+                        {format(new Date(guest.geburtsdatum), 'dd.MM.yyyy', { locale: de })}
+                      </p>
+                    </div>
+                  )}
+                  {guest.geburtsort && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        Geburtsort
+                      </p>
+                      <p className="font-medium text-slate-900">{guest.geburtsort}</p>
+                    </div>
+                  )}
+                  {guest.sprache && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Sprache</p>
+                      <p className="font-medium text-slate-900">{guest.sprache}</p>
+                    </div>
+                  )}
+                  {guest.nationalitaet && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Nationalität</p>
+                      <p className="font-medium text-slate-900">{guest.nationalitaet}</p>
+                    </div>
+                  )}
+                  {guest.land && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Land</p>
+                      <p className="font-medium text-slate-900">{guest.land}</p>
+                    </div>
+                  )}
+                  {guest.identifikationsnummer && (
+                    <div>
+                      <p className="text-sm text-slate-600 mb-1">Identifikationsnummer</p>
+                      <p className="font-medium text-slate-900">{guest.identifikationsnummer}</p>
+                    </div>
+                  )}
                   {guest.notizen && (
                     <div className="col-span-2">
                       <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
@@ -304,6 +438,196 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                   )}
                 </div>
               </div>
+
+              {/* Kontakt-Details Section */}
+              {(guest.telefon_geschaeftlich || guest.telefon_privat || guest.telefon_mobil || guest.fax || guest.rechnungs_email) && (
+                <div className="border border-slate-200 rounded-lg p-5">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Kontakt-Details</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {guest.telefon_geschaeftlich && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5" />
+                          Telefon (Geschäftlich)
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.telefon_geschaeftlich}</p>
+                      </div>
+                    )}
+                    {guest.telefon_privat && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5" />
+                          Telefon (Privat)
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.telefon_privat}</p>
+                      </div>
+                    )}
+                    {guest.telefon_mobil && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5" />
+                          Telefon (Mobil)
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.telefon_mobil}</p>
+                      </div>
+                    )}
+                    {guest.fax && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5" />
+                          Fax
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.fax}</p>
+                      </div>
+                    )}
+                    {guest.rechnungs_email && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Mail className="w-3.5 h-3.5" />
+                          Rechnungs-E-Mail
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.rechnungs_email}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Berufliche Daten Section */}
+              {(guest.beruf || guest.bundesland || guest.dienststelle) && (
+                <div className="border border-slate-200 rounded-lg p-5">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Berufliche Daten</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {guest.beruf && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Beruf</p>
+                        <p className="font-medium text-slate-900">{guest.beruf}</p>
+                      </div>
+                    )}
+                    {guest.bundesland && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Bundesland</p>
+                        <p className="font-medium text-slate-900">{guest.bundesland}</p>
+                      </div>
+                    )}
+                    {guest.dienststelle && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1">Dienststelle</p>
+                        <p className="font-medium text-slate-900">{guest.dienststelle}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Rechnungs & Sonstige Daten Section */}
+              {(guest.debitorenkonto || guest.leitweg_id || guest.kostenstelle || guest.kennzeichen || guest.tags || guest.marketing_einwilligung !== undefined || guest.automail !== undefined) && (
+                <div className="border border-slate-200 rounded-lg p-5">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4">Rechnungs & Sonstige Daten</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {guest.debitorenkonto && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Debitorenkonto</p>
+                        <p className="font-medium text-slate-900">{guest.debitorenkonto}</p>
+                      </div>
+                    )}
+                    {guest.leitweg_id && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Leitweg-ID</p>
+                        <p className="font-medium text-slate-900">{guest.leitweg_id}</p>
+                      </div>
+                    )}
+                    {guest.kostenstelle && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Kostenstelle</p>
+                        <p className="font-medium text-slate-900">{guest.kostenstelle}</p>
+                      </div>
+                    )}
+                    {guest.kennzeichen && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Kennzeichen</p>
+                        <p className="font-medium text-slate-900">{guest.kennzeichen}</p>
+                      </div>
+                    )}
+                    {guest.tags && (
+                      <div className="col-span-2">
+                        <p className="text-sm text-slate-600 mb-1 flex items-center gap-1">
+                          <Tag className="w-3.5 h-3.5" />
+                          Tags
+                        </p>
+                        <p className="font-medium text-slate-900">{guest.tags}</p>
+                      </div>
+                    )}
+                    {guest.marketing_einwilligung !== undefined && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Marketing-Einwilligung</p>
+                        <p className="font-semibold text-slate-900">
+                          {guest.marketing_einwilligung ? (
+                            <span className="text-emerald-600">Ja</span>
+                          ) : (
+                            <span className="text-slate-500">Nein</span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                    {guest.automail !== undefined && (
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Auto-Mail</p>
+                        <p className="font-semibold text-slate-900">
+                          {guest.automail ? (
+                            <span className="text-emerald-600">
+                              Aktiviert {guest.automail_sprache && `(${guest.automail_sprache})`}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">Deaktiviert</span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Mitreisende-Übersicht */}
+              {uniqueAccompanyingGuests.length > 0 && (
+                <div className="border border-slate-200 rounded-lg p-5">
+                  <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <UsersIcon className="w-5 h-5" />
+                    Alle Begleitpersonen ({uniqueAccompanyingGuests.length})
+                  </h3>
+                  <div className="space-y-3">
+                    {uniqueAccompanyingGuests.map((accompanyingGuest) => (
+                      <div
+                        key={`${accompanyingGuest.vorname}-${accompanyingGuest.nachname}-${accompanyingGuest.geburtsdatum || 'no-date'}`}
+                        className="border border-slate-200 rounded-lg p-4 bg-slate-50"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 mb-1">
+                              {accompanyingGuest.vorname} {accompanyingGuest.nachname}
+                            </p>
+                            {accompanyingGuest.geburtsdatum && (
+                              <p className="text-sm text-slate-600 mb-2">
+                                Geburtsdatum: {format(new Date(accompanyingGuest.geburtsdatum), 'dd.MM.yyyy', { locale: de })}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="bg-white px-2 py-1 rounded border border-slate-200">
+                                {accompanyingGuest.reservierungsnummer}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {format(new Date(accompanyingGuest.checkin_date), 'dd.MM.yyyy', { locale: de })} -{' '}
+                                {format(new Date(accompanyingGuest.checkout_date), 'dd.MM.yyyy', { locale: de })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Statistics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
