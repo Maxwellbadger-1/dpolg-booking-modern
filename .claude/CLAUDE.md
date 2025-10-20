@@ -1,5 +1,5 @@
 # Claude Code Projekt-Richtlinien
-## DPolG Buchungssystem - Modern Tauri React Application
+## Stiftung der DPolG Buchungssystem - Modern Tauri React Application
 
 ---
 

@@ -1,4 +1,4 @@
-# 🏨 DPolG Buchungssystem - Modern Tape Chart
+# 🏨 Stiftung der DPolG Buchungssystem - Modern Tape Chart
 
 Ein **modernes Buchungssystem** mit Fokus auf den **Tape Chart** (Timeline-Visualisierung), gebaut mit den neuesten Technologien.
 

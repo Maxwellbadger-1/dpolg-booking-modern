@@ -34,7 +34,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: `v${process.env.PACKAGE_VERSION}`,
-              name: `DPolG Buchungssystem v${process.env.PACKAGE_VERSION}`,
+              name: `Stiftung der DPolG Buchungssystem v${process.env.PACKAGE_VERSION}`,
               body: '🚀 Neue Version mit Auto-Update Support',
               draft: true,
               prerelease: false

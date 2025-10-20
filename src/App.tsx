@@ -4,6 +4,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
+import Lottie from 'lottie-react';
 import { DataProvider, useData } from './context/DataContext';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
@@ -24,6 +25,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ReminderDropdown from './components/Reminders/ReminderDropdown';
 import RemindersView from './components/Reminders/RemindersView';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud, Bell } from 'lucide-react';
+import loadingAnimation from './loading-animation.json';
 
 interface Room {
   id: number;
@@ -288,17 +290,31 @@ function AppContent() {
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-gradient-to-br from-slate-800 to-slate-900">
-        {/* MP4 Video als Ladeanimation - Fullscreen */}
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-        >
-          <source src="/loading-animation.mp4" type="video/mp4" />
-        </video>
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center">
+        {/* Lottie Animation */}
+        <div className="w-64 h-64 mb-8">
+          <Lottie
+            animationData={loadingAnimation}
+            loop={true}
+            autoplay={true}
+          />
+        </div>
+
+        {/* Company Branding */}
+        <div className="text-center space-y-4">
+          <div className="space-y-2">
+            <h1 className="text-4xl font-bold text-white tracking-tight animate-pulse">
+              Maxflow Software
+            </h1>
+            <div className="h-1 w-32 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full mx-auto"></div>
+          </div>
+          <p className="text-xl text-slate-300 font-medium">
+            Stiftung der DPolG Buchungssystem
+          </p>
+          <p className="text-sm text-slate-500 mt-8">
+            Lädt...
+          </p>
+        </div>
       </div>
     );
   }
@@ -345,7 +361,7 @@ function AppContent() {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white tracking-tight">
-                  DPolG Buchungssystem
+                  Stiftung der DPolG Buchungssystem
                 </h1>
               </div>
             </div>
