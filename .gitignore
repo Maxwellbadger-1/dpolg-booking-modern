@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+# package-lock.json MUSS ins Git für CI/CD!
 
 # Tauri / Rust
 src-tauri/target/
