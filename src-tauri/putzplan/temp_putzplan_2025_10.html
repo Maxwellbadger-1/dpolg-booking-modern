@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Putzplan - OKTOBER 2025</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            font-size: 9px;
+            line-height: 1.3;
+        }
+
+        @page {
+            size: A4 landscape;
+            margin: 0;
+        }
+
+        .container {
+            width: 297mm;
+            min-height: 210mm;
+            margin: 0 auto;
+            padding: 8mm;
+            background: white;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .header-row:last-child { margin-bottom: 0; }
+
+        .title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .month-year {
+            font-size: 15px;
+            font-weight: 600;
+            opacity: 0.95;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 11px;
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 4px 10px;
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-label { opacity: 0.9; }
+        .stat-value { font-weight: 700; font-size: 13px; }
+        .stat-value.highlight { color: #fbbf24; }
+
+        /* Tapechart Table */
+        .tapechart {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 15px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+
+        .tapechart thead th {
+            padding: 6px 2px;
+            text-align: center;
+            font-weight: 500;
+            background: #f8fafc;
+            border-bottom: 2px solid #e2e8f0;
+            border-right: 1px solid #e2e8f0;
+            font-size: 8px;
+        }
+
+        .tapechart thead th:last-child { border-right: none; }
+
+        .tapechart thead th:first-child {
+            width: 90px;
+            text-align: left;
+            padding-left: 12px;
+            background: #1e293b;
+            color: white;
+            font-weight: 600;
+            font-size: 9px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .date-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.2;
+        }
+
+        .day-name {
+            font-size: 7px;
+            color: #94a3b8;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .day-number {
+            font-size: 11px;
+            font-weight: 700;
+            margin: 1px 0;
+            color: #0f172a;
+        }
+
+        .month-name {
+            font-size: 6px;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+
+        th.weekend {
+            background: #fef3c7 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        th.weekend .day-name,
+        th.weekend .month-name { color: #92400e; }
+        th.weekend .day-number { color: #92400e; }
+
+        /* Table Body */
+        .tapechart tbody td {
+            padding: 0;
+            height: 38px;
+            position: relative;
+            border-bottom: 1px solid #e2e8f0;
+            border-right: 1px solid #f1f5f9;
+            background: white;
+        }
+
+        .tapechart tbody td:last-child { border-right: none; }
+        .tapechart tbody tr:last-child td { border-bottom: none; }
+
+        .tapechart tbody td:first-child {
+            padding: 6px 12px;
+            font-weight: 600;
+            background: #f8fafc;
+            font-size: 9px;
+            border-right: 2px solid #e2e8f0;
+            color: #334155;
+            line-height: 1.3;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .room-subtitle {
+            font-size: 7px;
+            color: #64748b;
+            font-weight: 400;
+            display: block;
+            margin-top: 1px;
+        }
+
+        /* Booking Bars */
+        .booking {
+            position: absolute;
+            top: 2px;
+            bottom: 2px;
+            left: 2px;
+            right: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 6px;
+            font-size: 7px;
+            font-weight: 500;
+            overflow: hidden;
+            white-space: normal;
+            word-break: break-word;
+            text-align: center;
+            line-height: 1.2;
+            border-radius: 5px;
+            transition: all 0.2s ease;
+        }
+
+        .booking.occupied {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 1px 2px 0 rgba(59, 130, 246, 0.3);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .booking.checkout {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+            color: white;
+            font-weight: 700;
+            box-shadow: 0 2px 4px 0 rgba(239, 68, 68, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .emojis {
+            font-size: 16px;
+        }
+
+        /* Legend */
+        .legend {
+            margin-top: 12px;
+            padding: 10px 15px;
+            background: #f8fafc;
+            border-radius: 10px;
+            display: flex;
+            gap: 25px;
+            font-size: 10px;
+            align-items: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 12px;
+            border-radius: 3px;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .legend-color.occupied {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .legend-color.checkout {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .legend-text {
+            color: #475569;
+            font-weight: 500;
+        }
+
+        @media print {
+            body { margin: 0; background: white; }
+            .container { width: 100%; height: 100%; margin: 0; padding: 8mm; }
+            .header, .tapechart thead th, .tapechart tbody td, .booking, .legend {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-row">
+                <div class="title">🧹 REINIGUNGSPLAN</div>
+                <div class="month-year">OKTOBER 2025</div>
+            </div>
+            <div class="header-row">
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Zimmer gesamt</span>
+                        <span class="stat-value">8</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Abreisen gesamt</span>
+                        <span class="stat-value highlight">7</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <table class="tapechart">
+            <thead><tr><th>Zimmer</th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MI</span>
+                    <span class="day-number">1</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DO</span>
+                    <span class="day-number">2</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">FR</span>
+                    <span class="day-number">3</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SA</span>
+                    <span class="day-number">4</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SO</span>
+                    <span class="day-number">5</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MO</span>
+                    <span class="day-number">6</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DI</span>
+                    <span class="day-number">7</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MI</span>
+                    <span class="day-number">8</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DO</span>
+                    <span class="day-number">9</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">FR</span>
+                    <span class="day-number">10</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SA</span>
+                    <span class="day-number">11</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SO</span>
+                    <span class="day-number">12</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MO</span>
+                    <span class="day-number">13</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DI</span>
+                    <span class="day-number">14</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MI</span>
+                    <span class="day-number">15</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th></tr></thead>
+            <tbody><tr><td>16 - Ferienwohnung<span class="room-subtitle">📍 Brauneckblick</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>1 - Apartment (BG)<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>2 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>3 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>4 - Doppelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>5 - Apartment<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>12 - Ferienwohnung<span class="room-subtitle">📍 Lenggries</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>13 - Ferienwohnung<span class="room-subtitle">📍 Lenggries</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody>
+        </table>
+
+        <table class="tapechart">
+            <thead><tr><th>Zimmer</th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DO</span>
+                    <span class="day-number">16</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">FR</span>
+                    <span class="day-number">17</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SA</span>
+                    <span class="day-number">18</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SO</span>
+                    <span class="day-number">19</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MO</span>
+                    <span class="day-number">20</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DI</span>
+                    <span class="day-number">21</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MI</span>
+                    <span class="day-number">22</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DO</span>
+                    <span class="day-number">23</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">FR</span>
+                    <span class="day-number">24</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SA</span>
+                    <span class="day-number">25</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="weekend">
+                <div class="date-header">
+                    <span class="day-name">SO</span>
+                    <span class="day-number">26</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MO</span>
+                    <span class="day-number">27</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DI</span>
+                    <span class="day-number">28</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">MI</span>
+                    <span class="day-number">29</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">DO</span>
+                    <span class="day-number">30</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th><th class="">
+                <div class="date-header">
+                    <span class="day-name">FR</span>
+                    <span class="day-number">31</span>
+                    <span class="month-name">OKT</span>
+                </div>
+            </th></tr></thead>
+            <tbody><tr><td>16 - Ferienwohnung<span class="room-subtitle">📍 Brauneckblick</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td></td><td></td></tr><tr><td>1 - Apartment (BG)<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️,🥓</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️,🥓</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">dani test</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">dani test</div>
+                        </td></tr><tr><td>2 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️,🥓</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td></td></tr><tr><td>3 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️,🥓</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied">Dani Test4</div>
+                        </td></tr><tr><td>4 - Doppelzimmer<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td></td><td></td><td></td><td></td></tr><tr><td>5 - Apartment<span class="room-subtitle">🍂 Fall</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td></td><td></td><td></td></tr><tr><td>12 - Ferienwohnung<span class="room-subtitle">📍 Lenggries</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Dani Test3</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Dani Test3</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Dani Test3</div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Dani Test3</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td></td><td></td></tr><tr><td>13 - Ferienwohnung<span class="room-subtitle">📍 Lenggries</span></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td style="position: relative;">
+                            <div class="booking occupied"><span class="emojis">🛏️</span></div>
+                        </td><td style="position: relative;">
+                            <div class="booking occupied">Max Mustermann</div>
+                        </td><td style="position: relative;">
+                            <div class="booking checkout"><span class="emojis">🐶</span></div>
+                        </td><td></td><td></td><td></td><td></td><td></td></tr></tbody>
+        </table>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color occupied"></div>
+                <span class="legend-text">Belegt</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color checkout"></div>
+                <span class="legend-text">Abreise (Reinigung erforderlich)</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

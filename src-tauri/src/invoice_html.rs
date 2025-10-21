@@ -261,33 +261,38 @@ fn generate_html_from_booking(
     html = html.replace("{{SERVICE_ROWS}}", &service_rows);
 
     // ============================================================================
-    // TOTALS - Calculate prices
+    // TOTALS - Calculate prices (BRUTTO = inkl. MwSt.)
     // ============================================================================
-    let subtotal = booking.grundpreis + booking.services_preis;
-    let tax_7_base = booking.grundpreis; // Übernachtung = 7%
-    let tax_19_base = booking.services_preis; // Services = 19%
+    // ⚠️ WICHTIG: Alle Preise in Deutschland sind BRUTTOPREISE (inkl. MwSt.)
+    // Die MwSt. ist bereits in den Preisen enthalten und wird nur zur Information angezeigt!
+    let subtotal = booking.grundpreis + booking.services_preis; // Brutto (inkl. MwSt.)
 
-    let tax_7 = tax_7_base * 0.07;
-    let tax_19 = tax_19_base * 0.19;
+    // MwSt.-Anteil berechnen (informativ - bereits im Preis enthalten!)
+    // Formel: MwSt. = Brutto / (1 + Steuersatz) * Steuersatz
+    let tax_7_base = booking.grundpreis; // Übernachtung = 7% MwSt.
+    let tax_19_base = booking.services_preis; // Services = 19% MwSt.
 
-    let total_before_discount = subtotal + tax_7 + tax_19;
+    let tax_7 = tax_7_base / 1.07 * 0.07; // In Brutto enthaltene MwSt.
+    let tax_19 = tax_19_base / 1.19 * 0.19; // In Brutto enthaltene MwSt.
 
-    // Rabatte
-    let discount_total = booking.discounts.iter()
-        .map(|d| {
-            if d.discount_type == "percent" {
-                subtotal * (d.discount_value / 100.0)
-            } else {
-                d.discount_value
-            }
-        })
-        .sum::<f64>();
+    println!("📊 [INVOICE] Tax calculation:");
+    println!("   Subtotal (Brutto): {:.2} €", subtotal);
+    println!("   Davon MwSt. 7%: {:.2} €", tax_7);
+    println!("   Davon MwSt. 19%: {:.2} €", tax_19);
+
+    // Rabatte (ALLE Rabatte inkl. DPolG sind bereits in booking.rabatt_preis gespeichert)
+    // booking.rabatt_preis = Manuelle Rabatte + DPolG-Rabatt (berechnet in database.rs)
+    let total_discount = booking.rabatt_preis;
 
     // 💰 Gast-Guthaben (Verrechnetes Guthaben für diese Buchung)
     let credit_used = get_booking_credit_usage(booking.id).unwrap_or(0.0);
     println!("💰 [INVOICE] Credit used for booking {}: {:.2} €", booking.id, credit_used);
 
-    let grand_total = total_before_discount - discount_total - credit_used;
+    // ✅ FIX: MwSt. ist bereits in Subtotal enthalten, NICHT nochmal draufrechnen!
+    // Endbetrag = Brutto - Rabatte - Guthaben
+    let grand_total = subtotal - total_discount - credit_used;
+
+    println!("💵 [INVOICE] Grand total: {:.2} €", grand_total);
 
     html = html.replace("{{SUBTOTAL}}", &format_currency(subtotal));
 

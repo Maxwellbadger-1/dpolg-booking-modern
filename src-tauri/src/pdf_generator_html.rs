@@ -2,6 +2,47 @@ use crate::database::BookingWithDetails;
 use tauri::AppHandle;
 use headless_chrome::{Browser, LaunchOptions};
 use headless_chrome::types::PrintToPdfOptions;
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+// ⚡ PERFORMANCE FIX: Browser-Pool - Chrome-Instanz wird einmalig gestartet und wiederverwendet
+// Vorher: 20+ Sekunden (jedes Mal neuer Browser-Start)
+// Nachher: < 1 Sekunde (Browser bleibt im Speicher)
+static BROWSER_POOL: Lazy<Mutex<Option<Browser>>> = Lazy::new(|| {
+    println!("🚀 [BROWSER POOL] Initializing browser pool...");
+    Mutex::new(None)
+});
+
+fn get_or_create_browser() -> Result<Browser, String> {
+    let mut pool = BROWSER_POOL.lock().map_err(|e| format!("Browser pool lock error: {}", e))?;
+
+    // Prüfe ob Browser bereits existiert und noch läuft
+    if let Some(ref browser) = *pool {
+        println!("♻️  [BROWSER POOL] Reusing existing browser instance");
+        // Clone ist günstig, da Browser intern Arc verwendet
+        return Ok(browser.clone());
+    }
+
+    // Browser noch nicht gestartet - erstmalig initialisieren
+    println!("🌐 [BROWSER POOL] Starting new browser instance (first time)...");
+    let launch_options = LaunchOptions::default_builder()
+        .headless(true)
+        .build()
+        .map_err(|e| {
+            eprintln!("❌ Chrome launch options error: {}", e);
+            format!("Chrome launch options: {}", e)
+        })?;
+
+    let browser = Browser::new(launch_options)
+        .map_err(|e| {
+            eprintln!("❌ Chrome start error: {}", e);
+            format!("Chrome starten Fehler: {}", e)
+        })?;
+
+    println!("✅ [BROWSER POOL] Browser started and cached");
+    *pool = Some(browser.clone());
+    Ok(browser)
+}
 
 #[tauri::command]
 pub fn generate_invoice_pdf_html(
@@ -11,7 +52,7 @@ pub fn generate_invoice_pdf_html(
     use tauri::Manager;
 
     println!("┌─────────────────────────────────────────────────────┐");
-    println!("│  HTML→PDF GENERATOR                                 │");
+    println!("│  HTML→PDF GENERATOR (Browser Pool Optimized)        │");
     println!("└─────────────────────────────────────────────────────┘");
 
     println!("📁 Getting app data directory...");
@@ -45,25 +86,28 @@ pub fn generate_invoice_pdf_html(
     std::fs::write(&temp_html_path, &html)
         .map_err(|e| format!("Fehler HTML schreiben: {}", e))?;
 
-    // 5. Headless Chrome starten (mit Performance-Optimierungen)
-    println!("🌐 Starting headless Chrome...");
-    let launch_options = LaunchOptions::default_builder()
-        .headless(true)
-        .build()
-        .map_err(|e| {
-            eprintln!("❌ Chrome launch options error: {}", e);
-            format!("Chrome launch options: {}", e)
-        })?;
+    // 5. ⚡ Browser aus Pool holen (wiederverwendet = SCHNELL!)
+    println!("♻️  Getting browser from pool...");
+    let browser = get_or_create_browser()?;
+    println!("✅ Browser ready");
 
-    let browser = Browser::new(launch_options)
-        .map_err(|e| {
-            eprintln!("❌ Chrome start error: {}", e);
-            format!("Chrome starten Fehler: {}", e)
-        })?;
-    println!("✅ Chrome started");
+    // Versuche Tab zu erstellen - wenn Verbindung geschlossen, Browser neu starten
+    let tab = match browser.new_tab() {
+        Ok(t) => t,
+        Err(e) => {
+            println!("⚠️  Browser connection closed, resetting pool...");
+            // Browser-Pool zurücksetzen
+            let mut pool = BROWSER_POOL.lock().map_err(|e| format!("Browser pool lock error: {}", e))?;
+            *pool = None;
+            drop(pool);
 
-    let tab = browser.new_tab()
-        .map_err(|e| format!("Chrome tab Fehler: {}", e))?;
+            // Neuen Browser starten
+            println!("🔄 Restarting browser...");
+            let new_browser = get_or_create_browser()?;
+            new_browser.new_tab()
+                .map_err(|e| format!("Chrome tab Fehler nach Neustart: {}", e))?
+        }
+    };
 
     // 6. HTML laden
     let file_url = format!("file://{}", temp_html_path.display());

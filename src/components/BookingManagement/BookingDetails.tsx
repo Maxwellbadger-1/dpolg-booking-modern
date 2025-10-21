@@ -4,7 +4,7 @@ import {
   X, Calendar, Users, MapPin, Mail, Phone, DollarSign, Tag,
   UserCheck, ShoppingBag, Percent, Edit2, XCircle, FileText,
   Clock, Home, Send, CheckCircle, AlertCircle, Euro, Download,
-  FolderOpen, Eye, AlertTriangle
+  FolderOpen, Eye, AlertTriangle, Wallet
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -120,6 +120,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [invoicePdfs, setInvoicePdfs] = useState<InvoicePdfInfo[]>([]);
   const [paymentRecipient, setPaymentRecipient] = useState<PaymentRecipient | null>(null);
+  const [creditUsed, setCreditUsed] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
@@ -167,6 +168,15 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         bookingId,
       });
       setDiscounts(discountsData);
+
+      // Load guest credit usage
+      try {
+        const credit = await invoke<number>('get_booking_credit_usage', { bookingId });
+        setCreditUsed(credit || 0);
+      } catch (error) {
+        console.error('❌ Fehler beim Laden des Gast-Guthabens:', error);
+        setCreditUsed(0);
+      }
 
       // Load invoice PDFs
       const pdfsData = await invoke<InvoicePdfInfo[]>('get_invoice_pdfs_for_booking_command', {
@@ -855,6 +865,15 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                     <div className="flex justify-between items-center">
                       <span className="text-orange-700">- Rabatte</span>
                       <span className="font-semibold text-orange-700">{booking.rabatt_preis.toFixed(2)} €</span>
+                    </div>
+                  )}
+                  {creditUsed > 0 && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-emerald-700 flex items-center gap-1">
+                        <Wallet className="w-4 h-4" />
+                        💰 Gast-Guthaben
+                      </span>
+                      <span className="font-semibold text-emerald-700">-{creditUsed.toFixed(2)} €</span>
                     </div>
                   )}
                   <div className="border-t-2 border-blue-300 pt-3 flex justify-between items-center">

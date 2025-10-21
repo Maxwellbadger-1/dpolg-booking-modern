@@ -541,6 +541,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
+    console.log('🔄 [TapeChart] Syncing localBookings from context, count:', bookings.length);
     setLocalBookings(bookings);
   }, [bookings]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -624,13 +625,14 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   ];
 
   const getBookingPosition = (booking: Booking) => {
-    const checkin = new Date(booking.checkin_date);
-    const checkout = new Date(booking.checkout_date);
+    const checkin = startOfDay(new Date(booking.checkin_date));
+    const checkout = startOfDay(new Date(booking.checkout_date));
 
     const startOffset = differenceInDays(checkin, defaultStart);
-    // Hotel booking: show occupied days only (NOT checkout day)
-    // Check-in 26.10 to Check-out 28.10 = 2 nights = show 26th + 27th (NOT 28th)
-    const duration = differenceInDays(checkout, checkin);
+    // Include checkout day for visualization (will be colored differently later)
+    // Check-in 26.10 to Check-out 28.10 = 2 nights = show 3 days (26th, 27th, 28th)
+    // TODO: Implement color scheme - Green (check-in), Blue (occupied), Red (check-out)
+    const duration = differenceInDays(checkout, checkin) + 1;
 
     // Add padding: 4px on each side
     const padding = 4;
@@ -1283,7 +1285,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
               {/* Month Picker Dropdown */}
               {showMonthPicker && (
-                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-slate-800 rounded-xl shadow-2xl border-2 border-slate-600 p-5 z-50 w-[380px]">
+                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-slate-800 rounded-xl shadow-2xl border-2 border-slate-600 p-5 z-[60] w-[380px]">
                   {/* Year Navigation */}
                   <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-600">
                     <button

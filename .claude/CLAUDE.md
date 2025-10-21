@@ -11,23 +11,48 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ## 🚨 KRITISCHE REGELN
 
-### 1. Tauri + Serde camelCase/snake_case
+### 🔥 REGEL #1 - TAURI AUTO-KONVERTIERUNG (WICHTIGSTE REGEL!)
 
-**Golden Rules:**
-- Frontend sendet IMMER camelCase (keine Ausnahmen!)
-- Backend annotiert neue Felder mit `#[serde(rename = "camelCase")]`
-- NIEMALS camelCase und snake_case mixen - bricht die Auto-Konvertierung!
-- Bei neuen Structs: `#[serde(rename_all = "camelCase")]` verwenden
+**⚠️ TAURI KONVERTIERT PARAMETER AUTOMATISCH!**
 
-**Beispiel:**
+```typescript
+// ✅ RICHTIG - Frontend IMMER camelCase:
+invoke('sync_affected_dates', {
+  bookingId: 81,           // → Tauri konvertiert zu: booking_id
+  oldCheckout: "2025-10-28", // → Tauri konvertiert zu: old_checkout
+  newCheckout: "2025-10-30"  // → Tauri konvertiert zu: new_checkout
+})
+
+// ❌ FALSCH - NIEMALS snake_case im Frontend:
+invoke('sync_affected_dates', {
+  booking_id: 81,        // ❌ FEHLER! Command missing required key
+  old_checkout: "...",   // ❌ Bricht die Auto-Konvertierung!
+  new_checkout: "..."
+})
+```
+
+**Golden Rules (2025 Research-backed):**
+1. **Frontend:** IMMER camelCase verwenden - keine Ausnahmen!
+2. **Backend:** IMMER snake_case verwenden (Rust Convention)
+3. **Tauri macht die Konvertierung automatisch** bei `invoke()` Aufrufen
+4. **Für Structs:** `#[serde(rename_all = "camelCase")]` für nested fields
+5. **NIEMALS** camelCase und snake_case mixen!
+
+**Beispiel Struct:**
 ```rust
 #[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NewEntity {
-    pub first_name: String,  // → firstName im JSON
-    pub postal_code: String, // → postalCode im JSON
+#[serde(rename_all = "camelCase")]  // ← Für nested fields!
+pub struct BookingData {
+    pub booking_id: i64,     // → bookingId im JSON
+    pub guest_name: String,  // → guestName im JSON
+    pub check_in: String,    // → checkIn im JSON
 }
 ```
+
+**Wie es funktioniert:**
+- Tauri Command Parameter: **automatische Konvertierung**
+- Nested Struct Fields: **benötigt serde annotation**
+- Return Values: **benötigt serde annotation**
 
 ### 2. Optimistic Updates - IMMER!
 
