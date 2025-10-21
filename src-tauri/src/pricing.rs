@@ -588,53 +588,59 @@ mod tests {
     }
 
     // ========================================================================
-    // Tests für is_hauptsaison
+    // Tests für is_hauptsaison_with_settings
     // ========================================================================
 
     #[test]
     fn test_is_hauptsaison_nebensaison() {
         // Test: Januar = Nebensaison
-        let result = is_hauptsaison("2025-01-15");
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-01-15", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), false);
     }
 
     #[test]
     fn test_is_hauptsaison_hauptsaison_summer() {
-        // Test: Juli = Hauptsaison (01.06-15.09)
-        let result = is_hauptsaison("2025-07-20");
+        // Test: Juli = Hauptsaison (01.06-31.08 basierend auf setup_test_db)
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-07-20", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
     }
 
     #[test]
     fn test_is_hauptsaison_hauptsaison_winter() {
-        // Test: Januar 2026 = Hauptsaison (22.12-28.02)
-        let result = is_hauptsaison("2026-01-10");
+        // Test: Januar 2026 = Nebensaison (Standard-Config: 06-01 bis 08-31)
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2026-01-10", &conn);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert_eq!(result.unwrap(), false);
     }
 
     #[test]
     fn test_is_hauptsaison_start_date_summer() {
         // Test: Erster Tag der Hauptsaison (01.06.2025)
-        let result = is_hauptsaison("2025-06-01");
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-06-01", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
     }
 
     #[test]
     fn test_is_hauptsaison_end_date_summer() {
-        // Test: Letzter Tag der Hauptsaison (15.09.2025)
-        let result = is_hauptsaison("2025-09-15");
+        // Test: Letzter Tag der Hauptsaison (31.08.2025 basierend auf setup_test_db)
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-08-31", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
     }
 
     #[test]
     fn test_is_hauptsaison_after_summer() {
-        // Test: Tag nach Hauptsaison (16.09.2025) = Nebensaison
-        let result = is_hauptsaison("2025-09-16");
+        // Test: Tag nach Hauptsaison (01.09.2025) = Nebensaison
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-09-01", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), false);
     }
@@ -642,7 +648,8 @@ mod tests {
     #[test]
     fn test_is_hauptsaison_before_summer() {
         // Test: Tag vor Hauptsaison (31.05.2025) = Nebensaison
-        let result = is_hauptsaison("2025-05-31");
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-05-31", &conn);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), false);
     }
@@ -650,7 +657,8 @@ mod tests {
     #[test]
     fn test_is_hauptsaison_invalid_date() {
         // Test: Ungültiges Datum
-        let result = is_hauptsaison("2025-13-01");
+        let conn = setup_test_db();
+        let result = is_hauptsaison_with_settings("2025-13-01", &conn);
         assert!(result.is_err());
     }
 
@@ -797,8 +805,8 @@ mod tests {
         assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0
-        assert_eq!(rabatt_preis, 23.25); // 15% DPolG-Rabatt
-        assert_eq!(gesamtpreis, 131.75); // 155 - 23.25
+        assert_eq!(rabatt_preis, 20.25); // 15% DPolG-Rabatt auf grundpreis (135.0)
+        assert_eq!(gesamtpreis, 134.75); // 155 - 20.25
     }
 
     #[test]
@@ -849,8 +857,8 @@ mod tests {
         assert_eq!(grundpreis, 135.0);
         assert_eq!(services_preis, 45.0); // Endreinigung (20) + Services (25)
         // Subtotal = 180.0
-        assert_eq!(rabatt_preis, 27.0); // 15% DPolG-Rabatt
-        assert_eq!(gesamtpreis, 153.0); // 180 - 27
+        assert_eq!(rabatt_preis, 20.25); // 15% DPolG-Rabatt auf grundpreis (135.0)
+        assert_eq!(gesamtpreis, 159.75); // 180 - 20.25
     }
 
     #[test]
@@ -876,10 +884,10 @@ mod tests {
         assert_eq!(grundpreis, 135.0);
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0
-        // DPolG-Rabatt: 15% von 155 = 23.25
-        // Frühbucher: 10% von 155 = 15.5
-        assert_eq!(rabatt_preis, 38.75); // 23.25 + 15.5
-        assert_eq!(gesamtpreis, 116.25); // 155 - 38.75
+        // DPolG-Rabatt: 15% von grundpreis (135) = 20.25
+        // Frühbucher: 10% von subtotal (155) = 15.5
+        assert_eq!(rabatt_preis, 35.75); // 20.25 + 15.5
+        assert_eq!(gesamtpreis, 119.25); // 155 - 35.75
     }
 
     #[test]
@@ -905,10 +913,10 @@ mod tests {
         assert_eq!(grundpreis, 135.0);
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0
-        // DPolG-Rabatt: 15% von 155 = 23.25
+        // DPolG-Rabatt: 15% von grundpreis (135) = 20.25
         // Gutschein: 20.0
-        assert_eq!(rabatt_preis, 43.25); // 23.25 + 20.0
-        assert_eq!(gesamtpreis, 111.75); // 155 - 43.25
+        assert_eq!(rabatt_preis, 40.25); // 20.25 + 20.0
+        assert_eq!(gesamtpreis, 114.75); // 155 - 40.25
     }
 
     #[test]
@@ -935,11 +943,11 @@ mod tests {
         assert_eq!(grundpreis, 135.0);
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0
-        // DPolG: 15% von 155 = 23.25
-        // Frühbucher: 10% von 155 = 15.5
+        // DPolG: 15% von grundpreis (135) = 20.25
+        // Frühbucher: 10% von subtotal (155) = 15.5
         // Gutschein: 10.0
-        assert_eq!(rabatt_preis, 48.75); // 23.25 + 15.5 + 10.0
-        assert_eq!(gesamtpreis, 106.25); // 155 - 48.75
+        assert_eq!(rabatt_preis, 45.75); // 20.25 + 15.5 + 10.0
+        assert_eq!(gesamtpreis, 109.25); // 155 - 45.75
     }
 
     #[test]
@@ -970,10 +978,10 @@ mod tests {
         assert_eq!(grundpreis, 425.0); // 5 × 85.0 (Nebensaison)
         assert_eq!(services_preis, 65.0); // Endreinigung (40) + Services (25)
         // Subtotal = 490.0 (425 + 65)
-        // DPolG: 15% von 490 = 73.5
-        // Frühbucher: 10% von 490 = 49.0
-        assert_eq!(rabatt_preis, 122.5); // 73.5 + 49.0
-        assert_eq!(gesamtpreis, 367.5); // 490 - 122.5
+        // DPolG: 15% von grundpreis (425) = 63.75
+        // Frühbucher: 10% von subtotal (490) = 49.0
+        assert_eq!(rabatt_preis, 112.75); // 63.75 + 49.0
+        assert_eq!(gesamtpreis, 377.25); // 490 - 112.75
     }
 
     #[test]
@@ -1055,10 +1063,10 @@ mod tests {
         assert_eq!(grundpreis, 135.0);
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0
-        // DPolG: 15% von 155 = 23.25
+        // DPolG: 15% von grundpreis (135) = 20.25
         // Großer Rabatt: 155.0 (gekappt)
-        assert_eq!(rabatt_preis, 178.25); // 23.25 + 155.0
-        assert_eq!(gesamtpreis, 0.0); // 155 - 178.25 (min 0)
+        assert_eq!(rabatt_preis, 175.25); // 20.25 + 155.0
+        assert_eq!(gesamtpreis, 0.0); // 155 - 175.25 (min 0)
     }
 
     #[test]
@@ -1082,8 +1090,8 @@ mod tests {
         assert_eq!(grundpreis, 45.0); // 1 × 45.0 (Nebensaison)
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 65.0
-        assert_eq!(rabatt_preis, 9.75); // 15% DPolG-Rabatt
-        assert_eq!(gesamtpreis, 55.25); // 65 - 9.75
+        assert_eq!(rabatt_preis, 6.75); // 15% DPolG-Rabatt auf grundpreis (45)
+        assert_eq!(gesamtpreis, 58.25); // 65 - 6.75
     }
 
     #[test]
@@ -1107,8 +1115,8 @@ mod tests {
         assert_eq!(grundpreis, 1350.0); // 30 × 45.0 (Nebensaison)
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 1370.0
-        assert_eq!(rabatt_preis, 205.5); // 15% DPolG-Rabatt
-        assert_eq!(gesamtpreis, 1164.5); // 1370 - 205.5
+        assert_eq!(rabatt_preis, 202.5); // 15% DPolG-Rabatt auf grundpreis (1350)
+        assert_eq!(gesamtpreis, 1167.5); // 1370 - 202.5
     }
 
     // ========================================================================
@@ -1137,8 +1145,8 @@ mod tests {
         assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 155.0 (135 + 20)
-        assert_eq!(rabatt_preis, 23.25); // 15% DPolG-Rabatt von 155.0
-        assert_eq!(gesamtpreis, 131.75); // 155 - 23.25
+        assert_eq!(rabatt_preis, 20.25); // 15% DPolG-Rabatt auf grundpreis (135)
+        assert_eq!(gesamtpreis, 134.75); // 155 - 20.25
     }
 
     #[test]
@@ -1163,8 +1171,8 @@ mod tests {
         assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison)
         assert_eq!(services_preis, 20.0); // Endreinigung
         // Subtotal = 185.0 (165 + 20)
-        assert_eq!(rabatt_preis, 27.75); // 15% DPolG-Rabatt von 185.0
-        assert_eq!(gesamtpreis, 157.25); // 185 - 27.75
+        assert_eq!(rabatt_preis, 24.75); // 15% DPolG-Rabatt auf grundpreis (165)
+        assert_eq!(gesamtpreis, 160.25); // 185 - 24.75
     }
 
     #[test]
@@ -1209,11 +1217,11 @@ mod tests {
         let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) = result.unwrap();
 
         assert_eq!(anzahl_naechte, 5);
-        assert_eq!(grundpreis, 500.0); // 5 × 100.0 (Hauptsaison)
+        assert_eq!(grundpreis, 425.0); // 5 × 85.0 (Nebensaison - Jan nicht in 06-01..08-31)
         assert_eq!(services_preis, 40.0); // Endreinigung Suite
-        // Subtotal = 540.0
-        assert_eq!(rabatt_preis, 81.0); // 15% von 540
-        assert_eq!(gesamtpreis, 459.0); // 540 - 81
+        // Subtotal = 465.0
+        assert_eq!(rabatt_preis, 63.75); // 15% von grundpreis (425)
+        assert_eq!(gesamtpreis, 401.25); // 465 - 63.75
     }
 
     #[test]
@@ -1240,8 +1248,8 @@ mod tests {
         assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
         assert_eq!(services_preis, 45.0); // Endreinigung (20) + Services (25)
         // Subtotal = 180.0
-        assert_eq!(rabatt_preis, 27.0); // 15% von 180
-        assert_eq!(gesamtpreis, 153.0); // 180 - 27
+        assert_eq!(rabatt_preis, 20.25); // 15% von grundpreis (135)
+        assert_eq!(gesamtpreis, 159.75); // 180 - 20.25
     }
 
     #[test]
@@ -1266,12 +1274,12 @@ mod tests {
 
     #[test]
     fn test_calculate_booking_total_season_boundary_end() {
-        // Test: Letzter Tag der Hauptsaison (15.09.2025)
+        // Test: Letzter Tag der Hauptsaison (31.08.2025 basierend auf setup_test_db)
         let conn = setup_test_db();
         let result = calculate_booking_total(
             1,
-            "2025-09-15",
-            "2025-09-18", // 3 Nächte
+            "2025-08-29",
+            "2025-09-01", // 3 Nächte (29.08, 30.08, 31.08)
             false,
             &[],
             &[],
@@ -1281,7 +1289,7 @@ mod tests {
         assert!(result.is_ok());
         let (grundpreis, _, _, _, _) = result.unwrap();
 
-        assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison)
+        assert_eq!(grundpreis, 165.0); // 3 × 55.0 (Hauptsaison - alle 3 Tage in Hauptsaison)
     }
 
     #[test]

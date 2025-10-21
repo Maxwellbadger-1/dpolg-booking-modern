@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Putzplan - 21.-29. Oktober 2025</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        
+        /* A4 Querformat */
+        .container {
+            width: 297mm;
+            height: 210mm;
+            margin: 0 auto;
+            padding: 8mm;
+            background: white;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+            color: white;
+            padding: 20px 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .header-row:last-child {
+            margin-bottom: 0;
+        }
+        
+        .title {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        
+        .month-year {
+            font-size: 18px;
+            font-weight: 600;
+            opacity: 0.95;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 35px;
+            font-size: 13px;
+        }
+        
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 6px 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stat-label {
+            opacity: 0.9;
+        }
+        
+        .stat-value {
+            font-weight: 700;
+            font-size: 15px;
+        }
+        
+        .stat-value.highlight {
+            color: #fbbf24;
+        }
+        
+        /* Tapechart Table */
+        .tapechart {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 5px;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Table Header */
+        .tapechart thead th {
+            padding: 8px 3px;
+            text-align: center;
+            font-weight: 500;
+            background: #f8fafc;
+            border-bottom: 2px solid #e2e8f0;
+            border-right: 1px solid #e2e8f0;
+            font-size: 10px;
+        }
+        
+        .tapechart thead th:last-child {
+            border-right: none;
+        }
+        
+        .tapechart thead th:first-child {
+            width: 120px;
+            text-align: left;
+            padding-left: 15px;
+            background: #1e293b;
+            color: white;
+            font-weight: 600;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        
+        .date-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.2;
+        }
+        
+        .day-name {
+            font-size: 9px;
+            color: #94a3b8;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .day-number {
+            font-size: 14px;
+            font-weight: 700;
+            margin: 2px 0;
+            color: #0f172a;
+        }
+        
+        .month-name {
+            font-size: 8px;
+            color: #94a3b8;
+            text-transform: uppercase;
+        }
+        
+        th.weekend {
+            background: #fef3c7 !important;
+        }
+        
+        th.weekend .day-name,
+        th.weekend .month-name {
+            color: #92400e;
+        }
+        
+        th.weekend .day-number {
+            color: #92400e;
+        }
+        
+        /* Table Body */
+        .tapechart tbody td {
+            padding: 0;
+            height: 50px;
+            position: relative;
+            border-bottom: 1px solid #e2e8f0;
+            border-right: 1px solid #f1f5f9;
+            background: white;
+        }
+        
+        .tapechart tbody td:last-child {
+            border-right: none;
+        }
+        
+        .tapechart tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .tapechart tbody td:first-child {
+            padding: 8px 15px;
+            font-weight: 600;
+            background: #f8fafc;
+            font-size: 11px;
+            border-right: 2px solid #e2e8f0;
+            color: #334155;
+            line-height: 1.3;
+        }
+        
+        .room-subtitle {
+            font-size: 9px;
+            color: #64748b;
+            font-weight: 400;
+            display: block;
+            margin-top: 2px;
+        }
+        
+        /* Booking Bars */
+        .booking {
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            left: 2px;
+            right: 2px;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            font-size: 10px;
+            font-weight: 500;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+        
+        /* Standard Buchung */
+        .booking.occupied {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 1px 2px 0 rgba(59, 130, 246, 0.3);
+        }
+        
+        /* Check-out Tag */
+        .booking.checkout {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+            color: white;
+            font-weight: 700;
+            box-shadow: 0 2px 4px 0 rgba(239, 68, 68, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Legende */
+        .legend {
+            margin-top: 20px;
+            padding: 15px 20px;
+            background: #f8fafc;
+            border-radius: 12px;
+            display: flex;
+            gap: 30px;
+            font-size: 12px;
+            align-items: center;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 24px;
+            height: 14px;
+            border-radius: 4px;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+        
+        .legend-color.occupied {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+        
+        .legend-color.checkout {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+        
+        .legend-text {
+            color: #475569;
+            font-weight: 500;
+        }
+        
+        /* Print Styles */
+        @media print {
+            body {
+                margin: 0;
+                background: white;
+            }
+            
+            .container {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 8mm;
+            }
+            
+            .header {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            .tapechart thead th,
+            .tapechart tbody td,
+            .booking,
+            .legend {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            
+            @page {
+                size: A4 landscape;
+                margin: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-row">
+                <div class="title">🧹 REINIGUNGSPLAN</div>
+                <div class="month-year">21. - 29. OKTOBER 2025</div>
+            </div>
+            <div class="header-row">
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">Zimmer gesamt</span>
+                        <span class="stat-value">5</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Aktive Buchungen</span>
+                        <span class="stat-value highlight">6</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Abreisen Zeitraum</span>
+                        <span class="stat-value">6</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tapechart Table -->
+        <table class="tapechart">
+            <thead>
+                <tr>
+                    <th>Zimmer</th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">DI</span>
+                            <span class="day-number">21</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">MI</span>
+                            <span class="day-number">22</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">DO</span>
+                            <span class="day-number">23</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">FR</span>
+                            <span class="day-number">24</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th class="weekend">
+                        <div class="date-header">
+                            <span class="day-name">SA</span>
+                            <span class="day-number">25</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th class="weekend">
+                        <div class="date-header">
+                            <span class="day-name">SO</span>
+                            <span class="day-number">26</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">MO</span>
+                            <span class="day-number">27</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">DI</span>
+                            <span class="day-number">28</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                    <th>
+                        <div class="date-header">
+                            <span class="day-name">MI</span>
+                            <span class="day-number">29</span>
+                            <span class="month-name">OKT</span>
+                        </div>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- 16 - Ferienwohnung -->
+                <tr>
+                    <td>16 - Ferienwohnung<span class="room-subtitle">🏔️ Brauneckblick</span></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td colspan="3" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-59)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                
+                <!-- 1 - Apartment (BG) -->
+                <tr>
+                    <td>1 - Apartment (BG)<span class="room-subtitle">🍂 Fall</span></td>
+                    <td></td>
+                    <td></td>
+                    <td colspan="4" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-67)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td></td>
+                </tr>
+                
+                <!-- 2 - Einzelzimmer -->
+                <tr>
+                    <td>2 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td colspan="3" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-68)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td></td>
+                </tr>
+                
+                <!-- 3 - Einzelzimmer -->
+                <tr>
+                    <td>3 - Einzelzimmer<span class="room-subtitle">🍂 Fall</span></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td colspan="3" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-69)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td></td>
+                </tr>
+                
+                <!-- 4 - Doppelzimmer -->
+                <tr>
+                    <td>4 - Doppelzimmer<span class="room-subtitle">🍂 Fall</span></td>
+                    <td colspan="2" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-71)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td colspan="2" style="position: relative;">
+                        <div class="booking occupied">Max Mustermann (2025-70)</div>
+                    </td>
+                    <td style="position: relative;">
+                        <div class="booking checkout">Abreise ✓</div>
+                    </td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <!-- Legende -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color occupied"></div>
+                <span class="legend-text">Belegt</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color checkout"></div>
+                <span class="legend-text">Abreise (Reinigung erforderlich)</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

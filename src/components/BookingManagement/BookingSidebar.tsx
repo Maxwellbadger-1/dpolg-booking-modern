@@ -273,6 +273,17 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     }
   }, [mode, formData.room_id, formData.guest_id, formData.checkin_date, formData.checkout_date, services, discounts, guests, rooms]);
 
+  // Listen for refresh-data events (e.g., when guests are created/updated)
+  useEffect(() => {
+    const handleRefresh = () => {
+      console.log('📡 [BookingSidebar] refresh-data event received - reloading guests and rooms');
+      loadGuestsAndRooms();
+    };
+
+    window.addEventListener('refresh-data', handleRefresh);
+    return () => window.removeEventListener('refresh-data', handleRefresh);
+  }, []);
+
   // Auto-load Payment Recipient when booking.payment_recipient_id changes
   useEffect(() => {
     const loadPaymentRecipient = async () => {

@@ -3070,24 +3070,49 @@ pub fn link_service_template_to_booking(
     // 💰 PREISBERECHNUNG: Nach Service-Template-Verknüpfung Preise neu berechnen!
     println!("💰 [link_service_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
 
+    // Hole Buchung für Grundpreis und DPolG-Status
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+    let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
+
     // Hole alle Services (inkl. dem neuen Template-Service)
     let all_services = get_booking_services(booking_id)?;
     let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
 
-    // Hole alle Discounts
+    // Hole alle Discount-Templates
     let discounts = get_booking_discounts(booking_id)?;
 
-    // Hole Buchung für Grundpreis
-    let booking = get_booking_by_id(booking_id)?;
-    let grundpreis = booking.grundpreis;
-
-    // Berechne Rabatt-Summe
+    // Berechne Rabatt-Summe (Discount-Templates + DPolG-Rabatt)
     let mut rabatt_total = 0.0;
+
+    // 1. Discount-Templates
     for discount in &discounts {
         if discount.discount_type == "percent" {
             rabatt_total += grundpreis * (discount.discount_value / 100.0);
         } else {
             rabatt_total += discount.discount_value;
+        }
+    }
+
+    // 2. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
+    if ist_dpolg_mitglied {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv {
+            let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                "zimmerpreis" => grundpreis,
+                "gesamtpreis" => grundpreis + services_total,
+                _ => grundpreis,
+            };
+            let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
+            rabatt_total += dpolg_rabatt;
+            println!("  🎫 DPolG-Rabatt: {:.2}€ ({}% auf {})", dpolg_rabatt, rabatt_prozent, rabatt_basis);
         }
     }
 
@@ -3127,24 +3152,49 @@ pub fn link_discount_template_to_booking(
     // 💰 PREISBERECHNUNG: Nach Discount-Template-Verknüpfung Preise neu berechnen!
     println!("💰 [link_discount_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
 
+    // Hole Buchung für Grundpreis und DPolG-Status
+    let booking = get_booking_by_id(booking_id)?;
+    let grundpreis = booking.grundpreis;
+    let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
+
     // Hole alle Services
     let all_services = get_booking_services(booking_id)?;
     let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
 
-    // Hole alle Discounts (inkl. dem neuen Template-Discount)
+    // Hole alle Discount-Templates (inkl. dem neuen Template-Discount)
     let discounts = get_booking_discounts(booking_id)?;
 
-    // Hole Buchung für Grundpreis
-    let booking = get_booking_by_id(booking_id)?;
-    let grundpreis = booking.grundpreis;
-
-    // Berechne Rabatt-Summe
+    // Berechne Rabatt-Summe (Discount-Templates + DPolG-Rabatt)
     let mut rabatt_total = 0.0;
+
+    // 1. Discount-Templates
     for discount in &discounts {
         if discount.discount_type == "percent" {
             rabatt_total += grundpreis * (discount.discount_value / 100.0);
         } else {
             rabatt_total += discount.discount_value;
+        }
+    }
+
+    // 2. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
+    if ist_dpolg_mitglied {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv {
+            let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                "zimmerpreis" => grundpreis,
+                "gesamtpreis" => grundpreis + services_total,
+                _ => grundpreis,
+            };
+            let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
+            rabatt_total += dpolg_rabatt;
+            println!("  🎫 DPolG-Rabatt: {:.2}€ ({}% auf {})", dpolg_rabatt, rabatt_prozent, rabatt_basis);
         }
     }
 

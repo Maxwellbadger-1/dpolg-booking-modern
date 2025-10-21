@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Copy, CheckCircle, Lock, Trash2 } from 'lucide-react';
+import { RefreshCw, Cloud, Calendar, Smartphone, BarChart3, ExternalLink, Monitor, Copy, CheckCircle, Lock, Trash2, FileDown, FolderOpen } from 'lucide-react';
 
 interface CleaningStats {
   today: number;
@@ -18,6 +18,12 @@ export default function CleaningSync() {
   const [stats, setStats] = useState<CleaningStats>({ today: 0, tomorrow: 0, this_week: 0, total: 0 });
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile');
   const [passwordCopied, setPasswordCopied] = useState(false);
+
+  // PDF Export State
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
 
   // Hardcoded password (matches mobile app)
   const MOBILE_APP_PASSWORD = 'putzplan2025';
@@ -92,6 +98,31 @@ export default function CleaningSync() {
     setTimeout(() => setPasswordCopied(false), 2000);
   };
 
+  const handleExportPDF = async () => {
+    setExporting(true);
+    setExportMessage('');
+    try {
+      const pdfPath = await invoke<string>('export_cleaning_timeline_pdf', {
+        year: selectedYear,
+        month: selectedMonth,
+      });
+      setExportMessage(`✅ PDF erstellt und geöffnet!`);
+    } catch (error) {
+      setExportMessage(`❌ Fehler: ${error}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleOpenPutzplanFolder = async () => {
+    try {
+      const folderPath = await invoke<string>('open_putzplan_folder');
+      console.log('Putzplan-Ordner geöffnet:', folderPath);
+    } catch (error) {
+      console.error('Fehler beim Öffnen des Putzplan-Ordners:', error);
+    }
+  };
+
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6">
       {/* Header */}
@@ -164,7 +195,7 @@ export default function CleaningSync() {
         <div className="space-y-3">
           <button
             onClick={handleSync3Months}
-            disabled={syncing || cleaning}
+            disabled={syncing || cleaning || exporting}
             className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
           >
             <RefreshCw className={`w-5 h-5 ${syncing ? 'animate-spin' : ''}`} />
@@ -174,7 +205,7 @@ export default function CleaningSync() {
 
           <button
             onClick={handleCleanup}
-            disabled={syncing || cleaning}
+            disabled={syncing || cleaning || exporting}
             className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
           >
             <Trash2 className={`w-5 h-5 ${cleaning ? 'animate-pulse' : ''}`} />
@@ -202,6 +233,80 @@ export default function CleaningSync() {
             {cleanupMessage}
           </div>
         )}
+      </div>
+
+      {/* PDF Export Section */}
+      <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+        <h3 className="text-lg font-semibold text-slate-900 mb-4">Timeline PDF Export</h3>
+
+        <div className="space-y-4">
+          {/* Monat & Jahr Auswahl */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Jahr</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+                {[...Array(3)].map((_, i) => {
+                  const year = new Date().getFullYear() + i;
+                  return <option key={year} value={year}>{year}</option>;
+                })}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Monat</label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl text-base text-slate-700 font-normal appearance-none cursor-pointer shadow-sm hover:border-slate-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              >
+                {['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'].map((name, i) => (
+                  <option key={i + 1} value={i + 1}>{name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Export Button */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={handleExportPDF}
+              disabled={syncing || cleaning || exporting}
+              className="flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <FileDown className={`w-5 h-5 ${exporting ? 'animate-bounce' : ''}`} />
+              <span>{exporting ? 'Erstelle PDF...' : 'PDF exportieren'}</span>
+            </button>
+
+            <button
+              onClick={handleOpenPutzplanFolder}
+              disabled={syncing || cleaning || exporting}
+              className="flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <FolderOpen className="w-5 h-5" />
+              <span>Ordner öffnen</span>
+            </button>
+          </div>
+
+          {exportMessage && (
+            <div className={`p-4 rounded-lg text-sm ${
+              exportMessage.includes('❌')
+                ? 'bg-red-50 text-red-700 border border-red-200'
+                : 'bg-green-50 text-green-700 border border-green-200'
+            }`}>
+              {exportMessage}
+            </div>
+          )}
+
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-800">
+              📁 PDFs werden im Programmordner gespeichert: <code className="px-2 py-1 bg-white rounded text-xs">putzplan/</code>
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Preview Section */}

@@ -97,7 +97,7 @@ export default function GuestList() {
       const matchesSearch =
         `${guest.vorname} ${guest.nachname}`.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
         guest.email.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        guest.telefon.includes(debouncedSearchQuery);
+        guest.telefon?.includes(debouncedSearchQuery);
 
       const matchesMember =
         memberFilter === 'all' ||

@@ -692,9 +692,13 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
     // Calculate new dates (normalized to start of day)
     const newCheckinDate = startOfDay(addDays(defaultStart, dayIndex));
+
+    // FIX: Use ORIGINAL booking from context (bookings), NOT from localBookings
+    // localBookings may have been modified by previous drag/drop operations
+    const originalBooking = bookings.find(b => b.id === activeBooking.id) || activeBooking;
     const originalDuration = differenceInDays(
-      startOfDay(new Date(activeBooking.checkout_date)),
-      startOfDay(new Date(activeBooking.checkin_date))
+      startOfDay(new Date(originalBooking.checkout_date)),
+      startOfDay(new Date(originalBooking.checkin_date))
     );
     const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
 
@@ -759,16 +763,18 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     setOverlapDropZone(null);
 
     // Store pending change for manual confirmation
+    // FIX: Use ORIGINAL booking from context (bookings) for oldData, NOT from activeBooking (which comes from localBookings)
+    const originalBookingForOldData = bookings.find(b => b.id === activeBooking.id) || activeBooking;
     const changeData = {
       bookingId: activeBooking.id,
       reservierungsnummer: activeBooking.reservierungsnummer,
       guestName: `${activeBooking.guest.vorname} ${activeBooking.guest.nachname}`,
       roomName: targetRoom.name,
       oldData: pendingChange?.oldData || {
-        checkin_date: activeBooking.checkin_date,
-        checkout_date: activeBooking.checkout_date,
-        room_id: activeBooking.room_id,
-        gesamtpreis: activeBooking.gesamtpreis,
+        checkin_date: originalBookingForOldData.checkin_date,
+        checkout_date: originalBookingForOldData.checkout_date,
+        room_id: originalBookingForOldData.room_id,
+        gesamtpreis: originalBookingForOldData.gesamtpreis,
       },
       newData: {
         checkin_date: format(newCheckinDate, 'yyyy-MM-dd'),
@@ -861,16 +867,19 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       const booking = prev.find(b => b.id === bookingId);
       if (booking) {
         setPendingChange(prevChange => {
+          // FIX: Use ORIGINAL booking from context (bookings) for oldData, NOT from localBookings
+          // This prevents issues when resizing multiple times without saving
+          const originalBooking = bookings.find(b => b.id === bookingId) || currentBooking;
           const changeData = {
             bookingId: booking.id,
             reservierungsnummer: booking.reservierungsnummer,
             guestName: `${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}`,
             roomName: booking.room?.name || 'Unbekannt',
             oldData: prevChange?.oldData || {
-              checkin_date: currentBooking.checkin_date,
-              checkout_date: currentBooking.checkout_date,
-              room_id: currentBooking.room_id,
-              gesamtpreis: currentBooking.gesamtpreis,
+              checkin_date: originalBooking.checkin_date,
+              checkout_date: originalBooking.checkout_date,
+              room_id: originalBooking.room_id,
+              gesamtpreis: originalBooking.gesamtpreis,
             },
             newData: {
               checkin_date: format(newCheckin, 'yyyy-MM-dd'),
@@ -1205,9 +1214,12 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
         const { roomId: targetRoomId, dayIndex } = dropData;
         const newCheckinDate = startOfDay(addDays(defaultStart, dayIndex));
+
+        // FIX: Use ORIGINAL booking from context (bookings), NOT from localBookings
+        const originalBooking = bookings.find(b => b.id === activeBooking.id) || activeBooking;
         const originalDuration = differenceInDays(
-          startOfDay(new Date(activeBooking.checkout_date)),
-          startOfDay(new Date(activeBooking.checkin_date))
+          startOfDay(new Date(originalBooking.checkout_date)),
+          startOfDay(new Date(originalBooking.checkin_date))
         );
         const newCheckoutDate = startOfDay(addDays(newCheckinDate, originalDuration));
 
@@ -1403,11 +1415,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         <div ref={chartContainerRef} className="flex-1 overflow-auto">
           <div className="relative">
             {/* Header */}
-            <div className="sticky top-0 z-10 bg-white">
+            <div className="sticky top-0 z-50 bg-white">
               <div className="flex shadow-xl" style={{ minWidth: `${SIDEBAR_WIDTH + (days.length * density.cellWidth)}px` }}>
                 {/* Top-left corner */}
                 <div
-                  className="sticky left-0 z-20 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-2xl box-border"
+                  className="sticky left-0 z-40 bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center font-bold text-white text-lg shadow-2xl box-border"
                   style={{
                     width: `${SIDEBAR_WIDTH}px`,
                     height: `${density.headerHeight}px`,

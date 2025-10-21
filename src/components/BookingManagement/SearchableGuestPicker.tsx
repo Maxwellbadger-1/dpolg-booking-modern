@@ -36,7 +36,7 @@ export default function SearchableGuestPicker({
       guest.vorname.toLowerCase().includes(query) ||
       guest.nachname.toLowerCase().includes(query) ||
       guest.email.toLowerCase().includes(query) ||
-      guest.telefon.toLowerCase().includes(query)
+      guest.telefon?.toLowerCase().includes(query)
     );
   });
 

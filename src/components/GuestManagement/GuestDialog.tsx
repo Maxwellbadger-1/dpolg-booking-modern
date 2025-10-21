@@ -512,10 +512,14 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
         // Update existing guest
         await updateGuest(guest.id, guestData);
         showToast('success', 'Gast erfolgreich aktualisiert');
+        // Notify other components to refresh their data
+        window.dispatchEvent(new CustomEvent('refresh-data'));
       } else {
         // Create new guest
         await createGuest(guestData);
         showToast('success', 'Gast erfolgreich erstellt');
+        // Notify other components to refresh their data
+        window.dispatchEvent(new CustomEvent('refresh-data'));
       }
 
       onSuccess();
