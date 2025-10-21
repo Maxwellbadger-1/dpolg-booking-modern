@@ -1,9 +1,7 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 use once_cell::sync::OnceCell;
-use tauri::Manager;
 
 // Global database path (set once at app startup)
 static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
@@ -163,6 +161,9 @@ pub struct Booking {
     pub payment_recipient_id: Option<i64>,
     // Putzplan: Alternatives Checkout-Datum (falls abweichend vom normalen Checkout)
     pub putzplan_checkout_date: Option<String>,
+    // DPolG-Mitgliedschaft (für Rabattberechnung)
+    #[serde(rename = "istDpolgMitglied")]
+    pub ist_dpolg_mitglied: bool,
 }
 
 // Externer Rechnungsempfänger (für dienstliche Buchungen, etc.)
@@ -444,6 +445,9 @@ pub struct BookingWithDetails {
     pub payment_recipient_id: Option<i64>,
     // Putzplan: Alternatives Checkout-Datum (falls abweichend vom normalen Checkout)
     pub putzplan_checkout_date: Option<String>,
+    // DPolG-Mitgliedschaft (für Rabattberechnung)
+    #[serde(rename = "istDpolgMitglied")]
+    pub ist_dpolg_mitglied: bool,
     pub room: Room,
     pub guest: Guest,
     // Services & Discounts mit Emoji & Visualisierung
@@ -1411,7 +1415,7 @@ pub fn get_rooms() -> Result<Vec<Room>> {
     // WICHTIG: Foreign Keys aktivieren für diese Connection
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    let mut stmt = conn.prepare("SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city FROM rooms")?;
+    let mut stmt = conn.prepare("SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort, schluesselcode, street_address, postal_code, city, notizen FROM rooms")?;
 
     let rooms = stmt.query_map([], |row| {
         Ok(Room {
@@ -1429,7 +1433,7 @@ pub fn get_rooms() -> Result<Vec<Room>> {
             street_address: row.get(11)?,
             postal_code: row.get(12)?,
             city: row.get(13)?,
-            notizen: None,
+            notizen: row.get(14)?,
         })
     })?;
 
@@ -1449,7 +1453,7 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id,
-            b.putzplan_checkout_date,
+            b.putzplan_checkout_date, b.ist_dpolg_mitglied,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member, r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
             g.strasse, g.plz, g.ort, g.mitgliedsnummer, g.notizen, g.beruf, g.bundesland, g.dienststelle, g.created_at
@@ -1485,39 +1489,40 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
             ist_stiftungsfall: row.get::<_, i32>(21)? != 0,
             payment_recipient_id: row.get(22)?,
             putzplan_checkout_date: row.get(23)?,
+            ist_dpolg_mitglied: row.get::<_, i32>(24)? != 0,
             room: Room {
-                id: row.get(24)?,
-                name: row.get(25)?,
-                gebaeude_typ: row.get(26)?,
-                capacity: row.get(27)?,
-                price_member: row.get(28)?,
-                price_non_member: row.get(29)?,
-                nebensaison_preis: row.get(30)?,
-                hauptsaison_preis: row.get(31)?,
-                endreinigung: row.get(32)?,
-                ort: row.get(33)?,
-                schluesselcode: row.get(34)?,
-                street_address: row.get(35)?,
-                postal_code: row.get(36)?,
-                city: row.get(37)?,
+                id: row.get(25)?,
+                name: row.get(26)?,
+                gebaeude_typ: row.get(27)?,
+                capacity: row.get(28)?,
+                price_member: row.get(29)?,
+                price_non_member: row.get(30)?,
+                nebensaison_preis: row.get(31)?,
+                hauptsaison_preis: row.get(32)?,
+                endreinigung: row.get(33)?,
+                ort: row.get(34)?,
+                schluesselcode: row.get(35)?,
+                street_address: row.get(36)?,
+                postal_code: row.get(37)?,
+                city: row.get(38)?,
                 notizen: None,
             },
             guest: Guest {
-                id: row.get(38)?,
-                vorname: row.get(39)?,
-                nachname: row.get(40)?,
-                email: row.get(41)?,
-                telefon: row.get(42)?,
-                dpolg_mitglied: row.get(43)?,
-                strasse: row.get(44)?,
-                plz: row.get(45)?,
-                ort: row.get(46)?,
-                mitgliedsnummer: row.get(47)?,
+                id: row.get(39)?,
+                vorname: row.get(40)?,
+                nachname: row.get(41)?,
+                email: row.get(42)?,
+                telefon: row.get(43)?,
+                dpolg_mitglied: row.get(44)?,
+                strasse: row.get(45)?,
+                plz: row.get(46)?,
+                ort: row.get(47)?,
+                mitgliedsnummer: row.get(48)?,
                 notizen: None,
-                beruf: row.get(48)?,
-                bundesland: row.get(49)?,
-                dienststelle: row.get(50)?,
-                created_at: row.get(51)?,
+                beruf: row.get(49)?,
+                bundesland: row.get(50)?,
+                dienststelle: row.get(51)?,
+                created_at: row.get(52)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
@@ -2212,6 +2217,7 @@ pub fn create_booking(
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
     putzplan_checkout_date: Option<String>,
+    ist_dpolg_mitglied: bool,
 ) -> Result<BookingWithDetails> {
     println!("🔍 create_booking() aufgerufen - Transaction Logging aktiviert");
     let conn = Connection::open(get_db_path())?;
@@ -2221,8 +2227,8 @@ pub fn create_booking(
     conn.execute(
         "INSERT INTO bookings (room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
          anzahl_gaeste, status, gesamtpreis, bemerkungen, anzahl_begleitpersonen,
-         grundpreis, services_preis, rabatt_preis, anzahl_naechte, ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         grundpreis, services_preis, rabatt_preis, anzahl_naechte, ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date, ist_dpolg_mitglied)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         rusqlite::params![
             room_id,
             guest_id,
@@ -2240,7 +2246,8 @@ pub fn create_booking(
             anzahl_naechte,
             ist_stiftungsfall,
             payment_recipient_id,
-            putzplan_checkout_date
+            putzplan_checkout_date,
+            ist_dpolg_mitglied
         ],
     )?;
 
@@ -2268,6 +2275,7 @@ pub fn create_booking(
     println!("   - booking.guest.vorname: {}", booking_with_details.guest.vorname);
     println!("   - booking.guest.nachname: {}", booking_with_details.guest.nachname);
     println!("   - booking.ist_stiftungsfall: {}", booking_with_details.ist_stiftungsfall);
+    println!("   - booking.ist_dpolg_mitglied: {}", booking_with_details.ist_dpolg_mitglied);
 
     // Transaction Log: CREATE (use simple booking for JSON)
     let booking = get_booking_by_id(id)?;
@@ -2300,6 +2308,7 @@ pub fn update_booking(
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
     putzplan_checkout_date: Option<String>,
+    ist_dpolg_mitglied: bool,
 ) -> Result<BookingWithDetails> {
     println!("═══════════════════════════════════════════════════════════════");
     println!("🔍 [DEBUG] update_booking CALLED");
@@ -2307,6 +2316,7 @@ pub fn update_booking(
     println!("   payment_recipient_id: {:?}", payment_recipient_id);
     println!("   putzplan_checkout_date: {:?}", putzplan_checkout_date);
     println!("   ist_stiftungsfall: {}", ist_stiftungsfall);
+    println!("   ist_dpolg_mitglied: {}", ist_dpolg_mitglied);
     println!("   status: {}", status);
     println!("═══════════════════════════════════════════════════════════════");
 
@@ -2328,8 +2338,8 @@ pub fn update_booking(
          room_id = ?1, guest_id = ?2, checkin_date = ?3, checkout_date = ?4,
          anzahl_gaeste = ?5, status = ?6, gesamtpreis = ?7, bemerkungen = ?8,
          anzahl_begleitpersonen = ?9, grundpreis = ?10, services_preis = ?11,
-         rabatt_preis = ?12, anzahl_naechte = ?13, ist_stiftungsfall = ?14, payment_recipient_id = ?15, putzplan_checkout_date = ?16, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?17",
+         rabatt_preis = ?12, anzahl_naechte = ?13, ist_stiftungsfall = ?14, payment_recipient_id = ?15, putzplan_checkout_date = ?16, ist_dpolg_mitglied = ?17, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?18",
         rusqlite::params![
             room_id,
             guest_id,
@@ -2347,6 +2357,7 @@ pub fn update_booking(
             ist_stiftungsfall,
             payment_recipient_id,
             putzplan_checkout_date,
+            ist_dpolg_mitglied,
             id
         ],
     )?;
@@ -2639,7 +2650,7 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
          grundpreis, services_preis, rabatt_preis, anzahl_naechte, updated_at,
          bezahlt, bezahlt_am, zahlungsmethode, mahnung_gesendet_am,
          rechnung_versendet_am, rechnung_versendet_an, ist_stiftungsfall, payment_recipient_id,
-         putzplan_checkout_date
+         putzplan_checkout_date, ist_dpolg_mitglied
          FROM bookings WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -2670,6 +2681,7 @@ pub fn get_booking_by_id(id: i64) -> Result<Booking> {
                 ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
                 payment_recipient_id: row.get(24)?,
                 putzplan_checkout_date: row.get(25)?,
+                ist_dpolg_mitglied: row.get::<_, i32>(26)? != 0,
             })
         },
     )
@@ -2686,7 +2698,7 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             b.checkin_date, b.checkout_date, b.anzahl_gaeste, b.anzahl_begleitpersonen,
             b.status, b.grundpreis, b.services_preis, b.rabatt_preis, b.gesamtpreis, b.anzahl_naechte, b.bemerkungen,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date,
+            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date, b.ist_dpolg_mitglied,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -2722,39 +2734,40 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
                 ist_stiftungsfall: row.get::<_, i32>(21)? != 0,
                 payment_recipient_id: row.get(22)?,
                 putzplan_checkout_date: row.get(23)?,
+                ist_dpolg_mitglied: row.get::<_, i32>(24)? != 0,
                 room: Room {
-                    id: row.get(24)?,
-                    name: row.get(25)?,
-                    gebaeude_typ: row.get(26)?,
-                    capacity: row.get(27)?,
-                    price_member: row.get(28)?,
-                    price_non_member: row.get(29)?,
-                    nebensaison_preis: row.get(30)?,
-                    hauptsaison_preis: row.get(31)?,
-                    endreinigung: row.get(32)?,
-                    ort: row.get(33)?,
-                    schluesselcode: row.get(34)?,
-                    street_address: row.get(35)?,
-                    postal_code: row.get(36)?,
-                    city: row.get(37)?,
-                    notizen: row.get(38)?,
+                    id: row.get(25)?,
+                    name: row.get(26)?,
+                    gebaeude_typ: row.get(27)?,
+                    capacity: row.get(28)?,
+                    price_member: row.get(29)?,
+                    price_non_member: row.get(30)?,
+                    nebensaison_preis: row.get(31)?,
+                    hauptsaison_preis: row.get(32)?,
+                    endreinigung: row.get(33)?,
+                    ort: row.get(34)?,
+                    schluesselcode: row.get(35)?,
+                    street_address: row.get(36)?,
+                    postal_code: row.get(37)?,
+                    city: row.get(38)?,
+                    notizen: row.get(39)?,
                 },
                 guest: Guest {
-                    id: row.get(39)?,
-                    vorname: row.get(40)?,
-                    nachname: row.get(41)?,
-                    email: row.get(42)?,
-                    telefon: row.get(43)?,
-                    dpolg_mitglied: row.get(44)?,
-                    strasse: row.get(45)?,
-                    plz: row.get(46)?,
-                    ort: row.get(47)?,
-                    mitgliedsnummer: row.get(48)?,
-                    notizen: row.get(49)?,
-                    beruf: row.get(50)?,
-                    bundesland: row.get(51)?,
-                    dienststelle: row.get(52)?,
-                    created_at: row.get(53)?,
+                    id: row.get(40)?,
+                    vorname: row.get(41)?,
+                    nachname: row.get(42)?,
+                    email: row.get(43)?,
+                    telefon: row.get(44)?,
+                    dpolg_mitglied: row.get(45)?,
+                    strasse: row.get(46)?,
+                    plz: row.get(47)?,
+                    ort: row.get(48)?,
+                    mitgliedsnummer: row.get(49)?,
+                    notizen: row.get(50)?,
+                    beruf: row.get(51)?,
+                    bundesland: row.get(52)?,
+                    dienststelle: row.get(53)?,
+                    created_at: row.get(54)?,
                     anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                     telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                     geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
@@ -4571,7 +4584,7 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             b.rabatt_preis, b.anzahl_naechte, b.updated_at,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
             b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id,
-            b.putzplan_checkout_date,
+            b.putzplan_checkout_date, b.ist_dpolg_mitglied,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -4612,39 +4625,40 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
             ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
             payment_recipient_id: row.get(24)?,
             putzplan_checkout_date: row.get(25)?,
+            ist_dpolg_mitglied: row.get::<_, i32>(26)? != 0,
             room: Room {
-                id: row.get(26)?,
-                name: row.get(27)?,
-                gebaeude_typ: row.get(28)?,
-                capacity: row.get(29)?,
-                price_member: row.get(30)?,
-                price_non_member: row.get(31)?,
-                nebensaison_preis: row.get(32)?,
-                hauptsaison_preis: row.get(33)?,
-                endreinigung: row.get(34)?,
-                ort: row.get(35)?,
-                schluesselcode: row.get(36)?,
-                street_address: row.get(37)?,
-                postal_code: row.get(38)?,
-                city: row.get(39)?,
-                notizen: row.get(40)?,
+                id: row.get(27)?,
+                name: row.get(28)?,
+                gebaeude_typ: row.get(29)?,
+                capacity: row.get(30)?,
+                price_member: row.get(31)?,
+                price_non_member: row.get(32)?,
+                nebensaison_preis: row.get(33)?,
+                hauptsaison_preis: row.get(34)?,
+                endreinigung: row.get(35)?,
+                ort: row.get(36)?,
+                schluesselcode: row.get(37)?,
+                street_address: row.get(38)?,
+                postal_code: row.get(39)?,
+                city: row.get(40)?,
+                notizen: row.get(41)?,
             },
             guest: Guest {
-                id: row.get(41)?,
-                vorname: row.get(42)?,
-                nachname: row.get(43)?,
-                email: row.get(44)?,
-                telefon: row.get(45)?,
-                dpolg_mitglied: row.get(46)?,
-                strasse: row.get(47)?,
-                plz: row.get(48)?,
-                ort: row.get(49)?,
-                mitgliedsnummer: row.get(50)?,
-                notizen: row.get(51)?,
-                beruf: row.get(52)?,
-                bundesland: row.get(53)?,
-                dienststelle: row.get(54)?,
-                created_at: row.get(55)?,
+                id: row.get(42)?,
+                vorname: row.get(43)?,
+                nachname: row.get(44)?,
+                email: row.get(45)?,
+                telefon: row.get(46)?,
+                dpolg_mitglied: row.get(47)?,
+                strasse: row.get(48)?,
+                plz: row.get(49)?,
+                ort: row.get(50)?,
+                mitgliedsnummer: row.get(51)?,
+                notizen: row.get(52)?,
+                beruf: row.get(53)?,
+                bundesland: row.get(54)?,
+                dienststelle: row.get(55)?,
+                created_at: row.get(56)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,
@@ -4750,7 +4764,7 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
             b.anzahl_begleitpersonen, b.grundpreis, b.services_preis,
             b.rabatt_preis, b.anzahl_naechte, b.updated_at,
             b.bezahlt, b.bezahlt_am, b.zahlungsmethode, b.mahnung_gesendet_am,
-            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date,
+            b.rechnung_versendet_am, b.rechnung_versendet_an, b.ist_stiftungsfall, b.payment_recipient_id, b.putzplan_checkout_date, b.ist_dpolg_mitglied,
             r.id, r.name, r.gebaeude_typ, r.capacity, r.price_member, r.price_non_member,
             r.nebensaison_preis, r.hauptsaison_preis, r.endreinigung, r.ort, r.schluesselcode, r.street_address, r.postal_code, r.city, r.notizen,
             g.id, g.vorname, g.nachname, g.email, g.telefon, g.dpolg_mitglied,
@@ -4789,39 +4803,40 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
             ist_stiftungsfall: row.get::<_, i32>(23)? != 0,
             payment_recipient_id: row.get(24)?,
             putzplan_checkout_date: row.get(25)?,
+            ist_dpolg_mitglied: row.get::<_, i32>(26)? != 0,
             room: Room {
-                id: row.get(26)?,
-                name: row.get(27)?,
-                gebaeude_typ: row.get(28)?,
-                capacity: row.get(29)?,
-                price_member: row.get(30)?,
-                price_non_member: row.get(31)?,
-                nebensaison_preis: row.get(32)?,
-                hauptsaison_preis: row.get(33)?,
-                endreinigung: row.get(34)?,
-                ort: row.get(35)?,
-                schluesselcode: row.get(36)?,
-                street_address: row.get(37)?,
-                postal_code: row.get(38)?,
-                city: row.get(39)?,
-                notizen: row.get(40)?,
+                id: row.get(27)?,
+                name: row.get(28)?,
+                gebaeude_typ: row.get(29)?,
+                capacity: row.get(30)?,
+                price_member: row.get(31)?,
+                price_non_member: row.get(32)?,
+                nebensaison_preis: row.get(33)?,
+                hauptsaison_preis: row.get(34)?,
+                endreinigung: row.get(35)?,
+                ort: row.get(36)?,
+                schluesselcode: row.get(37)?,
+                street_address: row.get(38)?,
+                postal_code: row.get(39)?,
+                city: row.get(40)?,
+                notizen: row.get(41)?,
             },
             guest: Guest {
-                id: row.get(41)?,
-                vorname: row.get(42)?,
-                nachname: row.get(43)?,
-                email: row.get(44)?,
-                telefon: row.get(45)?,
-                dpolg_mitglied: row.get(46)?,
-                strasse: row.get(47)?,
-                plz: row.get(48)?,
-                ort: row.get(49)?,
-                mitgliedsnummer: row.get(50)?,
-                notizen: row.get(51)?,
-                beruf: row.get(52)?,
-                bundesland: row.get(53)?,
-                dienststelle: row.get(54)?,
-                created_at: row.get(55)?,
+                id: row.get(42)?,
+                vorname: row.get(43)?,
+                nachname: row.get(44)?,
+                email: row.get(45)?,
+                telefon: row.get(46)?,
+                dpolg_mitglied: row.get(47)?,
+                strasse: row.get(48)?,
+                plz: row.get(49)?,
+                ort: row.get(50)?,
+                mitgliedsnummer: row.get(51)?,
+                notizen: row.get(52)?,
+                beruf: row.get(53)?,
+                bundesland: row.get(54)?,
+                dienststelle: row.get(55)?,
+                created_at: row.get(56)?,
                 anrede: None, geschlecht: None, land: None, telefon_geschaeftlich: None,
                 telefon_privat: None, telefon_mobil: None, fax: None, geburtsdatum: None,
                 geburtsort: None, sprache: None, nationalitaet: None, identifikationsnummer: None,

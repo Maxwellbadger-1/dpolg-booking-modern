@@ -678,6 +678,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
           putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
+          istDpolgMitglied: guests.find(g => g.id === formData.guest_id)?.dpolg_mitglied || false, // ✅ DPolG-Mitglied Status für Rabattberechnung
         };
 
         console.log('📤 [SIDEBAR updatePayload] Payload being sent to updateBooking:');
@@ -783,6 +784,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           istStiftungsfall: formData.ist_stiftungsfall || false,
           paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
           putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
+          istDpolgMitglied: guests.find(g => g.id === formData.guest_id)?.dpolg_mitglied || false, // ✅ DPolG-Mitglied Status für Rabattberechnung
         };
 
         console.log('📤 [SIDEBAR createPayload] Payload being sent to createBooking:');

@@ -15,6 +15,7 @@ mod supabase;
 mod reminders;
 mod invoice_html;
 mod payment_recipients;
+mod cleaning_timeline_pdf;
 
 use database::{init_database, get_rooms, get_bookings_with_details};
 use rusqlite::Connection;
@@ -344,11 +345,13 @@ async fn create_booking_command(
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
     putzplan_checkout_date: Option<String>,
+    ist_dpolg_mitglied: bool,
 ) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: create_booking_command aufgerufen");
     println!("   room_id: {}", room_id);
     println!("   guest_id: {}", guest_id);
     println!("   ist_stiftungsfall: {}", ist_stiftungsfall);
+    println!("   ist_dpolg_mitglied: {}", ist_dpolg_mitglied);
     println!("   payment_recipient_id: {:?}", payment_recipient_id);
     println!("   putzplan_checkout_date: {:?}", putzplan_checkout_date);
 
@@ -370,6 +373,7 @@ async fn create_booking_command(
         ist_stiftungsfall,
         payment_recipient_id,
         putzplan_checkout_date,
+        ist_dpolg_mitglied,
     ) {
         Ok(booking) => {
             println!("✅ DEBUG: create_booking_command - Buchung erfolgreich erstellt");
@@ -413,6 +417,7 @@ fn update_booking_command(
     ist_stiftungsfall: bool,
     payment_recipient_id: Option<i64>,
     putzplan_checkout_date: Option<String>,
+    ist_dpolg_mitglied: bool,
 ) -> Result<database::BookingWithDetails, String> {
     println!("🔍 DEBUG: update_booking_command called");
     println!("  id: {}", id);
@@ -432,6 +437,7 @@ fn update_booking_command(
     println!("  ist_stiftungsfall: {}", ist_stiftungsfall);
     println!("  payment_recipient_id: {:?}", payment_recipient_id);
     println!("  putzplan_checkout_date: {:?}", putzplan_checkout_date);
+    println!("  ist_dpolg_mitglied: {}", ist_dpolg_mitglied);
 
     database::update_booking(
         id,
@@ -451,6 +457,7 @@ fn update_booking_command(
         ist_stiftungsfall,
         payment_recipient_id,
         putzplan_checkout_date,
+        ist_dpolg_mitglied,
     )
     .map_err(|e| format!("Fehler beim Aktualisieren der Buchung: {}", e))
 }
@@ -1382,6 +1389,9 @@ pub fn run() {
             supabase::get_cleaning_stats,
             supabase::migrate_cleaning_tasks_schema,
             supabase::test_emoji_sync,
+            // Cleaning Timeline PDF Export
+            cleaning_timeline_pdf::export_cleaning_timeline_pdf,
+            cleaning_timeline_pdf::open_putzplan_folder,
             get_backup_settings_command,
             save_backup_settings_command,
             open_backup_folder_command,
