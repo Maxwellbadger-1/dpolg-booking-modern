@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use headless_chrome::{Browser, LaunchOptions};
 use headless_chrome::types::PrintToPdfOptions;
 use std::collections::HashMap;
@@ -565,6 +565,7 @@ struct DayInfo {
     is_checkout: bool,
     emojis_start: String,
     emojis_end: String,
+    guest_count: i64,
 }
 
 /// Generiert eine einzelne Tabelle für einen Tag-Bereich
@@ -641,56 +642,69 @@ fn generate_table_html(
             room, location_icon, location
         ));
 
-        // Gruppiere Tasks nach booking_id und finde Check-in/Check-out
-        let mut booking_ranges: HashMap<i64, (String, String, String, String, String)> = HashMap::new();
+        // Gruppiere Tasks nach booking_id und verwende ORIGINAL checkin/checkout times
+        // FIX: Alle Felder müssen geupdated werden, nicht nur bei or_insert()!
+        let mut booking_ranges: HashMap<i64, (String, String, String, String, String, i64)> = HashMap::new();
 
+        println!("🔍 DEBUG: Verarbeite {} tasks für Zimmer {}", tasks.len(), room);
         for task in tasks {
+            println!("  🔍 Task: booking_id={}, date={}, checkin_time={:?}, checkout_time='{}', emojis_start='{}', emojis_end='{}', guest_count={}",
+                     task.booking_id, task.date, task.checkin_time, task.checkout_time, task.emojis_start, task.emojis_end, task.guest_count);
+
             let entry = booking_ranges.entry(task.booking_id).or_insert((
-                String::new(), // checkin_date
-                String::new(), // checkout_date
+                String::new(),
+                String::new(),
                 task.guest_name.clone(),
                 String::new(), // emojis_start
                 String::new(), // emojis_end
+                task.guest_count, // guest_count
             ));
 
-            // Finde Check-in Tag (hat emojis_start)
+            // Update checkin_time wenn verfügbar (vom Check-IN Task)
+            if let Some(ref checkin) = task.checkin_time {
+                if !checkin.is_empty() {
+                    println!("    ✅ Update checkin: {}", checkin);
+                    entry.0 = checkin.clone();
+                }
+            }
+
+            // Update checkout_time wenn verfügbar (vom Check-OUT Task)
+            if !task.checkout_time.is_empty() {
+                println!("    ✅ Update checkout: {}", task.checkout_time);
+                entry.1 = task.checkout_time.clone();
+            }
+
+            // Sammle emojis_start (vom Check-in Task)
             if !task.emojis_start.is_empty() {
-                entry.0 = task.date.clone();
                 entry.3 = task.emojis_start.clone();
             }
 
-            // Finde Check-out Tag (hat emojis_end)
+            // Sammle emojis_end (vom Check-out Task)
             if !task.emojis_end.is_empty() {
-                entry.1 = task.date.clone();
                 entry.4 = task.emojis_end.clone();
             }
+        }
 
-            // Falls kein Check-in/Check-out gefunden: verwende das task.date als Fallback
-            if entry.0.is_empty() && entry.1.is_empty() {
-                entry.0 = task.date.clone();
-                entry.1 = task.date.clone();
-            }
+        println!("🔍 DEBUG: Aggregierte {} booking_ranges:", booking_ranges.len());
+        for (booking_id, (checkin, checkout, guest, emojis_s, emojis_e, guest_cnt)) in &booking_ranges {
+            println!("  📋 Booking {}: checkin='{}', checkout='{}', guest='{}', emojis_start='{}', emojis_end='{}', guest_count={}",
+                     booking_id, checkin, checkout, guest, emojis_s, emojis_e, guest_cnt);
         }
 
         // Erstelle vollständige Timeline mit allen Tagen zwischen Check-in und Check-out
         let mut day_info_map: HashMap<String, DayInfo> = HashMap::new();
 
-        for (_booking_id, (checkin_date, checkout_date, guest_name, emojis_start, emojis_end)) in booking_ranges {
-            // Bestimme Start- und End-Datum (verwende Monatsgrenzen als Fallback)
-            let first_day_of_month = format!("{}-{:02}-{:02}", year, month, start_day);
-            let last_day_of_month = format!("{}-{:02}-{:02}", year, month, end_day);
+        for (_booking_id, (checkin_date, checkout_date, guest_name, emojis_start, emojis_end, guest_count)) in booking_ranges {
+            // FIX (2025-10-21): Verwende ORIGINAL Daten - KEINE Monatsgrenzen als Fallback!
+            // Dies verhindert, dass der gesamte Monat gefüllt wird
 
-            let effective_start = if checkin_date.is_empty() {
-                &first_day_of_month
-            } else {
-                &checkin_date
-            };
+            let effective_start = &checkin_date;
+            let effective_end = &checkout_date;
 
-            let effective_end = if checkout_date.is_empty() {
-                &last_day_of_month
-            } else {
-                &checkout_date
-            };
+            // Skip wenn Daten fehlen (keine Monatsgrenzen mehr!)
+            if checkin_date.is_empty() || checkout_date.is_empty() {
+                continue; // Skip diese Buchung komplett
+            }
 
             let start = chrono::NaiveDate::parse_from_str(effective_start, "%Y-%m-%d").ok();
             let end = chrono::NaiveDate::parse_from_str(effective_end, "%Y-%m-%d").ok();
@@ -700,8 +714,9 @@ fn generate_table_html(
 
                 while current <= end_date {
                     let date_str = current.format("%Y-%m-%d").to_string();
-                    let is_checkin = current == start_date && !emojis_start.is_empty();
-                    let is_checkout = current == end_date && !emojis_end.is_empty();
+                    // FIX: is_checkin IMMER true am ersten Tag, egal ob Emojis vorhanden oder nicht!
+                    let is_checkin = current == start_date;
+                    let is_checkout = current == end_date; // IMMER rot bei Check-out, egal ob Emojis oder nicht
 
                     day_info_map.insert(date_str, DayInfo {
                         guest_name: guest_name.clone(),
@@ -709,6 +724,7 @@ fn generate_table_html(
                         is_checkout,
                         emojis_start: if is_checkin { emojis_start.clone() } else { String::new() },
                         emojis_end: if is_checkout { emojis_end.clone() } else { String::new() },
+                        guest_count,
                     });
 
                     current = current.succ_opt().unwrap();
@@ -730,12 +746,19 @@ fn generate_table_html(
                         info.emojis_end
                     ));
                 } else if info.is_checkin {
-                    // Check-in Tag - blaue Zelle nur mit Emojis
+                    // Check-in Tag - blaue Zelle mit Emojis + Personenanzahl
+                    let person_badge = if info.guest_count > 0 {
+                        format!(r#"<span style="position: absolute; top: 2px; right: 2px; background: rgba(255,255,255,0.9); color: #1e293b; padding: 1px 4px; border-radius: 3px; font-size: 7px; font-weight: 600;">{} Pers.</span>"#, info.guest_count)
+                    } else {
+                        String::new()
+                    };
+
                     rows_html.push_str(&format!(
                         r#"<td style="position: relative;">
-                            <div class="booking occupied"><span class="emojis">{}</span></div>
+                            <div class="booking occupied"><span class="emojis">{}</span>{}</div>
                         </td>"#,
-                        info.emojis_start
+                        info.emojis_start,
+                        person_badge
                     ));
                 } else {
                     // Belegt Tag dazwischen - blaue Zelle mit Gästename
@@ -788,11 +811,12 @@ pub async fn export_cleaning_timeline_pdf(
     println!("📝 Generating timeline HTML...");
     let html = generate_timeline_html(tasks, year, month);
 
-    // 3. Putzplan-Ordner im Programmverzeichnis
-    let exe_dir = std::env::current_dir()
-        .map_err(|e| format!("Fehler current_dir: {}", e))?;
+    // 3. Putzplan-Ordner im App-Datenverzeichnis (NICHT in src-tauri!)
+    // FIX: Verhindert Endlosschleife durch Cargo-Rebuild bei Dateiänderungen
+    let app_data_dir = _app.path().app_data_dir()
+        .map_err(|e| format!("Fehler app_data_dir: {}", e))?;
 
-    let putzplan_dir = exe_dir.join("putzplan");
+    let putzplan_dir = app_data_dir.join("putzplan");
     std::fs::create_dir_all(&putzplan_dir)
         .map_err(|e| format!("Fehler create_dir: {}", e))?;
 

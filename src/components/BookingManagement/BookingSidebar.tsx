@@ -721,53 +721,15 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           }
         }
 
-        // 🔄 SYNC zu Turso (Mobile App) - ALLE Datum-Änderungen (checkin + checkout)
-        console.log('🔄 [BookingSidebar] Buchung aktualisiert - Sync zu Turso für checkin + checkout');
-
-        // Loading Toast
-        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...');
-
-        // Sync checkout dates (alte + neue)
-        if (booking.checkout_date || formData.checkout_date) {
-          invoke('sync_affected_dates', {
-            oldCheckout: booking.checkout_date, // Original checkout_date für Cleanup
-            newCheckout: formData.checkout_date  // Neues checkout_date
-          }).then((result: unknown) => {
-            console.log('✅ [BookingSidebar] Checkout-Sync erfolgreich:', result);
-          }).catch((error: unknown) => {
-            console.error('❌ [BookingSidebar] Checkout-Sync Fehler:', error);
-          });
-        }
-
-        // Sync checkin dates (alte + neue) - falls geändert
-        if (booking.checkin_date !== formData.checkin_date) {
-          // Sync ALTES checkin_date (entferne start-Emojis vom alten Tag)
-          invoke('sync_cleaning_tasks', {
-            date: booking.checkin_date
-          }).then((result: unknown) => {
-            console.log('✅ [BookingSidebar] Alt-Checkin-Sync erfolgreich:', result);
-          }).catch((error: unknown) => {
-            console.error('❌ [BookingSidebar] Alt-Checkin-Sync Fehler:', error);
-          });
-
-          // Sync NEUES checkin_date (füge start-Emojis am neuen Tag hinzu)
-          invoke('sync_cleaning_tasks', {
-            date: formData.checkin_date
-          }).then((result: unknown) => {
-            console.log('✅ [BookingSidebar] Neu-Checkin-Sync erfolgreich:', result);
-            toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-          }).catch((error: unknown) => {
-            console.error('❌ [BookingSidebar] Neu-Checkin-Sync Fehler:', error);
-            toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-          });
-        } else {
-          // Checkin unverändert - nur Toast schließen
-          toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-        }
+        // ✅ DataContext handles Turso sync automatically (no double-sync needed)
+        // DataContext.updateBooking() already calls sync_affected_dates for date changes
 
         // Switch back to view mode
         setMode('view');
         await loadBookingDetails();
+
+        // ✅ Close sidebar to reveal updated TapeChart (optimistic update)
+        onClose();
       } else {
         // Create new booking
         const reservierungsnummer = `RES-${Date.now()}`;
@@ -2208,28 +2170,19 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   // WICHTIG: Sync BEIDE Dates (checkin + checkout) weil Services auf beiden Tagen erscheinen!
+                                  // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten in einem Aufruf zu synchronisieren
                                   console.log('🔄 [BookingSidebar] Service gelöscht - Sync zu Turso für checkin + checkout');
 
-                                  // Sync checkout_date (für end-Emojis)
-                                  if (booking.checkout_date) {
+                                  if (booking.checkout_date && booking.checkin_date) {
                                     invoke('sync_affected_dates', {
+                                      bookingId: booking.id,
+                                      checkinDate: booking.checkin_date,
                                       oldCheckout: booking.checkout_date,
                                       newCheckout: booking.checkout_date
                                     }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Checkout-Delete-Sync erfolgreich:', result);
+                                      console.log('✅ [BookingSidebar] Service-Delete-Sync erfolgreich:', result);
                                     }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Checkout-Delete-Sync Fehler:', error);
-                                    });
-                                  }
-
-                                  // Sync checkin_date (für start-Emojis)
-                                  if (booking.checkin_date) {
-                                    invoke('sync_cleaning_tasks', {
-                                      date: booking.checkin_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Checkin-Delete-Sync erfolgreich:', result);
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Checkin-Delete-Sync Fehler:', error);
+                                      console.error('❌ [BookingSidebar] Service-Delete-Sync Fehler:', error);
                                     });
                                   }
                                 } catch (error) {
@@ -2297,28 +2250,19 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   // WICHTIG: Sync BEIDE Dates (checkin + checkout) weil Services auf beiden Tagen erscheinen!
+                                  // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten in einem Aufruf zu synchronisieren
                                   console.log('🔄 [BookingSidebar] Service hinzugefügt - Sync zu Turso für checkin + checkout');
 
-                                  // Sync checkout_date (für end-Emojis)
-                                  if (booking.checkout_date) {
+                                  if (booking.checkout_date && booking.checkin_date) {
                                     invoke('sync_affected_dates', {
+                                      bookingId: booking.id,
+                                      checkinDate: booking.checkin_date,
                                       oldCheckout: booking.checkout_date,
                                       newCheckout: booking.checkout_date
                                     }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Checkout-Sync erfolgreich:', result);
+                                      console.log('✅ [BookingSidebar] Service-Add-Sync erfolgreich:', result);
                                     }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Checkout-Sync Fehler:', error);
-                                    });
-                                  }
-
-                                  // Sync checkin_date (für start-Emojis)
-                                  if (booking.checkin_date) {
-                                    invoke('sync_cleaning_tasks', {
-                                      date: booking.checkin_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Checkin-Sync erfolgreich:', result);
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Checkin-Sync Fehler:', error);
+                                      console.error('❌ [BookingSidebar] Service-Add-Sync Fehler:', error);
                                     });
                                   }
                                 } catch (error) {

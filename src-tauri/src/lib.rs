@@ -385,9 +385,32 @@ async fn create_booking_command(
             println!("📦 DEBUG: Returning BookingWithDetails to Frontend:");
             println!("   {:#?}", booking);
 
-            // ℹ️  KEIN AUTO-SYNC hier - Services sind noch nicht verknüpft!
-            // Auto-Sync erfolgt bei link_service_template_to_booking_command
-            // (wenn Services wirklich in DB verknüpft sind und Emojis gelesen werden können)
+            // 🔄 AUTO-SYNC für neue Buchungen (wichtig für Buchungen OHNE Services!)
+            // Synchronisiere BEIDE Tage: Check-IN und Check-OUT
+            println!("🔄 [create_booking] Auto-Sync für Check-IN und Check-OUT");
+
+            let checkin = booking.checkin_date.clone();
+            let checkout = booking.checkout_date.clone();
+            let bid = booking.id; // Booking ID für Logging
+
+            // Sync Check-IN Tag (async in Background)
+            tokio::spawn(async move {
+                if let Err(e) = supabase::sync_cleaning_tasks(checkin.clone()).await {
+                    eprintln!("❌ [create_booking #{}] Check-IN Sync fehlgeschlagen: {}", bid, e);
+                } else {
+                    println!("✅ [create_booking #{}] Check-IN Sync erfolgreich: {}", bid, checkin);
+                }
+            });
+
+            // Sync Check-OUT Tag (async in Background)
+            let bid2 = bid; // Clone für zweiten Spawn
+            tokio::spawn(async move {
+                if let Err(e) = supabase::sync_cleaning_tasks(checkout.clone()).await {
+                    eprintln!("❌ [create_booking #{}] Check-OUT Sync fehlgeschlagen: {}", bid2, e);
+                } else {
+                    println!("✅ [create_booking #{}] Check-OUT Sync erfolgreich: {}", bid2, checkout);
+                }
+            });
 
             Ok(booking)
         }

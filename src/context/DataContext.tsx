@@ -458,36 +458,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
         checkoutDate: booking.checkout_date
       });
 
-      if (booking.checkout_date) {
-        console.log('✅ [DataContext] Bedingung erfüllt - starte Auto-Sync!');
-        console.log('🔄 [DataContext] Neue Buchung - Auto-Sync zu Turso für', booking.checkout_date);
-
-        // Loading Toast
-        console.log('📢 [DataContext] Zeige Loading Toast...');
-        const syncToast = toast.loading('☁️ Synchronisiere Putzplan...', {
-          style: {
-            background: '#1e293b',
-            color: '#fff',
-            borderRadius: '0.75rem',
-            padding: '1rem',
-          }
-        });
-        console.log('📢 [DataContext] Loading Toast ID:', syncToast);
-
-        // Fire-and-forget: Sync läuft im Hintergrund
-        invoke('sync_affected_dates', {
-          oldCheckout: null,
-          newCheckout: booking.checkout_date
-        }).then((result: string) => {
-          console.log('✅ [DataContext] Auto-Sync (CREATE) erfolgreich:', result);
-          toast.success('✅ Putzplan synchronisiert', { id: syncToast });
-        }).catch((error: any) => {
-          console.error('❌ [DataContext] Auto-Sync (CREATE) Fehler:', error);
-          toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
-        });
-      } else {
-        console.log('⚠️ [DataContext] Keine Auto-Sync - checkout_date fehlt!');
-      }
+      // ✅ FIX (2025-10-21): Backend macht Auto-Sync automatisch in create_booking_command
+      // Frontend-Sync wurde ENTFERNT um Race-Conditions zu vermeiden
+      console.log('✅ [DataContext] Auto-Sync wird vom Backend durchgeführt');
 
       // 4. Event für Undo-Button
       window.dispatchEvent(new CustomEvent('refresh-data'));
@@ -528,8 +501,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const oldBooking = bookings.find(b => b.id === id);
 
     // 2. SOFORT im UI ändern (Optimistic Update)
+    // FIX: Normalize camelCase to snake_case for TapeChart compatibility
+    const normalizedData = { ...data };
+    if (data.checkinDate) {
+      normalizedData.checkin_date = data.checkinDate;
+    }
+    if (data.checkoutDate) {
+      normalizedData.checkout_date = data.checkoutDate;
+    }
+
+    console.log('🔄 [Optimistic Update] Normalized data:', {
+      hasCheckinDate: !!normalizedData.checkinDate,
+      hasCheckin_date: !!normalizedData.checkin_date,
+      hasCheckoutDate: !!normalizedData.checkoutDate,
+      hasCheckout_date: !!normalizedData.checkout_date,
+      checkin: normalizedData.checkin_date || normalizedData.checkinDate,
+      checkout: normalizedData.checkout_date || normalizedData.checkoutDate
+    });
+
     setBookings(prev => prev.map(b =>
-      b.id === id ? { ...b, ...data } : b
+      b.id === id ? { ...b, ...normalizedData } : b
     ));
 
     try {
@@ -542,27 +533,32 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const booking = await invoke<Booking>('update_booking_command', invokePayload);
 
       // 4. AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
-      const checkoutChanged = oldBooking && data.checkout_date && oldBooking.checkout_date !== data.checkout_date;
-      const checkinChanged = oldBooking && data.checkin_date && oldBooking.checkin_date !== data.checkin_date;
+      // FIX: Support both camelCase and snake_case (Backwards-Compatibility)
+      const newCheckout = data.checkoutDate ?? data.checkout_date;
+      const newCheckin = data.checkinDate ?? data.checkin_date;
+
+      const checkoutChanged = oldBooking && newCheckout && oldBooking.checkout_date !== newCheckout;
+      const checkinChanged = oldBooking && newCheckin && oldBooking.checkin_date !== newCheckin;
 
       console.log('🔍 [DataContext] Prüfe UPDATE Auto-Sync:', {
         hasOldBooking: !!oldBooking,
         checkoutChanged,
         checkinChanged,
         oldCheckout: oldBooking?.checkout_date,
-        newCheckout: data.checkout_date,
+        newCheckout,
         oldCheckin: oldBooking?.checkin_date,
-        newCheckin: data.checkin_date
+        newCheckin,
+        dataKeys: Object.keys(data)
       });
 
       if (checkoutChanged || checkinChanged) {
         console.log('✅ [DataContext] UPDATE Bedingung erfüllt - starte Auto-Sync!');
 
         if (checkoutChanged) {
-          console.log('🔄 [DataContext] Checkout-Datum geändert:', oldBooking.checkout_date, '→', data.checkout_date);
+          console.log('🔄 [DataContext] Checkout-Datum geändert:', oldBooking.checkout_date, '→', newCheckout);
         }
         if (checkinChanged) {
-          console.log('🔄 [DataContext] Checkin-Datum geändert:', oldBooking.checkin_date, '→', data.checkin_date);
+          console.log('🔄 [DataContext] Checkin-Datum geändert:', oldBooking.checkin_date, '→', newCheckin);
           console.log('   → Sync checkout_date um Priorität zu aktualisieren');
         }
 
@@ -576,11 +572,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Sync: Bei checkout_date Änderung → alte + neue Daten
-        //       Bei checkin_date Änderung → nur checkout_date neu (Priorität-Update)
+        // Sync: DELETE by booking_id FIRST, then sync old + new dates
+        // FIX (2025-10-21): Prevents race condition where old tasks are re-created
+        // FIX (2025-10-21): BEIDE Daten synchronisieren (Check-in + Check-out)
+        //   Behebt Bug wo Buchungen nach Checkout-Änderung aus PDF verschwinden
+        // REGEL #1: IMMER camelCase im Frontend! Tauri konvertiert automatisch!
         invoke('sync_affected_dates', {
+          bookingId: id,  // 🔥 Tauri auto-converts: bookingId → booking_id
+          checkinDate: newCheckin || '',  // NEU! Verhindert Verschwinden aus PDF
           oldCheckout: checkoutChanged ? oldBooking.checkout_date : null,
-          newCheckout: data.checkout_date
+          newCheckout: newCheckout
         }).then((result: string) => {
           console.log('✅ [DataContext] Auto-Sync (UPDATE) erfolgreich:', result);
           toast.success('✅ Putzplan aktualisiert', { id: syncToast });

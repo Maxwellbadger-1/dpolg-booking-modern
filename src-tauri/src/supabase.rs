@@ -135,6 +135,23 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
 
     println!("📦 [sync_cleaning_tasks] {} Checkouts und {} Check-ins gefunden", checkouts.len(), checkins.len());
 
+    // 🔍 DEBUG: Liste ALLE gefundenen Buchungen
+    for booking in &checkouts {
+        println!("  🔍 CHECK-OUT: Booking #{} ({} {}) - Zimmer: {} - Check-out: {}",
+                 booking.id, booking.guest.vorname, booking.guest.nachname, booking.room.name, booking.checkout_date);
+    }
+    for booking in &checkins {
+        println!("  🔍 CHECK-IN: Booking #{} ({} {}) - Zimmer: {} - Check-in: {} - Services: {}",
+                 booking.id, booking.guest.vorname, booking.guest.nachname, booking.room.name, booking.checkin_date, booking.services.len());
+
+        // Debug: Welche Services haben position="start"?
+        let start_emojis: Vec<String> = booking.services.iter()
+            .filter(|s| s.show_in_cleaning_plan && s.cleaning_plan_position == "start" && s.emoji.is_some())
+            .map(|s| format!("{}({})", s.name, s.emoji.as_ref().unwrap()))
+            .collect();
+        println!("     → START-Services: {:?}", start_emojis);
+    }
+
     if checkouts.is_empty() && checkins.is_empty() {
         println!("⚠️  [sync_cleaning_tasks] Keine Aufgaben für {}", date);
         return Ok("Keine Aufgaben für dieses Datum".to_string());
@@ -155,7 +172,9 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
             .map(|s| s.emoji.as_ref().unwrap().clone())
             .collect();
 
-        // Nur erstellen wenn es START-Emojis gibt
+        // FIX (2025-10-21): Check-IN Task NUR erstellen, wenn Services vorhanden sind!
+        // → Mobile App zeigt nur Aufgaben an, wenn wirklich etwas zu tun ist
+        // → PDF funktioniert trotzdem, weil Check-OUT Task die checkin_time enthält
         if !service_emojis_start.is_empty() {
             println!("\n┌───── CHECK-IN Task ─────────────────────────────────────────");
             println!("│ 📋 Booking #{}", booking.id);
@@ -209,6 +228,8 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
 
             sql_statements.push(insert_sql);
             task_count += 1;
+        } else {
+            println!("\n⏭️  [sync_cleaning_tasks] Booking #{} - KEIN Check-IN Task (keine Services)", booking.id);
         }
     }
 
@@ -257,11 +278,9 @@ pub async fn sync_cleaning_tasks(date: String) -> Result<String, String> {
             "NULL".to_string()
         };
 
-        let checkin_time_str = if same_day_checkin {
-            format!("'{}'", date)
-        } else {
-            "NULL".to_string()
-        };
+        // FIX (2025-10-21): IMMER checkin_date speichern, damit PDF funktioniert
+        // (auch wenn kein separater Check-IN Task existiert)
+        let checkin_time_str = format!("'{}'", booking.checkin_date);
 
         // 🏔️ Room Location von booking.room.ort
         let room_location = booking.room.ort.replace("'", "''");
@@ -375,20 +394,48 @@ pub async fn sync_week_ahead() -> Result<String, String> {
 }
 
 /// Synchronisiert spezifische Daten (für Auto-Sync nach Buchungsänderungen)
-/// WICHTIG: Synchronisiert ALTE + NEUE Daten bei Updates!
+/// FIX (2025-10-21): DELETE by booking_id FIRST to prevent race conditions
+/// Folgt "Delete + Insert" Pattern (DBT Best Practice 2025)
+/// FIX (2025-10-21): BEIDE Daten synchronisieren (Check-in + Check-out) um Bug zu beheben
+///   wo Buchungen nach Checkout-Änderung aus PDF verschwinden
+/// WICHTIG: Tauri konvertiert automatisch camelCase (Frontend) → snake_case (Backend)
+/// Frontend sendet: { bookingId, checkinDate, oldCheckout, newCheckout }
+/// Backend empfängt: booking_id, checkin_date, old_checkout, new_checkout
 #[tauri::command]
-pub async fn sync_affected_dates(old_checkout: Option<String>, new_checkout: String) -> Result<String, String> {
-    println!("🔄 [sync_affected_dates] old_checkout: {:?}, new_checkout: {}", old_checkout, new_checkout);
+pub async fn sync_affected_dates(
+    booking_id: i64,
+    checkin_date: String,
+    old_checkout: Option<String>,
+    new_checkout: String
+) -> Result<String, String> {
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("🔄 [sync_affected_dates] booking_id: {}, checkin: {}, old_checkout: {:?}, new_checkout: {}",
+             booking_id, checkin_date, old_checkout, new_checkout);
+    println!("═══════════════════════════════════════════════════════════════");
 
     let mut synced_dates = Vec::new();
 
-    // 1. Synchronisiere ALTES checkout_date (falls vorhanden)
+    // 🔥 CRITICAL FIX: Lösche ALLE alten Tasks für diese Buchung ZUERST
+    // Verhindert Race Condition wo alte Tasks aus stale DB-Daten re-created werden
+    println!("🗑️  [sync_affected_dates] Lösche ALLE alten Tasks für Booking #{}", booking_id);
+    match delete_booking_tasks(booking_id).await {
+        Ok(msg) => {
+            println!("✅ [sync_affected_dates] Delete OK: {}", msg);
+        }
+        Err(e) => {
+            println!("⚠️  [sync_affected_dates] Delete fehlgeschlagen (ignoriere): {}", e);
+            // Nicht abbrechen - Tasks könnten einfach nicht existieren
+        }
+    }
+
+    // 1. Synchronisiere ALTES checkout_date (falls vorhanden und unterschiedlich)
+    // WICHTIG: Nach delete_booking_tasks() werden alte Tasks aus DB-Query NICHT mehr re-created!
     if let Some(ref old_date) = old_checkout {
         if old_date != &new_checkout {
             println!("🧹 [sync_affected_dates] Synchronisiere altes Datum: {}", old_date);
             match sync_cleaning_tasks(old_date.clone()).await {
                 Ok(msg) => {
-                    synced_dates.push(format!("{} (alt)", old_date));
+                    synced_dates.push(format!("{} (cleanup)", old_date));
                     println!("✅ [sync_affected_dates] Alt-Sync OK: {}", msg);
                 }
                 Err(e) => {
@@ -399,11 +446,24 @@ pub async fn sync_affected_dates(old_checkout: Option<String>, new_checkout: Str
         }
     }
 
-    // 2. Synchronisiere NEUES checkout_date
-    println!("🧹 [sync_affected_dates] Synchronisiere neues Datum: {}", new_checkout);
+    // 2. Synchronisiere CHECK-IN Datum (IMMER! sonst verschwindet Buchung aus PDF)
+    println!("🧹 [sync_affected_dates] Synchronisiere Check-in Datum: {}", checkin_date);
+    match sync_cleaning_tasks(checkin_date.clone()).await {
+        Ok(msg) => {
+            synced_dates.push(format!("{} (check-in)", checkin_date));
+            println!("✅ [sync_affected_dates] Check-in Sync OK: {}", msg);
+        }
+        Err(e) => {
+            println!("⚠️ [sync_affected_dates] Check-in Sync Error (ignoriere): {}", e);
+            // Nicht abbrechen - versuche wenigstens Checkout
+        }
+    }
+
+    // 3. Synchronisiere NEUES checkout_date
+    println!("🧹 [sync_affected_dates] Synchronisiere neues Checkout-Datum: {}", new_checkout);
     match sync_cleaning_tasks(new_checkout.clone()).await {
         Ok(msg) => {
-            synced_dates.push(format!("{} (neu)", new_checkout));
+            synced_dates.push(format!("{} (check-out)", new_checkout));
             println!("✅ [sync_affected_dates] Neu-Sync OK: {}", msg);
         }
         Err(e) => {
@@ -411,6 +471,10 @@ pub async fn sync_affected_dates(old_checkout: Option<String>, new_checkout: Str
             return Err(format!("Fehler beim Sync des neuen Datums: {}", e));
         }
     }
+
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("✅ [sync_affected_dates] ABGESCHLOSSEN: {}", synced_dates.join(", "));
+    println!("═══════════════════════════════════════════════════════════════\n");
 
     Ok(format!("✅ Synchronisiert: {}", synced_dates.join(", ")))
 }

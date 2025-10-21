@@ -214,18 +214,14 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       // Wir müssen nur beide Dates (checkin + checkout) synchronisieren
       console.log('🔄 [BookingDetails] Buchung storniert - Sync zu Mobile App für checkin + checkout');
 
-      // Sync checkout_date (entfernt end-Emojis und Putz-Task)
-      if (booking.checkout_date) {
+      // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten zu synchronisieren
+      // Verhindert Bug wo stornierte Buchungen teilweise im PDF bleiben
+      if (booking.checkout_date && booking.checkin_date) {
         invoke('sync_affected_dates', {
+          bookingId: booking.id,
+          checkinDate: booking.checkin_date,
           oldCheckout: booking.checkout_date,
           newCheckout: booking.checkout_date
-        });
-      }
-
-      // Sync checkin_date (entfernt start-Emojis)
-      if (booking.checkin_date) {
-        invoke('sync_cleaning_tasks', {
-          date: booking.checkin_date
         });
       }
 
