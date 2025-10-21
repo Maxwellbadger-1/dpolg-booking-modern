@@ -7,20 +7,22 @@
 
 ## ✅ Checkliste - Basis-Funktionalität
 
-### 1. Buchung erstellen
-- [ ] Neuen Gast anlegen
-  - [ ] Vorname, Nachname, Email eingeben
-  - [ ] Adresse ausfüllen
-  - [ ] Speichern erfolgreich
-- [ ] Buchung anlegen
-  - [ ] Gast auswählen
-  - [ ] Zimmer auswählen
-  - [ ] Check-in Datum wählen
-  - [ ] Check-out Datum wählen
-  - [ ] **DPolG-Mitglied Checkbox aktivieren**
-  - [ ] Services hinzufügen (optional)
-  - [ ] **Preis korrekt berechnet (mit 15% Rabatt auf Zimmerpreis bei Mitgliedern)?**
-  - [ ] Speichern erfolgreich
+### 1. Buchung erstellen ✅
+- [x] Neuen Gast anlegen
+  - [x] Vorname, Nachname, Email eingeben
+  - [x] Adresse ausfüllen
+  - [x] Speichern erfolgreich
+- [x] Buchung anlegen
+  - [x] Gast auswählen
+  - [x] Zimmer auswählen
+  - [x] Check-in Datum wählen
+  - [x] Check-out Datum wählen
+  - [x] **DPolG-Mitglied Checkbox aktivieren**
+  - [x] Services hinzufügen (optional)
+  - [x] **Preis korrekt berechnet (mit 15% Rabatt auf Zimmerpreis bei Mitgliedern)?**
+  - [x] Speichern erfolgreich
+
+**Testergebnis:** ✅ BESTANDEN (Buchung 78, 79 erstellt - DPolG-Rabatt korrekt)
 
 **Notizen:**
 ```
@@ -142,19 +144,21 @@ Erwartetes Verhalten:
 
 ---
 
-### 9. DPolG-Rabatt Berechnung ⚠️ WICHTIG
-- [ ] **Rabatt wird korrekt angewendet:**
-  - [ ] Mitglied-Checkbox aktiviert
-  - [ ] 15% Rabatt auf **Zimmerpreis** (NICHT Gesamtpreis!)
-  - [ ] Services werden NICHT rabattiert
-  - [ ] Endreinigung wird NICHT rabattiert
-- [ ] **Rabatt wird in Rechnung angezeigt:**
-  - [ ] Position "DPolG-Mitglieder Rabatt (15%)" vorhanden
-  - [ ] Rabattbetrag korrekt
-- [ ] **Rabatt-Konfiguration:**
-  - [ ] Preiseinstellungen → DPolG-Rabatt aktivieren/deaktivieren
-  - [ ] Rabatt-Prozentsatz änderbar
-  - [ ] Rabatt-Basis: "Nur Zimmerpreis" ausgewählt
+### 9. DPolG-Rabatt Berechnung ✅
+- [x] **Rabatt wird korrekt angewendet:**
+  - [x] Mitglied-Checkbox aktiviert
+  - [x] 15% Rabatt auf **Zimmerpreis** (NICHT Gesamtpreis!)
+  - [x] Services werden NICHT rabattiert
+  - [x] Endreinigung wird NICHT rabattiert
+- [x] **Rabatt wird in Rechnung angezeigt:**
+  - [x] Position "DPolG-Mitglieder Rabatt (15%)" vorhanden
+  - [x] Rabattbetrag korrekt
+- [x] **Rabatt-Konfiguration:**
+  - [x] Preiseinstellungen → DPolG-Rabatt aktivieren/deaktivieren
+  - [x] Rabatt-Prozentsatz änderbar
+  - [x] Rabatt-Basis: "Nur Zimmerpreis" ausgewählt
+
+**Testergebnis:** ✅ BESTANDEN - Bug behoben: Rabatt persistiert jetzt bei Service-Änderungen
 
 **Erwartetes Beispiel:**
 ```
@@ -251,11 +255,27 @@ Gesamtpreis:                  149,75€
 
 ---
 
-### Bug 2: _______________________
-**Beschreibung:**
-**Status:**
-**Priorität:**
+### Bug 2: DPolG-Rabatt wird auf 0€ gesetzt beim Hinzufügen/Entfernen von Services ⚠️
+**Beschreibung:** Wenn ein Service zu einer Buchung mit DPolG-Mitglied hinzugefügt oder entfernt wird, wird der DPolG-Rabatt (15%) auf 0€ zurückgesetzt.
+**Status:** ✅ BEHOBEN (Commit: 70d9d45)
+**Priorität:** ~~🔴 CRITICAL~~ → ✅ BEHOBEN
 **Schritte zur Reproduktion:**
+1. Buchung mit DPolG-Mitglied erstellen (z.B. Booking 78, 79)
+2. Rabatt wird korrekt berechnet und gespeichert (z.B. 17,85€)
+3. Service hinzufügen (z.B. Endreinigung)
+4. Rabatt springt auf 0,00€ ❌
+5. Gesamtpreis ist falsch (zu hoch)
+
+**Root Cause:**
+- `link_service_template_to_booking()` in database.rs:3084-3092 hat nur Discount-Templates berücksichtigt
+- DPolG-Rabatt ist KEIN Template, sondern wird basierend auf `ist_dpolg_mitglied` berechnet
+- Bei Preisrekalkulation wurde DPolG-Rabatt komplett ignoriert
+
+**Lösung:**
+- database.rs:3097-3117: DPolG-Rabatt wird jetzt zusätzlich zu Templates berechnet
+- database.rs:3179-3199: Gleicher Fix für `link_discount_template_to_booking()`
+- Rabatt-Berechnung prüft `ist_dpolg_mitglied` Flag und holt Settings aus DB
+- **Behoben in Commit:** `70d9d45` - fix(booking): DPolG-Rabatt wird jetzt bei Service-Änderungen persistiert
 
 ---
 

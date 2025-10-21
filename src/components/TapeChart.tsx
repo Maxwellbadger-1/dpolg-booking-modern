@@ -628,8 +628,9 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     const checkout = new Date(booking.checkout_date);
 
     const startOffset = differenceInDays(checkin, defaultStart);
-    // Include checkout day: add +1 to duration
-    const duration = differenceInDays(checkout, checkin) + 1;
+    // Hotel booking: show occupied days only (NOT checkout day)
+    // Check-in 26.10 to Check-out 28.10 = 2 nights = show 26th + 27th (NOT 28th)
+    const duration = differenceInDays(checkout, checkin);
 
     // Add padding: 4px on each side
     const padding = 4;

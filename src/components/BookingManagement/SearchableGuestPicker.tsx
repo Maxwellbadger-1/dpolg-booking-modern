@@ -119,8 +119,8 @@ export default function SearchableGuestPicker({
   };
 
   // Highlight matching text
-  const highlightText = (text: string, query: string) => {
-    if (!query) return text;
+  const highlightText = (text: string | null | undefined, query: string) => {
+    if (!text || !query) return text || '';
 
     const parts = text.split(new RegExp(`(${query})`, 'gi'));
     return (
