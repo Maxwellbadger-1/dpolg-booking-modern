@@ -94,7 +94,7 @@ pub fn generate_invoice_pdf_html(
     // Versuche Tab zu erstellen - wenn Verbindung geschlossen, Browser neu starten
     let tab = match browser.new_tab() {
         Ok(t) => t,
-        Err(e) => {
+        Err(_e) => {
             println!("⚠️  Browser connection closed, resetting pool...");
             // Browser-Pool zurücksetzen
             let mut pool = BROWSER_POOL.lock().map_err(|e| format!("Browser pool lock error: {}", e))?;
