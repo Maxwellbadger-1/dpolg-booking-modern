@@ -25,8 +25,20 @@ fn get_or_create_browser() -> Result<Browser, String> {
 
     // Browser noch nicht gestartet - erstmalig initialisieren
     println!("🌐 [BROWSER POOL] Starting new browser instance (first time)...");
+
+    // 🏗️ CI-KOMPATIBILITÄT: --no-sandbox Flag für GitHub Actions
+    // Chrome braucht --no-sandbox in containerisierten CI-Umgebungen
+    let is_ci = std::env::var("CI").is_ok()
+        || std::env::var("GITHUB_ACTIONS").is_ok()
+        || std::env::var("RUST_CI").is_ok();
+
+    if is_ci {
+        println!("🏗️  [CI MODE] Running in CI environment, using --no-sandbox");
+    }
+
     let launch_options = LaunchOptions::default_builder()
         .headless(true)
+        .sandbox(!is_ci)  // Sandbox OFF in CI, ON in Production
         .build()
         .map_err(|e| {
             eprintln!("❌ Chrome launch options error: {}", e);
