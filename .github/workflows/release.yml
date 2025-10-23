@@ -39,12 +39,12 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Rust Cache (Professional Speed Boost)
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-          shared-key: tauri-release
-          cache-on-failure: true
+      # - name: Rust Cache (Professional Speed Boost)
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: src-tauri
+      #     shared-key: tauri-release
+      #     cache-on-failure: true
 
       - name: Setup Chrome
         uses: browser-actions/setup-chrome@v1
