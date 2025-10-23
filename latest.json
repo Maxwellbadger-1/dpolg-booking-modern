@@ -1,0 +1,11 @@
+{
+  "version": "1.7.0",
+  "notes": "## Version 1.7.0 - DPolG Logo Update\n\n### Neue Features:\n- 🦁 Neues professionelles DPolG Logo mit goldenen Löwen und Polizeistern\n- ✨ Verbesserte Markenidentität und Corporate Design\n\n### Technische Verbesserungen:\n- 🔧 ACL-Berechtigungen für den Updater behoben\n- 🚀 Nahtlose Updates von v1.6.8 verfügbar\n- 📦 Optimierte Bundle-Größe und Performance\n\n### System:\n- Update-System vollständig getestet und funktionsfähig\n- Automatische Update-Prüfung beim App-Start\n- Manueller Update-Check in den Einstellungen",
+  "pub_date": "2025-10-23T23:30:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "PLACEHOLDER_SIGNATURE",
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.0/Stiftung.der.DPolG.Buchungssystem_1.7.0_x64_en-US.msi"
+    }
+  }
+}

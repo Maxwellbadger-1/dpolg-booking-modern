@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { Building2, Save, Upload, XCircle } from 'lucide-react';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info } from 'lucide-react';
 
 interface CompanySettings {
   id: number;
@@ -40,6 +42,9 @@ export default function GeneralSettingsTab() {
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'current' | 'error'>('idle');
+  const [updateVersion, setUpdateVersion] = useState<string>('');
 
   useEffect(() => {
     loadSettings();
@@ -104,6 +109,75 @@ export default function GeneralSettingsTab() {
       setLogoPath('');
       setSuccessMessage('Logo entfernt. Bitte speichern Sie die Änderungen.');
       setTimeout(() => setSuccessMessage(null), 3000);
+    }
+  };
+
+  const checkForUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateStatus('checking');
+
+    try {
+      console.log('🔍 Manueller Update-Check gestartet...');
+      const update = await check();
+
+      if (update?.available) {
+        console.log(`✅ Update verfügbar: ${update.version}`);
+        setUpdateStatus('available');
+        setUpdateVersion(update.version);
+
+        // Zeige Update-Dialog
+        const shouldUpdate = window.confirm(
+          `Update verfügbar: Version ${update.version}\n\n${update.body || 'Neue Version verfügbar'}\n\nJetzt installieren? Die App wird nach der Installation neu gestartet.`
+        );
+
+        if (shouldUpdate) {
+          setSuccessMessage('Update wird heruntergeladen...');
+
+          // Download und Installation
+          let downloaded = 0;
+          let contentLength = 0;
+          await update.downloadAndInstall((event) => {
+            switch (event.event) {
+              case 'Started':
+                contentLength = event.data.contentLength || 0;
+                console.log(`Download gestartet (${Math.round(contentLength / 1024 / 1024)} MB)`);
+                break;
+              case 'Progress':
+                downloaded += event.data.chunkLength;
+                const percent = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
+                setSuccessMessage(`Update wird heruntergeladen... ${percent}%`);
+                break;
+              case 'Finished':
+                setSuccessMessage('Update wurde installiert. App wird neu gestartet...');
+                console.log('Update installiert');
+                break;
+            }
+          });
+
+          // App neu starten
+          setTimeout(async () => {
+            await relaunch();
+          }, 2000);
+        }
+      } else {
+        console.log('✅ App ist auf dem neuesten Stand');
+        setUpdateStatus('current');
+        setSuccessMessage('Die App ist bereits auf dem neuesten Stand (v1.6.8)');
+        setTimeout(() => {
+          setSuccessMessage(null);
+          setUpdateStatus('idle');
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('❌ Fehler beim Update-Check:', error);
+      setUpdateStatus('error');
+      setSuccessMessage(`Fehler beim Update-Check: ${error}`);
+      setTimeout(() => {
+        setSuccessMessage(null);
+        setUpdateStatus('idle');
+      }, 5000);
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -343,6 +417,58 @@ export default function GeneralSettingsTab() {
               placeholder="München"
               className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* App Updates */}
+      <div className="border-t border-slate-700 pt-6">
+        <h3 className="text-lg font-bold text-white mb-4">Software-Updates</h3>
+        <div className="space-y-4">
+          <div className="bg-slate-700/50 rounded-lg p-4 border border-slate-600">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-300">
+                  Aktuelle Version: <span className="text-white">1.6.8</span>
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Automatische Update-Prüfung beim App-Start
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={checkForUpdate}
+                disabled={checkingUpdate}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+              >
+                {checkingUpdate ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Prüfe...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Nach Updates suchen
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Update Status Messages */}
+            {updateStatus === 'current' && (
+              <div className="mt-4 flex items-center gap-2 text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm">App ist auf dem neuesten Stand</span>
+              </div>
+            )}
+
+            {updateStatus === 'available' && (
+              <div className="mt-4 flex items-center gap-2 text-amber-400">
+                <Info className="w-4 h-4" />
+                <span className="text-sm">Version {updateVersion} verfügbar</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,0 +1,11 @@
+{
+  "version": "1.6.9",
+  "notes": "Test Update - Neue Features:\n- Verbesserte Performance\n- Bug Fixes\n- Update System Test",
+  "pub_date": "2025-10-23T20:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "TEST_SIGNATURE_PLACEHOLDER",
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.6.9/Stiftung.der.DPolG.Buchungssystem_1.6.9_x64_en-US.msi"
+    }
+  }
+}
