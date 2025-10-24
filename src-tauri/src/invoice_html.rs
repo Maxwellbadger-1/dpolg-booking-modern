@@ -416,7 +416,17 @@ fn generate_html_from_booking(
         r#"<img src="{}" alt="QR Code für Zahlung" style="width: 100%; height: 100%; object-fit: contain;" />"#,
         qr_code_data_url
     );
-    html = html.replace("[QR CODE]<br>\n                        für Zahlung", &qr_code_html);
+
+    // Robuste Ersetzung - funktioniert unabhängig von Whitespace/Formatierung
+    println!("🔍 [DEBUG] Looking for [QR CODE] placeholder in HTML...");
+    println!("🔍 [DEBUG] Placeholder found: {}", html.contains("[QR CODE]"));
+    println!("🔍 [DEBUG] QR code data URL length: {} characters", qr_code_data_url.len());
+    println!("🔍 [DEBUG] QR code data URL prefix: {}", &qr_code_data_url[..50.min(qr_code_data_url.len())]);
+
+    html = html.replace("[QR CODE]", &qr_code_html);
+
+    println!("🔍 [DEBUG] After replacement, [QR CODE] still present: {}", html.contains("[QR CODE]"));
+    println!("✅ [DEBUG] QR Code successfully inserted into HTML");
 
     Ok(html)
 }
