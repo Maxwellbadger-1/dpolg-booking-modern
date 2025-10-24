@@ -1,11 +1,11 @@
 {
-  "version": "1.7.0",
-  "notes": "## Version 1.7.0 - DPolG Logo Update\n\n### Neue Features:\n- 🦁 Neues professionelles DPolG Logo mit goldenen Löwen und Polizeistern\n- ✨ Verbesserte Markenidentität und Corporate Design\n\n### Technische Verbesserungen:\n- 🔧 ACL-Berechtigungen für den Updater behoben\n- 🚀 Nahtlose Updates von v1.6.8 verfügbar\n- 📦 Optimierte Bundle-Größe und Performance\n\n### System:\n- Update-System vollständig getestet und funktionsfähig\n- Automatische Update-Prüfung beim App-Start\n- Manueller Update-Check in den Einstellungen",
-  "pub_date": "2025-10-23T23:30:00Z",
+  "version": "1.7.2",
+  "notes": "## Version 1.7.2 - UX Improvements & Modern Design\n\n🎨 **Modern Design:**\n- Professional overlay scrollbars (8px, semi-transparent, auto-hiding)\n- Matches design of VS Code, Notion, and Spotify\n- Smooth transitions and hover effects\n\n⚙️ **Settings Reorganization:**\n- Professional UX hierarchy: Core → Business → Communication → Advanced\n- Software Updates moved to top priority in General settings\n- Visual groupings with separator lines\n- Improved default tab selection\n\n📱 **Responsiveness:**\n- Logo size increased for better visibility\n- Booking and Guest tables now scale with viewport height\n- Better screen space utilization\n\n🧹 **Code Quality:**\n- Removed deprecated Putzplan setup feature\n- Added comprehensive JSX syntax documentation\n- Cleaned up unused state variables\n\n**Note:** This version includes significant UX improvements based on professional design patterns.",
+  "pub_date": "2025-10-24T02:30:00Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "PLACEHOLDER_SIGNATURE",
-      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.0/Stiftung.der.DPolG.Buchungssystem_1.7.0_x64_en-US.msi"
+      "signature": "",
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.2/Stiftung.der.DPolG.Buchungssystem_1.7.2_x64_en-US.msi"
     }
   }
 }
