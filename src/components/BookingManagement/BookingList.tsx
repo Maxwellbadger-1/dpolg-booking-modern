@@ -466,7 +466,8 @@ export default function BookingList() {
             {/* Scroll Container with Virtualization */}
             <div
               ref={parentRef}
-              className="overflow-auto h-[650px]"
+              className="overflow-auto"
+              style={{ height: 'calc(100vh - 420px)' }}
             >
               <div className="min-w-[1500px]">
                 {/* Table Header - Sticky Top with border-bottom for separation */}

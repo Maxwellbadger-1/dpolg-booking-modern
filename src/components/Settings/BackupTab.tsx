@@ -48,8 +48,6 @@ export default function BackupTab() {
   const [deleteDialog, setDeleteDialog] = useState<{ show: boolean; backup: BackupInfo | null }>({ show: false, backup: null });
   const [restoring, setRestoring] = useState(false);
   const [undoingId, setUndoingId] = useState<number | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   // Load settings and backups
   useEffect(() => {
@@ -183,31 +181,6 @@ export default function BackupTab() {
     }
   };
 
-  const handleOneClickSetup = async () => {
-    setSyncing(true);
-    setError(null);
-    setSuccess(null);
-    setSyncResult(null);
-
-    try {
-      // Step 1: Schema Migration
-      setSyncResult('📝 Schritt 1/2: Schema wird migriert...');
-      await invoke('migrate_cleaning_tasks_schema');
-
-      // Step 2: 3-Monats-Sync
-      setSyncResult('📝 Schritt 2/2: Daten werden synchronisiert (90 Tage)...\nDies kann 30-60 Sekunden dauern...');
-      const result = await invoke<string>('sync_week_ahead');
-
-      setSyncResult(`✅ SETUP ABGESCHLOSSEN!\n\n${result}`);
-      setSuccess('🎉 Putzplan erfolgreich eingerichtet! Die Mobile App kann jetzt verwendet werden.');
-      setTimeout(() => setSuccess(null), 10000);
-    } catch (err) {
-      setError(`Fehler beim Setup: ${err}`);
-      setSyncResult(null);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const getOperationIcon = (operationType: string) => {
     switch (operationType) {
@@ -274,73 +247,6 @@ export default function BackupTab() {
         </div>
       )}
 
-      {/* 🚀 ONE-CLICK PUTZPLAN SETUP (Hero Section) */}
-      <div className="bg-gradient-to-br from-emerald-600 to-emerald-700 rounded-xl p-6 border border-emerald-500 shadow-lg">
-        <div className="flex items-start gap-4 mb-4">
-          <div className="p-3 bg-white/20 rounded-lg">
-            <RefreshCw className="w-6 h-6 text-white" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-white mb-2">Automatische Putzplan-Einrichtung</h2>
-            <p className="text-emerald-50 text-sm">
-              Ein Klick - und alles ist bereit! Migriert das Schema und synchronisiert alle Daten der nächsten 90 Tage.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {/* Info Box */}
-          <div className="bg-white/10 border border-white/20 rounded-lg p-4">
-            <p className="text-white text-sm font-semibold mb-2">Was wird gemacht?</p>
-            <ul className="space-y-1 text-emerald-50 text-sm">
-              <li className="flex items-start gap-2">
-                <span className="text-white mt-0.5">•</span>
-                <span>Schema-Migration: Erstellt room_location-Spalte in Turso Cloud</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-white mt-0.5">•</span>
-                <span>3-Monats-Sync: Lädt alle Buchungen der nächsten 90 Tage</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-white mt-0.5">•</span>
-                <span>Location-Filter wird in der Mobile App aktiviert</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Progress Display */}
-          {syncResult && (
-            <div className="bg-white/10 border border-white/20 rounded-lg p-4">
-              <pre className="text-white text-sm whitespace-pre-wrap font-mono">
-                {syncResult}
-              </pre>
-            </div>
-          )}
-
-          {/* Action Button */}
-          <button
-            onClick={handleOneClickSetup}
-            disabled={syncing}
-            className="w-full px-6 py-4 bg-white hover:bg-emerald-50 disabled:bg-white/50 text-emerald-700 font-bold text-lg rounded-lg transition-all flex items-center justify-center gap-3 shadow-xl disabled:cursor-not-allowed"
-          >
-            {syncing ? (
-              <>
-                <RefreshCw className="w-5 h-5 animate-spin" />
-                Einrichtung läuft...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-5 h-5" />
-                Jetzt automatisch einrichten
-              </>
-            )}
-          </button>
-
-          <p className="text-emerald-100 text-xs text-center">
-            ⏱️ Dauer: ca. 30-60 Sekunden | Kann mehrfach ausgeführt werden (ohne Datenverlust)
-          </p>
-        </div>
-      </div>
 
       {/* Backup Settings */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">

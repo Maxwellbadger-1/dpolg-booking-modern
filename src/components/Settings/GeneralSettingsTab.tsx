@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { check } from '@tauri-apps/plugin-updater';
+import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info } from 'lucide-react';
 
@@ -45,9 +46,11 @@ export default function GeneralSettingsTab() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'current' | 'error'>('idle');
   const [updateVersion, setUpdateVersion] = useState<string>('');
+  const [currentVersion, setCurrentVersion] = useState<string>('...');
 
   useEffect(() => {
     loadSettings();
+    loadCurrentVersion();
   }, []);
 
   const loadSettings = async () => {
@@ -75,6 +78,16 @@ export default function GeneralSettingsTab() {
       alert(`Fehler beim Laden: ${error}`);
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const loadCurrentVersion = async () => {
+    try {
+      const version = await getVersion();
+      setCurrentVersion(version);
+    } catch (error) {
+      console.error('Fehler beim Laden der Version:', error);
+      setCurrentVersion('Unbekannt');
     }
   };
 
@@ -162,7 +175,7 @@ export default function GeneralSettingsTab() {
       } else {
         console.log('✅ App ist auf dem neuesten Stand');
         setUpdateStatus('current');
-        setSuccessMessage('Die App ist bereits auf dem neuesten Stand (v1.6.8)');
+        setSuccessMessage(`Die App ist bereits auf dem neuesten Stand (v${currentVersion})`);
         setTimeout(() => {
           setSuccessMessage(null);
           setUpdateStatus('idle');
@@ -230,7 +243,63 @@ export default function GeneralSettingsTab() {
 
   return (
     <form onSubmit={handleSave} className="space-y-6">
+      {/* 🚀 SOFTWARE UPDATES - TOP PRIORITY */}
       <div>
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Download className="w-5 h-5 text-blue-400" />
+          Software-Updates
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-blue-600/10 to-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-300">
+                  Aktuelle Version: <span className="text-white font-semibold">{currentVersion}</span>
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Automatische Update-Prüfung beim App-Start
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={checkForUpdate}
+                disabled={checkingUpdate}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+              >
+                {checkingUpdate ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Prüfe...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Nach Updates suchen
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Update Status Messages */}
+            {updateStatus === 'current' && (
+              <div className="mt-4 flex items-center gap-2 text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm">App ist auf dem neuesten Stand</span>
+              </div>
+            )}
+
+            {updateStatus === 'available' && (
+              <div className="mt-4 flex items-center gap-2 text-amber-400">
+                <Info className="w-4 h-4" />
+                <span className="text-sm">Version {updateVersion} verfügbar</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* UNTERKUNFTSDATEN */}
+      <div className="border-t border-slate-700 pt-6">
         <h3 className="text-lg font-bold text-white mb-4">Unterkunftsdaten</h3>
         <div className="space-y-4">
           {/* Company Name */}
@@ -421,57 +490,6 @@ export default function GeneralSettingsTab() {
         </div>
       </div>
 
-      {/* App Updates */}
-      <div className="border-t border-slate-700 pt-6">
-        <h3 className="text-lg font-bold text-white mb-4">Software-Updates</h3>
-        <div className="space-y-4">
-          <div className="bg-slate-700/50 rounded-lg p-4 border border-slate-600">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-slate-300">
-                  Aktuelle Version: <span className="text-white">1.6.8</span>
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  Automatische Update-Prüfung beim App-Start
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={checkForUpdate}
-                disabled={checkingUpdate}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
-              >
-                {checkingUpdate ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    Prüfe...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4" />
-                    Nach Updates suchen
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Update Status Messages */}
-            {updateStatus === 'current' && (
-              <div className="mt-4 flex items-center gap-2 text-emerald-400">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">App ist auf dem neuesten Stand</span>
-              </div>
-            )}
-
-            {updateStatus === 'available' && (
-              <div className="mt-4 flex items-center gap-2 text-amber-400">
-                <Info className="w-4 h-4" />
-                <span className="text-sm">Version {updateVersion} verfügbar</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Logo Upload */}
       <div className="border-t border-slate-700 pt-6">

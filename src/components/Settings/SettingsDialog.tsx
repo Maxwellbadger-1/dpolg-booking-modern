@@ -17,17 +17,24 @@ interface SettingsDialogProps {
 type SettingsTab = 'email' | 'templates' | 'payment' | 'payment_recipients' | 'pricing' | 'general' | 'notifications' | 'backup';
 
 export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('email');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
   if (!isOpen) return null;
 
   const tabs = [
-    { id: 'email' as SettingsTab, label: 'Email-Konfiguration', icon: Mail },
-    { id: 'templates' as SettingsTab, label: 'Email-Templates', icon: FileText },
+    // 🏢 GRUNDEINSTELLUNGEN (meist verwendet)
+    { id: 'general' as SettingsTab, label: 'Allgemein', icon: Building2 },
+    { id: 'pricing' as SettingsTab, label: 'Preise', icon: DollarSign },
+
+    // 💳 BUSINESS LOGIC (täglich verwendet)
     { id: 'payment' as SettingsTab, label: 'Zahlungseinstellungen', icon: CreditCard },
     { id: 'payment_recipients' as SettingsTab, label: 'Rechnungsempfänger', icon: Users },
-    { id: 'pricing' as SettingsTab, label: 'Preise', icon: DollarSign },
-    { id: 'general' as SettingsTab, label: 'Allgemein', icon: Building2 },
+
+    // 📧 KOMMUNIKATION (regelmäßig verwendet)
+    { id: 'email' as SettingsTab, label: 'Email-Konfiguration', icon: Mail },
+    { id: 'templates' as SettingsTab, label: 'Email-Templates', icon: FileText },
+
+    // 🔧 ERWEITERT (seltener verwendet)
     { id: 'notifications' as SettingsTab, label: 'Benachrichtigungen', icon: Bell },
     { id: 'backup' as SettingsTab, label: 'Backup & Sicherheit', icon: HardDrive },
   ];
@@ -46,34 +53,44 @@ export default function SettingsDialog({ isOpen, onClose }: SettingsDialogProps)
           </button>
         </div>
 
-        {/* Tabs Navigation */}
+        {/* Tabs Navigation - Professional Grouping */}
         <div className="flex-shrink-0 border-b border-slate-600 mb-6 relative">
           <div className="overflow-x-auto no-scrollbar min-w-0">
-            <div className="flex gap-2 pb-px">
-              {tabs.map((tab) => {
+            <div className="flex gap-1 pb-px">
+              {tabs.map((tab, index) => {
                 const Icon = tab.icon;
+                // Add visual separation after groups
+                const isGroupEnd = index === 1 || index === 3 || index === 5; // After Grundeinstellungen, Business Logic, Kommunikation
                 return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-3 font-medium transition-colors whitespace-nowrap relative flex-shrink-0 ${
-                      activeTab === tab.id
-                        ? 'text-blue-400'
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {tab.label}
-                    {activeTab === tab.id && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400"></div>
+                  <div key={tab.id} className="flex items-center">
+                    <button
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center gap-2 px-4 py-3 font-medium transition-colors whitespace-nowrap relative flex-shrink-0 ${
+                        activeTab === tab.id
+                          ? 'text-blue-400'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {tab.label}
+                      {activeTab === tab.id && (
+                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400"></div>
+                      )}
+                    </button>
+                    {isGroupEnd && (
+                      <div className="mx-2 h-6 w-px bg-slate-600"></div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
           </div>
           {/* Fade-out indicator on the right */}
           <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-slate-800 to-transparent pointer-events-none"></div>
+          {/* Group legend (subtle) */}
+          <div className="absolute top-0 right-0 text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded-bl-lg">
+            Wichtig → Erweitert
+          </div>
         </div>
 
         {/* Tab Content */}

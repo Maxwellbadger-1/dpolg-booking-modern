@@ -214,7 +214,8 @@ export default function GuestList() {
             {/* Virtualized Scrollable Guest List */}
             <div
               ref={parentRef}
-              className="h-[600px] overflow-y-auto"
+              className="overflow-y-auto"
+              style={{ height: 'calc(100vh - 380px)' }}
             >
               <div
                 style={{

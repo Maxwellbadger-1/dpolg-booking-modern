@@ -54,7 +54,97 @@ pub struct BookingData {
 - Nested Struct Fields: **benötigt serde annotation**
 - Return Values: **benötigt serde annotation**
 
-### 2. Optimistic Updates - IMMER!
+### 🔥 REGEL #2 - JSX SYNTAX (SUPER WICHTIG - JEDES MAL!)
+
+**⚠️ JSX CLOSING TAGS MÜSSEN PERFEKT SEIN!**
+
+**Häufigste Fehler (Research 2025):**
+
+1. **Adjacent Elements MÜSSEN wrapped sein:**
+```tsx
+// ❌ FALSCH - Zwei sibling elements ohne Wrapper:
+return (
+  <div>Section 1</div>
+  <div>Section 2</div>  // ❌ ERROR: Adjacent JSX elements must be wrapped
+)
+
+// ✅ RICHTIG - Mit Fragment wrapper:
+return (
+  <>
+    <div>Section 1</div>
+    <div>Section 2</div>
+  </>
+)
+```
+
+2. **Closing Tags in RICHTIGER REIHENFOLGE:**
+```tsx
+// ❌ FALSCH - Falsche Schließ-Reihenfolge:
+<div>
+  <button>
+    <span>Text</div>  // ❌ span nicht geschlossen!
+  </button>
+</span>
+
+// ✅ RICHTIG - Korrekte Reihenfolge (LIFO - Last In First Out):
+<div>
+  <button>
+    <span>Text</span>  // ✅ Zuerst span
+  </button>            // ✅ Dann button
+</div>                 // ✅ Dann div
+```
+
+3. **Self-Closing Tags bei leeren Elementen:**
+```tsx
+// ❌ FALSCH:
+<input>  // ❌ Muss self-closed sein!
+<img>    // ❌ Muss self-closed sein!
+
+// ✅ RICHTIG:
+<input />
+<img />
+<br />
+<hr />
+```
+
+4. **Conditional Rendering - Extra vorsichtig:**
+```tsx
+// ❌ GEFÄHRLICH - Leicht Fehler zu machen:
+{condition && (
+  <div>
+    <span>...</span>
+  </div>
+  <div>...</div>  // ❌ Adjacent elements!
+)}
+
+// ✅ SICHER - Immer wrapper verwenden:
+{condition && (
+  <>
+    <div>
+      <span>...</span>
+    </div>
+    <div>...</div>
+  </>
+)}
+```
+
+**🛡️ SCHUTZ-STRATEGIE vor JSX-Fehlern:**
+
+1. **Bei großen Edits:** IMMER erst komplette Struktur lesen
+2. **Count Tags:** Jedes `<div>` MUSS ein `</div>` haben
+3. **Indentation beachten:** Hilft beim Erkennen der Struktur
+4. **Kleine Schritte:** Lieber 5 kleine Edits als 1 großer
+5. **Testing:** Nach jeder Edit-Gruppe prüfen ob App läuft
+6. **Git Checkpoint:** Vor großen Refactorings commit machen
+
+**Tools die helfen:**
+- ESLint + Prettier (auto-fix viele Fehler)
+- VSCode Bracket Colorizer
+- React Developer Tools
+
+**MERKE:** JSX-Fehler brechen die GESAMTE App! Deshalb extra vorsichtig!
+
+### 3. Optimistic Updates - IMMER!
 
 **Pattern:**
 ```typescript

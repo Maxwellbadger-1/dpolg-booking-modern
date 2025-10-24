@@ -292,7 +292,7 @@ function AppContent() {
     return (
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center">
         {/* Lottie Animation */}
-        <div className="w-64 h-64 mb-8">
+        <div className="w-80 h-80 mb-8">
           <Lottie
             animationData={loadingAnimation}
             loop={true}
