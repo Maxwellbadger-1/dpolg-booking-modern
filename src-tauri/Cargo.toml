@@ -1,6 +1,6 @@
 [package]
 name = "dpolg-booking-modern"
-version = "0.1.0"
+version = "1.7.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -46,6 +46,15 @@ reqwest = { version = "0.11", features = ["json"] }
 dirs = "5.0"
 csv = "1.3"
 alphanumeric-sort = "1.5"
+
+# Debug Profile (Development Build) - Fixes LNK1318 PDB errors
+[profile.dev]
+# Disable debug symbols to avoid PDB errors
+debug = false
+# Optimize slightly for faster builds
+opt-level = 1
+# Use more codegen units for faster parallel compilation
+codegen-units = 256
 
 # Release Profile Optimization (Production Build)
 [profile.release]
