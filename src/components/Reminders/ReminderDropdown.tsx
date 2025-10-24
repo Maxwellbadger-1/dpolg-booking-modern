@@ -87,10 +87,10 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-[90]" onClick={onClose} />
 
       {/* Dropdown */}
-      <div className="absolute top-full right-0 mt-2 w-96 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl shadow-2xl border border-slate-700 z-50">
+      <div className="absolute top-full right-0 mt-2 w-96 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl shadow-2xl border border-slate-700 z-[100]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-slate-700">
           <h3 className="text-lg font-bold text-white">Dringende Erinnerungen</h3>

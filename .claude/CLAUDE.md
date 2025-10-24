@@ -462,6 +462,201 @@ Refs: ROADMAP.md Phase 1.1
 
 ---
 
-**Version:** 2.0 (Kompakt)
-**Letzte Aktualisierung:** 2025-10-20
+## 🛡️ REGRESSION PREVENTION (2025 Best Practices)
+
+### Warum Regressions Prevention?
+
+**Problem:** Features die bereits funktioniert haben brechen nach neuen Änderungen wieder.
+
+**Lösung:** Systematische Tests + Checklisten + Automated Testing
+
+---
+
+### 🔴 KRITISCHE REGEL - VOR JEDEM COMMIT
+
+**IMMER diese Features manuell testen:**
+
+1. **Drag & Drop im Tapechart** - Funktioniert es noch?
+2. **Mobile App iframe** - Lädt die Putzplan-Vorschau?
+3. **Dropdown z-index** - Werden UI-Elemente korrekt übereinander gelegt?
+4. **Neue Buchung** - Dialog öffnet und speichert?
+5. **TypeScript** - `npm run build` läuft ohne Fehler?
+
+**Wenn eines dieser Features kaputt ist → NICHT committen!**
+
+---
+
+### 📋 Checklisten verwenden
+
+**VOR JEDEM RELEASE:**
+```bash
+# 1. Öffne Checklist
+code CRITICAL_FEATURES_CHECKLIST.md
+
+# 2. Gehe systematisch durch ALLE Punkte
+
+# 3. Markiere getestete Features als [x]
+
+# 4. NUR wenn ALLES ✅ → Release machen
+```
+
+**Checkliste Location:** `CRITICAL_FEATURES_CHECKLIST.md`
+
+---
+
+### 🧪 Automated Regression Tests
+
+**Playwright Tests laufen lassen:**
+
+```bash
+# Alle Tests
+npx playwright test
+
+# Nur Critical Regressions
+npx playwright test tests/critical-regression.spec.ts
+
+# Mit UI
+npx playwright test --ui
+```
+
+**Test Files:**
+- `tests/critical-regression.spec.ts` - Core Features (Tapechart, Drag&Drop, UI)
+- `tests/mobile-app.spec.ts` - Mobile App Tests (Emojis, Filter, Tasks)
+
+**Regel:** Neue kritische Features → SOFORT Test schreiben!
+
+---
+
+### 🔧 Pre-Commit Hooks
+
+**Automatische Checks vor jedem Commit:**
+
+```bash
+# In package.json bereits konfiguriert
+"husky": {
+  "hooks": {
+    "pre-commit": "npm run type-check && npm run lint"
+  }
+}
+```
+
+**Was wird geprüft:**
+- TypeScript Type Errors
+- ESLint Rules
+- Code Formatting
+
+**Wenn Hook fehlschlägt → Commit wird blockiert!**
+
+---
+
+### 📝 Feature Branch Workflow
+
+**NIEMALS direkt auf `main` committen!**
+
+```bash
+# 1. Neuer Feature Branch
+git checkout -b feature/neue-funktion
+
+# 2. Änderungen machen
+# ... Code schreiben ...
+
+# 3. Lokale Tests
+npm run build
+npx playwright test tests/critical-regression.spec.ts
+
+# 4. Checklist durchgehen
+# CRITICAL_FEATURES_CHECKLIST.md
+
+# 5. Commit
+git add .
+git commit -m "feat: Neue Funktion"
+
+# 6. Merge NACH Testing
+git checkout main
+git merge feature/neue-funktion
+
+# 7. Release
+git tag v1.X.X
+git push --tags
+```
+
+---
+
+### ⚠️ Bekannte Probleme (IMMER prüfen!)
+
+Diese Bugs sind schon mehrmals aufgetreten:
+
+1. **JSX Syntax** - Adjacent Elements ohne Wrapper
+   - ✅ Fix: Immer `<>...</>` wrapper verwenden
+
+2. **Tauri Invoke** - snake_case statt camelCase
+   - ✅ Fix: Frontend IMMER camelCase!
+
+3. **z-index Conflicts** - Dropdowns unter Tapechart
+   - ✅ Fix: Dropdowns z-[100], Tapechart z-0
+
+4. **iframe CSP Blocking** - Mobile App lädt nicht
+   - ✅ Fix: `frame-src` in tauri.conf.json
+
+5. **Emoji Spalten fehlen** - Vercel cached alte Version
+   - ✅ Fix: Dummy commit + `git push` triggert Redeploy
+
+6. **Drag & Drop bricht** - z-index verhindert pointer events
+   - ✅ Fix: Zellen ohne z-index, nur Dropdowns z-[100]
+
+---
+
+### 🚨 Notfall-Recovery
+
+**Wenn etwas kaputt geht:**
+
+```bash
+# 1. SOFORT Git Status checken
+git status
+
+# 2. Letzte funktionierende Version finden
+git log --oneline -10
+
+# 3. Zu funktionierender Version zurück
+git checkout <commit-hash> -- <file>
+
+# 4. Oder kompletten Revert
+git revert <commit-hash>
+
+# 5. Testen ob Feature wieder funktioniert
+
+# 6. Commit
+git commit -m "fix: Revert broken feature"
+```
+
+---
+
+### 📊 Regression Testing Metrics
+
+**Ziele (2025 Standards):**
+- ✅ **99%** Critical Features immer funktionsfähig
+- ✅ **< 1 Tag** bis Regression-Fix deployed
+- ✅ **100%** Automated Tests für Core Features
+- ✅ **0** Regressions in Production Releases
+
+**Aktueller Status:**
+- Manual Testing: ✅ Checklist vorhanden
+- Automated Tests: ✅ Playwright Setup
+- Pre-commit Hooks: ✅ TypeScript + Lint
+- Feature Branches: ⚠️ Needs Enforcement
+
+---
+
+### 💡 Pro-Tipps
+
+1. **Kleine Commits** - Leichter zu debuggen und reverten
+2. **Descriptive Messages** - "fix: Tapechart drag & drop" nicht "fixed bug"
+3. **Test after Merge** - Auch nach merge nochmal alles testen
+4. **Screenshot before/after** - Bei UI-Änderungen Screenshots machen
+5. **Ask before big refactors** - Große Änderungen mit Team absprechen
+
+---
+
+**Version:** 2.1 (Mit Regression Prevention)
+**Letzte Aktualisierung:** 2025-10-24
 **Status:** 🟢 Aktiv

@@ -242,7 +242,7 @@ export default function ServiceTemplateDialog({
               {showEmojiPicker && (
                 <div
                   ref={emojiPickerRef}
-                  className="absolute top-full mt-2 z-50 shadow-2xl rounded-lg overflow-hidden"
+                  className="absolute top-full mt-2 z-[100] shadow-2xl rounded-lg overflow-hidden"
                 >
                   <Picker
                     data={data}
