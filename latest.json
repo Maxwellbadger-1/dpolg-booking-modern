@@ -1,11 +1,11 @@
 {
-  "version": "1.7.2",
-  "notes": "## Version 1.7.2 - UX Improvements & Modern Design\n\n🎨 **Modern Design:**\n- Professional overlay scrollbars (8px, semi-transparent, auto-hiding)\n- Matches design of VS Code, Notion, and Spotify\n- Smooth transitions and hover effects\n\n⚙️ **Settings Reorganization:**\n- Professional UX hierarchy: Core → Business → Communication → Advanced\n- Software Updates moved to top priority in General settings\n- Visual groupings with separator lines\n- Improved default tab selection\n\n📱 **Responsiveness:**\n- Logo size increased for better visibility\n- Booking and Guest tables now scale with viewport height\n- Better screen space utilization\n\n🧹 **Code Quality:**\n- Removed deprecated Putzplan setup feature\n- Added comprehensive JSX syntax documentation\n- Cleaned up unused state variables\n\n**Note:** This version includes significant UX improvements based on professional design patterns.",
-  "pub_date": "2025-10-24T02:30:00Z",
+  "version": "1.7.3",
+  "notes": "## Version 1.7.3 - Putzplan Sync Fix\n\n🔧 **Critical Fix:**\n- Fixed mobile app preview in Putzplan Sync tab\n- Updated Content Security Policy to allow iframe embedding\n- Mobile app now loads correctly in both mobile and desktop preview modes\n\n📱 **What's Fixed:**\n- iframe blocking issue resolved\n- CSP now includes frame-src and child-src for Vercel domain\n- Desktop and mobile preview both working\n\n**Upgrade from v1.7.2:** This fixes the \"Content blocked\" error in the Putzplan Sync preview.",
+  "pub_date": "2025-10-24T10:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "",
-      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.2/Stiftung.der.DPolG.Buchungssystem_1.7.2_x64_en-US.msi"
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.3/Stiftung.der.DPolG.Buchungssystem_1.7.3_x64_en-US.msi"
     }
   }
 }
