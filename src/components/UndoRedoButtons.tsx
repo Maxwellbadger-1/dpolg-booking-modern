@@ -118,7 +118,7 @@ export default function UndoRedoButtons() {
 
       {/* Dropdown Menu - Undo Stack */}
       {showDropdown && canUndo && (
-        <div className="absolute top-full right-0 mt-2 w-96 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div className="absolute top-full right-0 mt-2 w-96 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-[100] overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 bg-slate-900/50 border-b border-slate-700">
             <div className="flex items-center gap-2">

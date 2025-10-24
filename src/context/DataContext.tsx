@@ -537,7 +537,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       const newCheckout = data.checkoutDate ?? data.checkout_date;
       const newCheckin = data.checkinDate ?? data.checkin_date;
 
-      const checkoutChanged = oldBooking && newCheckout && oldBooking.checkout_date !== newCheckout;
+      // FIX (2025-10-24): Berücksichtige alternatives Putzplan-Checkout-Datum
+      // Das EFFEKTIVE Checkout-Datum ist: putzplan_checkout_date WENN gesetzt, SONST checkout_date
+      const newPutzplanCheckout = data.putzplanCheckoutDate ?? data.putzplan_checkout_date;
+      const effectiveNewCheckout = newPutzplanCheckout || newCheckout;
+
+      const oldPutzplanCheckout = oldBooking?.putzplan_checkout_date;
+      const effectiveOldCheckout = oldPutzplanCheckout || oldBooking?.checkout_date;
+
+      const checkoutChanged = oldBooking && (effectiveNewCheckout || newCheckout) && effectiveOldCheckout !== effectiveNewCheckout;
       const checkinChanged = oldBooking && newCheckin && oldBooking.checkin_date !== newCheckin;
 
       console.log('🔍 [DataContext] Prüfe UPDATE Auto-Sync:', {
@@ -576,12 +584,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // FIX (2025-10-21): Prevents race condition where old tasks are re-created
         // FIX (2025-10-21): BEIDE Daten synchronisieren (Check-in + Check-out)
         //   Behebt Bug wo Buchungen nach Checkout-Änderung aus PDF verschwinden
+        // FIX (2025-10-24): Verwende EFFEKTIVE Checkout-Daten (berücksichtigt putzplan_checkout_date)
         // REGEL #1: IMMER camelCase im Frontend! Tauri konvertiert automatisch!
         invoke('sync_affected_dates', {
           bookingId: id,  // 🔥 Tauri auto-converts: bookingId → booking_id
           checkinDate: newCheckin || '',  // NEU! Verhindert Verschwinden aus PDF
-          oldCheckout: checkoutChanged ? oldBooking.checkout_date : null,
-          newCheckout: newCheckout
+          oldCheckout: checkoutChanged ? effectiveOldCheckout : null,
+          newCheckout: effectiveNewCheckout || newCheckout
         }).then((result: string) => {
           console.log('✅ [DataContext] Auto-Sync (UPDATE) erfolgreich:', result);
           toast.success('✅ Putzplan aktualisiert', { id: syncToast });

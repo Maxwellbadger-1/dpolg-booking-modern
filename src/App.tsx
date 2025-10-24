@@ -26,6 +26,7 @@ import ReminderDropdown from './components/Reminders/ReminderDropdown';
 import RemindersView from './components/Reminders/RemindersView';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud, Bell } from 'lucide-react';
 import loadingAnimation from './loading-animation.json';
+import appIcon from './assets/app-icon.png';
 
 interface Room {
   id: number;
@@ -291,6 +292,16 @@ function AppContent() {
   if (loading) {
     return (
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center">
+        {/* App Logo - Large */}
+        <div className="mb-8 relative">
+          <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full"></div>
+          <img
+            src={appIcon}
+            alt="DPolG Buchungssystem Logo"
+            className="relative w-48 h-48 rounded-3xl shadow-2xl ring-4 ring-blue-500/30 animate-pulse"
+          />
+        </div>
+
         {/* Lottie Animation */}
         <div className="w-80 h-80 mb-8">
           <Lottie
@@ -303,7 +314,7 @@ function AppContent() {
         {/* Company Branding */}
         <div className="text-center space-y-4">
           <div className="space-y-2">
-            <h1 className="text-4xl font-bold text-white tracking-tight animate-pulse">
+            <h1 className="text-4xl font-bold text-white tracking-tight">
               Maxflow Software
             </h1>
             <div className="h-1 w-32 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full mx-auto"></div>
@@ -355,10 +366,12 @@ function AppContent() {
         <div className="px-6 py-3 flex items-center justify-between">
           {/* Left: Logo + Title + Stats */}
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-2 rounded-xl shadow-lg">
-                <Hotel className="w-5 h-5 text-white" />
-              </div>
+            <div className="flex items-center gap-3">
+              <img
+                src={appIcon}
+                alt="DPolG Buchungssystem Logo"
+                className="w-14 h-14 rounded-xl shadow-lg"
+              />
               <div>
                 <h1 className="text-lg font-bold text-white tracking-tight">
                   Stiftung der DPolG Buchungssystem

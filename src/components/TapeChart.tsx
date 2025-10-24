@@ -554,12 +554,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   // Get current density settings
   const density = DENSITY_SETTINGS[densityMode];
 
-  // Configure drag sensor with delay to prevent accidental drags
+  // Configure drag sensor with distance-based activation (like professional apps)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        delay: 150,      // 150ms delay before drag activates
-        tolerance: 5     // Allow 5px movement during delay
+        distance: 8,     // Drag activates after 8px movement (like Notion/Trello)
       }
     })
   );
@@ -690,6 +689,25 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     if (!targetRoom) {
       console.error('Target room not found:', targetRoomId);
       setActiveBooking(null);
+      return;
+    }
+
+    // Validate room capacity
+    if (activeBooking.anzahl_gaeste > targetRoom.capacity) {
+      console.warn(`❌ Kapazitätsfehler: ${activeBooking.anzahl_gaeste} Gäste > ${targetRoom.capacity} Kapazität`);
+
+      // Show error toast
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: {
+          type: 'error',
+          message: `Zimmer ${targetRoom.name} hat nur Kapazität für ${targetRoom.capacity} ${targetRoom.capacity === 1 ? 'Person' : 'Personen'}, aber die Buchung hat ${activeBooking.anzahl_gaeste} ${activeBooking.anzahl_gaeste === 1 ? 'Gast' : 'Gäste'}.`,
+          duration: 5000
+        }
+      }));
+
+      setActiveBooking(null);
+      setDragHasOverlap(false);
+      setOverlapDropZone(null);
       return;
     }
 

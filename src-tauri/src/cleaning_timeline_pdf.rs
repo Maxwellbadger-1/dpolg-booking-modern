@@ -217,7 +217,20 @@ fn generate_timeline_html(tasks: Vec<CleaningTask>, year: i32, month: u32) -> St
     let table2 = generate_table_html(&rooms, &room_tasks, year, month, split_day, days_in_month);
 
     // Count Stats
-    let total_checkouts: usize = tasks.iter().filter(|t| !t.emojis_end.is_empty()).count();
+    // FIX (2025-10-24): Zähle ALLE Checkout-Tasks, nicht nur die mit Emojis
+    // Check-out Tasks haben task_type="checkout" im extras JSON
+    let total_checkouts: usize = tasks.iter()
+        .filter(|t| {
+            // Parse extras JSON to check task_type
+            if let Ok(extras) = serde_json::from_str::<serde_json::Value>(&t.extras) {
+                extras.get("task_type").and_then(|v| v.as_str()) == Some("checkout")
+            } else {
+                // Fallback: Wenn JSON-Parsing fehlschlägt, prüfe ob emojis_end gesetzt ist
+                // (alte Logik als Backup für ältere Tasks ohne extras field)
+                !t.emojis_end.is_empty()
+            }
+        })
+        .count();
     let total_rooms = rooms.len();
 
     format!(
