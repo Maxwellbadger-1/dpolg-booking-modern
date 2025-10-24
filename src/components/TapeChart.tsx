@@ -163,9 +163,13 @@ interface DraggableBookingProps {
   isPending?: boolean; // NEW: Shows save/discard buttons
   onManualSave?: () => void; // NEW: Manual save handler
   onManualDiscard?: () => void; // NEW: Manual discard handler
+  continuesFromPreviousMonth?: boolean; // Booking started in previous month
+  continuesNextMonth?: boolean; // Booking continues into next month
+  originalCheckin?: string; // Original check-in date (for tooltip)
+  originalCheckout?: string; // Original check-out date (for tooltip)
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false, isPending = false, onManualSave, onManualDiscard }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false, isPending = false, onManualSave, onManualDiscard, continuesFromPreviousMonth = false, continuesNextMonth = false, originalCheckin, originalCheckout }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -371,8 +375,18 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         backfaceVisibility: 'hidden',
         willChange: 'transform',
       }}
-      title={`${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}\n${booking.reservierungsnummer}\n${booking.checkin_date} - ${booking.checkout_date}`}
+      title={`${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}\n${booking.reservierungsnummer}\n${originalCheckin || booking.checkin_date} - ${originalCheckout || booking.checkout_date}${continuesFromPreviousMonth || continuesNextMonth ? '\n⚠️ Monatsübergreifende Buchung' : ''}`}
     >
+      {/* LEFT ARROW - Continues from previous month */}
+      {continuesFromPreviousMonth && (
+        <div
+          className="absolute left-0.5 top-0.5 w-5 h-5 flex items-center justify-center bg-purple-500/90 rounded shadow-lg"
+          title="Fortsetzung von vorigem Monat"
+        >
+          <span className="text-white text-xs font-bold">←</span>
+        </div>
+      )}
+
       <div className="flex-1 overflow-hidden">
         <div className="text-sm font-bold truncate drop-shadow-sm">
           {booking.guest?.vorname || 'Unbekannt'} {booking.guest?.nachname || ''}
@@ -408,6 +422,17 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
           ))}
         </div>
       </div>
+
+      {/* RIGHT ARROW - Continues to next month */}
+      {continuesNextMonth && (
+        <div
+          className="absolute right-0.5 top-0.5 w-5 h-5 flex items-center justify-center bg-purple-500/90 rounded shadow-lg"
+          title="Fortsetzung in nächsten Monat"
+        >
+          <span className="text-white text-xs font-bold">→</span>
+        </div>
+      )}
+
       {/* Manual Save/Discard Buttons (wenn Pending) */}
       {isPending && onManualSave && onManualDiscard && (
         <div className="absolute -top-10 right-0 flex gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -627,11 +652,27 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     const checkin = startOfDay(new Date(booking.checkin_date));
     const checkout = startOfDay(new Date(booking.checkout_date));
 
-    const startOffset = differenceInDays(checkin, defaultStart);
-    // Include checkout day for visualization (will be colored differently later)
-    // Check-in 26.10 to Check-out 28.10 = 2 nights = show 3 days (26th, 27th, 28th)
-    // TODO: Implement color scheme - Green (check-in), Blue (occupied), Red (check-out)
-    const duration = differenceInDays(checkout, checkin) + 1;
+    // Calculate full duration
+    let startOffset = differenceInDays(checkin, defaultStart);
+    let duration = differenceInDays(checkout, checkin) + 1;
+
+    // Check if booking spans across month boundaries
+    const continuesFromPreviousMonth = checkin < defaultStart;
+    const continuesNextMonth = checkout > defaultEnd;
+
+    // Clip to current month view
+    if (continuesFromPreviousMonth) {
+      // Booking started before current month - start from day 0
+      startOffset = 0;
+      // Recalculate duration from month start
+      duration = differenceInDays(
+        continuesNextMonth ? defaultEnd : checkout,
+        defaultStart
+      ) + 1;
+    } else if (continuesNextMonth) {
+      // Booking continues into next month - clip to month end
+      duration = differenceInDays(defaultEnd, checkin) + 1;
+    }
 
     // Add padding: 4px on each side
     const padding = 4;
@@ -640,6 +681,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       left: startOffset * density.cellWidth + padding,
       width: duration * density.cellWidth - (padding * 2),
       isVisible: startOffset >= 0 && startOffset < days.length,
+      continuesFromPreviousMonth,
+      continuesNextMonth,
+      originalCheckin: booking.checkin_date,
+      originalCheckout: booking.checkout_date,
     };
   };
 
@@ -1585,6 +1630,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                           isPending={pendingBookingId === booking.id}
                           onManualSave={handleManualSave}
                           onManualDiscard={handleManualDiscard}
+                          continuesFromPreviousMonth={pos.continuesFromPreviousMonth}
+                          continuesNextMonth={pos.continuesNextMonth}
+                          originalCheckin={pos.originalCheckin}
+                          originalCheckout={pos.originalCheckout}
                         />
                       );
                     })}
@@ -1658,13 +1707,22 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         {/* Drag Overlay */}
         <DragOverlay dropAnimation={null}>
           {activeBooking ? (
-            <DraggableBooking
-              booking={activeBooking}
-              position={getBookingPosition(activeBooking)}
-              rowHeight={density.rowHeight}
-              cellWidth={density.cellWidth}
-              isOverlay={true}
-            />
+            (() => {
+              const pos = getBookingPosition(activeBooking);
+              return (
+                <DraggableBooking
+                  booking={activeBooking}
+                  position={pos}
+                  rowHeight={density.rowHeight}
+                  cellWidth={density.cellWidth}
+                  isOverlay={true}
+                  continuesFromPreviousMonth={pos.continuesFromPreviousMonth}
+                  continuesNextMonth={pos.continuesNextMonth}
+                  originalCheckin={pos.originalCheckin}
+                  originalCheckout={pos.originalCheckout}
+                />
+              );
+            })()
           ) : null}
         </DragOverlay>
 
