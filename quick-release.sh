@@ -120,11 +120,39 @@ curl -s -X POST \
   --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi.sig" > /dev/null
 
 echo "  ✅ .sig uploaded!"
+
+# Upload latest.json for Tauri updater
+echo "  Creating latest.json for Tauri updater..."
+SIGNATURE=$(cat "Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi.sig")
+cat > latest.json << EOF
+{
+  "version": "${VERSION}",
+  "notes": "Release v${VERSION}",
+  "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "${SIGNATURE}",
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v${VERSION}/Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi"
+    }
+  }
+}
+EOF
+
+echo "  Uploading latest.json..."
+curl -s -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/json" \
+  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=latest.json" \
+  --data-binary "@latest.json" > /dev/null
+
+echo "  ✅ latest.json uploaded!"
 echo ""
 
 # Cleanup
 cd ../../../../..
-rm release-data.json
+rm release-data.json latest.json 2>/dev/null || true
 
 echo "🎉 Release v${VERSION} erfolgreich veröffentlicht!"
 echo ""

@@ -62,3 +62,4 @@ build-signed.*
 .env.gh
 .github-token
 dpolg-cleaning-mobile/
+latest.json
