@@ -25,10 +25,10 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 2. ✅ Committed Version Bump
 3. ✅ Erstellt Git Tag (v1.7.5)
 4. ✅ Pusht zu GitHub
-5. ✅ Buildet lokal mit Signierung (~5-10 Min)
+5. ✅ Buildet lokal mit Signierung (~5-10 Min) **NSIS Installer**
 6. ✅ Erstellt GitHub Release
-7. ✅ Uploaded .msi Datei
-8. ✅ Uploaded .msi.sig Datei
+7. ✅ Uploaded NSIS Installer (.exe Datei)
+8. ✅ Uploaded .exe.sig Datei
 9. ✅ Generiert + uploaded **latest.json** (für Tauri Auto-Update!)
 
 **Voraussetzungen (einmalig):**
@@ -65,8 +65,8 @@ Diese Dateien sind **lokal** und bereits in `.gitignore`:
   "pub_date": "2025-10-25T...",
   "platforms": {
     "windows-x86_64": {
-      "signature": "<content-from-.msi.sig>",
-      "url": "https://github.com/.../download/v1.7.5/...msi"
+      "signature": "<content-from-.exe.sig>",
+      "url": "https://github.com/.../download/v1.7.5/...x64-setup.exe"
     }
   }
 }
