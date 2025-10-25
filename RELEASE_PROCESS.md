@@ -79,23 +79,38 @@ netstat -ano | findstr :1423
 
 ### ✅ Schritt 5: LOKAL BUILDEN 🏗️
 
+**WICHTIG:** Build MUSS mit Signierung erfolgen, sonst fehlen die Update-Dateien!
+
 ```bash
+# Mit Signierung (KORREKT - IMMER SO!)
+export TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/dpolg-signing.key)"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 npm run tauri build
 ```
+
+**Signing Key Location:** `src-tauri/dpolg-signing.key`
+**Password:** Leer (keine Passphrase gesetzt)
+
+⚠️ **Ohne diese Environment Variables:**
+- ❌ Build erstellt NUR `.msi` Datei
+- ❌ KEINE `.msi.zip` (Update-Package)
+- ❌ KEINE `.msi.zip.sig` (Signatur)
+- ❌ **Auto-Update funktioniert NICHT!**
 
 **Dauer:** ~5-10 Minuten
 
 **Output-Verzeichnis:** `src-tauri/target/release/bundle/`
 
-**Wichtige Dateien:**
+**Wichtige Dateien (nach erfolgreichem Build):**
 ```
 msi/
-├── dpolg-booking-modern_1.7.4_x64_en-US.msi          ← Installer
-├── dpolg-booking-modern_1.7.4_x64_en-US.msi.zip      ← Update-Package
-└── dpolg-booking-modern_1.7.4_x64_en-US.msi.zip.sig  ← Signatur
+├── Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi      ← Installer + Update-Package (8.7 MB)
+└── Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi.sig  ← Signatur (452 bytes)
 ```
 
-⚠️ **ALLE 3 DATEIEN werden für Auto-Update benötigt!**
+⚠️ **BEIDE DATEIEN werden für Auto-Update benötigt!**
+
+**Hinweis:** Tauri 2 verwendet die .msi direkt als Update-Package. Das .msi.zip existiert nicht mehr!
 
 ---
 
@@ -148,9 +163,8 @@ Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Up
    ```
 
 5. **Dateien hochladen (Drag & Drop):**
-   - ✅ `dpolg-booking-modern_1.7.4_x64_en-US.msi`
-   - ✅ `dpolg-booking-modern_1.7.4_x64_en-US.msi.zip`
-   - ✅ `dpolg-booking-modern_1.7.4_x64_en-US.msi.zip.sig`
+   - ✅ `Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi`
+   - ✅ `Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi.sig`
 
 6. **"Publish release"** klicken
 
