@@ -41,3 +41,23 @@ yarn-error.log*
 *.db
 *.db-shm
 *.db-wal
+
+# Signing Keys - ABSOLUTE SECURITY REQUIREMENT!
+*.key
+*.key.pub
+*.pem
+*.p12
+*.pfx
+*-private.key
+*-signing.key
+signing-*
+key-*
+
+# Sensitive Scripts
+sign-*.ps1
+*-signed.*
+build-signed.*
+
+# GitHub Token (just in case)
+.env.gh
+.github-token

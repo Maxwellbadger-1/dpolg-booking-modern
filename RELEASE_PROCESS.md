@@ -4,7 +4,40 @@
 
 ---
 
-## 📋 Standard-Ablauf für JEDES Update
+## ⚡ SCHNELLSTER WEG - VOLLAUTOMATISCH (EMPFOHLEN!)
+
+**Ein Befehl macht ALLES:**
+```bash
+./quick-release.sh 1.7.5
+```
+
+**Was passiert automatisch:**
+1. ✅ Version-Nummern in allen 3 Dateien aktualisiert
+2. ✅ Änderungen committed ("chore: Bump version to X.X.X")
+3. ✅ Git Tag erstellt und gepusht
+4. ✅ Lokaler Build mit Signierung (~5-10 Minuten)
+5. ✅ GitHub Release erstellt
+6. ✅ Beide Dateien (.msi + .sig) hochgeladen
+7. ✅ Release published (kein Draft!)
+
+**Ergebnis:** Release ist sofort verfügbar und Auto-Update funktioniert!
+
+### 🔑 GitHub Token Setup (Einmalig)
+
+**GitHub Token gespeichert in:** `.github-token` (lokal, nicht in Git!)
+
+Das Token ist bereits in der Datei `.github-token` gespeichert.
+
+**Falls die Datei verloren geht:**
+1. Token aus vorheriger Session/Backup holen
+2. Neue Datei erstellen: `echo "YOUR_TOKEN_HERE" > .github-token`
+3. Token-Format: `ghp_...` (GitHub Personal Access Token)
+
+⚠️ **WICHTIG:** VORHER Code-Änderungen committen (siehe Schritt 1 unten)!
+
+---
+
+## 📋 Standard-Ablauf für JEDES Update (Manuell)
 
 ### ✅ Schritt 1: Code-Änderungen committen
 

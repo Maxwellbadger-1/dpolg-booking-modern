@@ -45,20 +45,86 @@ npm run tauri build
 echo "✅ Build completed!"
 echo ""
 
-# Step 5: Show next steps
-echo "📦 Step 5/5: Files ready for upload!"
+# Step 5: Prepare release data
+echo "📦 Step 5/7: Preparing GitHub release data..."
+cat > release-data.json << EOF
+{
+  "tag_name": "v${VERSION}",
+  "name": "Stiftung der DPolG Buchungssystem v${VERSION}",
+  "body": "## 🎉 Änderungen in v${VERSION}\n\n- ✅ [Beschreibung der Änderungen hier einfügen]\n\n## 📥 Installation\n**Windows:** Laden Sie die \`.msi\` Datei herunter und installieren Sie die App.\n\n## 🔄 Auto-Update\nWenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Update-Dialog angezeigt.",
+  "draft": false,
+  "prerelease": false
+}
+EOF
+echo "✅ Release data prepared!"
 echo ""
-echo "Files location: src-tauri/target/release/bundle/msi/"
-ls -lh "src-tauri/target/release/bundle/msi/" | grep "\.msi"
+
+# Step 6: Create GitHub release
+echo "📤 Step 6/7: Creating GitHub release..."
+
+# Load GitHub token from .github-token file if not already set
+if [ -z "$GITHUB_TOKEN" ]; then
+  if [ -f ".github-token" ]; then
+    GITHUB_TOKEN=$(cat .github-token)
+  else
+    echo "❌ ERROR: GITHUB_TOKEN not set and .github-token file not found!"
+    echo "Create .github-token file with your GitHub token or set GITHUB_TOKEN environment variable."
+    exit 1
+  fi
+fi
+
+RELEASE_RESPONSE=$(curl -s -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/json" \
+  https://api.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases \
+  -d @release-data.json)
+
+RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
+echo "✅ Release created! ID: ${RELEASE_ID}"
 echo ""
-echo "🎯 NEXT STEPS:"
-echo "1. Go to: https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/new"
-echo "2. Tag: v${VERSION}"
-echo "3. Upload BOTH files from msi/ folder:"
-echo "   - *.msi (Installer + Update Package)"
-echo "   - *.msi.sig (Signatur)"
-echo "4. Click 'Publish release' (NOT Draft!)"
+
+# Step 7: Upload files
+echo "⬆️  Step 7/7: Uploading files to GitHub..."
+cd src-tauri/target/release/bundle/msi
+
+# Upload .msi file
+echo "  Uploading .msi file..."
+curl -s -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/octet-stream" \
+  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi" > /dev/null
+
+echo "  ✅ .msi uploaded!"
+
+# Upload .sig file
+echo "  Uploading .sig file..."
+curl -s -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/octet-stream" \
+  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi.sig" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi.sig" > /dev/null
+
+echo "  ✅ .sig uploaded!"
 echo ""
-echo "⚠️  Tauri 2 Note: No .msi.zip needed - the .msi is used directly as update package!"
+
+# Cleanup
+cd ../../../../..
+rm release-data.json
+
+echo "🎉 Release v${VERSION} erfolgreich veröffentlicht!"
+echo ""
+echo "🔗 Release URL: https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/tag/v${VERSION}"
+echo ""
+echo "🧪 Nächster Schritt: Auto-Update testen"
+echo "   1. Öffnen Sie die installierte App (ältere Version)"
+echo "   2. Update-Dialog sollte erscheinen"
+echo "   3. Klicken Sie auf 'Ja' zum Updaten"
 echo ""
 echo "✅ Quick Release Script completed!"
