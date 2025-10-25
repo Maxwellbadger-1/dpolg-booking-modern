@@ -59,7 +59,7 @@ cat > release-data.json << EOF
 {
   "tag_name": "v${VERSION}",
   "name": "Stiftung der DPolG Buchungssystem v${VERSION}",
-  "body": "## 🎉 Änderungen in v${VERSION}\n\n- ✅ [Beschreibung der Änderungen hier einfügen]\n\n## 📥 Installation\n**Windows:** Laden Sie die \`.msi\` Datei herunter und installieren Sie die App.\n\n## 🔄 Auto-Update\nWenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Update-Dialog angezeigt.",
+  "body": "## 🎉 Änderungen in v${VERSION}\n\n- ✅ [Beschreibung der Änderungen hier einfügen]\n\n## 📥 Installation\n**Windows:** Laden Sie die \`-setup.exe\` Datei herunter und installieren Sie die App.\n\n## 🔄 Auto-Update\nWenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Update-Dialog angezeigt.",
   "draft": false,
   "prerelease": false
 }
@@ -95,19 +95,19 @@ echo ""
 
 # Step 7: Upload files
 echo "⬆️  Step 7/7: Uploading files to GitHub..."
-cd src-tauri/target/release/bundle/msi
+cd src-tauri/target/release/bundle/nsis
 
-# Upload .msi file
-echo "  Uploading .msi file..."
+# Upload NSIS installer (.exe) file
+echo "  Uploading NSIS installer file..."
 curl -s -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "Content-Type: application/octet-stream" \
-  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi" \
-  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi" > /dev/null
+  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe" > /dev/null
 
-echo "  ✅ .msi uploaded!"
+echo "  ✅ Installer uploaded!"
 
 # Upload .sig file
 echo "  Uploading .sig file..."
@@ -116,14 +116,14 @@ curl -s -X POST \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "Content-Type: application/octet-stream" \
-  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi.sig" \
-  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi.sig" > /dev/null
+  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe.sig" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig" > /dev/null
 
 echo "  ✅ .sig uploaded!"
 
 # Upload latest.json for Tauri updater
 echo "  Creating latest.json for Tauri updater..."
-SIGNATURE=$(cat "Stiftung der DPolG Buchungssystem_${VERSION}_x64_en-US.msi.sig")
+SIGNATURE=$(cat "Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig")
 cat > latest.json << EOF
 {
   "version": "${VERSION}",
@@ -132,7 +132,7 @@ cat > latest.json << EOF
   "platforms": {
     "windows-x86_64": {
       "signature": "${SIGNATURE}",
-      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v${VERSION}/Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64_en-US.msi"
+      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v${VERSION}/Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe"
     }
   }
 }

@@ -293,12 +293,11 @@ function AppContent() {
     return (
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center">
         {/* App Logo - Large */}
-        <div className="mb-8 relative">
-          <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full"></div>
+        <div className="mb-8">
           <img
             src={appIcon}
             alt="DPolG Buchungssystem Logo"
-            className="relative w-48 h-48 rounded-3xl shadow-2xl ring-4 ring-blue-500/30 animate-pulse"
+            className="w-48 h-48 rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.6)]"
           />
         </div>
 

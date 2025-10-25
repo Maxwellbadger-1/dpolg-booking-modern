@@ -17,8 +17,9 @@
 3. ✅ Git Tag erstellt und gepusht
 4. ✅ Lokaler Build mit Signierung (~5-10 Minuten)
 5. ✅ GitHub Release erstellt
-6. ✅ Beide Dateien (.msi + .sig) hochgeladen
-7. ✅ Release published (kein Draft!)
+6. ✅ NSIS Installer (.exe + .sig) hochgeladen
+7. ✅ latest.json für Auto-Update generiert und hochgeladen
+8. ✅ Release published (kein Draft!)
 
 **Ergebnis:** Release ist sofort verfügbar und Auto-Update funktioniert!
 
@@ -59,23 +60,23 @@ git commit -m "feat: Month-spanning bookings im TapeChart"
 
 1. **package.json**
    ```json
-   "version": "1.7.4"
+   "version": "1.7.5"
    ```
 
 2. **src-tauri/Cargo.toml**
    ```toml
-   version = "1.7.4"
+   version = "1.7.5"
    ```
 
 3. **src-tauri/tauri.conf.json**
    ```json
-   "version": "1.7.4"
+   "version": "1.7.5"
    ```
 
 **Dann committen:**
 ```bash
 git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
-git commit -m "chore: Bump version to 1.7.4"
+git commit -m "chore: Bump version to 1.7.5"
 ```
 
 ---
@@ -84,12 +85,7 @@ git commit -m "chore: Bump version to 1.7.4"
 
 ```bash
 # Tag mit Beschreibung
-git tag -a v1.7.4 -m "Release v1.7.4 - QR-Code Fix & Month-Spanning Bookings
-
-Changes:
-- Fixed QR code display in invoices
-- Added month-spanning booking support
-- Improved visual indicators"
+git tag -a v1.7.5 -m "Release v1.7.5"
 
 # Pushen (Code + Tags)
 git push && git push --tags
@@ -125,25 +121,22 @@ npm run tauri build
 **Password:** Leer (keine Passphrase gesetzt)
 
 ⚠️ **Ohne diese Environment Variables:**
-- ❌ Build erstellt NUR `.msi` Datei
-- ❌ KEINE `.msi.zip` (Update-Package)
-- ❌ KEINE `.msi.zip.sig` (Signatur)
+- ❌ Build erstellt NUR `.exe` Datei
+- ❌ KEINE `.exe.sig` (Signatur)
 - ❌ **Auto-Update funktioniert NICHT!**
 
 **Dauer:** ~5-10 Minuten
 
-**Output-Verzeichnis:** `src-tauri/target/release/bundle/`
+**Output-Verzeichnis:** `src-tauri/target/release/bundle/nsis/`
 
 **Wichtige Dateien (nach erfolgreichem Build):**
 ```
-msi/
-├── Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi      ← Installer + Update-Package (8.7 MB)
-└── Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi.sig  ← Signatur (452 bytes)
+nsis/
+├── Stiftung der DPolG Buchungssystem_1.7.5_x64-setup.exe       ← NSIS Installer (6-8 MB)
+└── Stiftung der DPolG Buchungssystem_1.7.5_x64-setup.exe.sig   ← Signatur (452 bytes)
 ```
 
 ⚠️ **BEIDE DATEIEN werden für Auto-Update benötigt!**
-
-**Hinweis:** Tauri 2 verwendet die .msi direkt als Update-Package. Das .msi.zip existiert nicht mehr!
 
 ---
 
@@ -152,52 +145,47 @@ msi/
 #### Option A: Mit `gh` CLI (schneller)
 
 ```bash
-cd src-tauri/target/release/bundle/msi
+cd src-tauri/target/release/bundle/nsis
 
-gh release create v1.7.4 \
-  --title "Stiftung der DPolG Buchungssystem v1.7.4" \
-  --notes "## 🎉 Änderungen in v1.7.4
+gh release create v1.7.5 \
+  --title "Stiftung der DPolG Buchungssystem v1.7.5" \
+  --notes "## 🎉 Änderungen in v1.7.5
 
-- ✅ QR-Code wird jetzt zentriert in Rechnungen angezeigt
-- ✅ Month-spanning Buchungen funktionieren über Monatsgrenzen
-- ✅ Visuelle Indikatoren für fortlaufende Buchungen
+- ✅ [Beschreibung der Änderungen hier einfügen]
 
 ## 📥 Installation
-**Windows:** Laden Sie die \`.msi\` Datei herunter und installieren Sie die App.
+**Windows:** Laden Sie die \`-setup.exe\` Datei herunter und installieren Sie die App.
 
 ## 🔄 Auto-Update
 Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Update-Dialog angezeigt." \
-  *.msi \
-  *.msi.zip \
-  *.msi.zip.sig
+  *.exe \
+  *.exe.sig
 ```
 
 #### Option B: Manuell über GitHub Web UI
 
 1. Öffnen: https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/new
 
-2. **Tag auswählen:** `v1.7.4`
+2. **Tag auswählen:** `v1.7.5`
 
-3. **Title:** `Stiftung der DPolG Buchungssystem v1.7.4`
+3. **Title:** `Stiftung der DPolG Buchungssystem v1.7.5`
 
 4. **Beschreibung:**
    ```markdown
-   ## 🎉 Änderungen in v1.7.4
+   ## 🎉 Änderungen in v1.7.5
 
-   - ✅ QR-Code wird jetzt zentriert in Rechnungen angezeigt
-   - ✅ Month-spanning Buchungen funktionieren über Monatsgrenzen
-   - ✅ Visuelle Indikatoren für fortlaufende Buchungen
+   - ✅ [Beschreibung der Änderungen hier einfügen]
 
    ## 📥 Installation
-   **Windows:** Laden Sie die `.msi` Datei herunter und installieren Sie die App.
+   **Windows:** Laden Sie die `-setup.exe` Datei herunter und installieren Sie die App.
 
    ## 🔄 Auto-Update
    Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Update-Dialog angezeigt.
    ```
 
 5. **Dateien hochladen (Drag & Drop):**
-   - ✅ `Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi`
-   - ✅ `Stiftung der DPolG Buchungssystem_1.7.4_x64_en-US.msi.sig`
+   - ✅ `Stiftung der DPolG Buchungssystem_1.7.5_x64-setup.exe`
+   - ✅ `Stiftung der DPolG Buchungssystem_1.7.5_x64-setup.exe.sig`
 
 6. **"Publish release"** klicken
 
@@ -207,19 +195,19 @@ Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Up
 
 ### ✅ Schritt 7: Auto-Update testen
 
-1. **Installierte App öffnen** (ältere Version z.B. 1.7.3)
+1. **Installierte App öffnen** (ältere Version z.B. 1.7.4)
 
 2. **Update-Dialog sollte erscheinen:**
    ```
-   🔄 Update verfügbar: v1.7.4
+   🔄 Update verfügbar: v1.7.5
    Möchten Sie jetzt aktualisieren?
    ```
 
-3. **"Ja" klicken** → App lädt Update herunter
+3. **"Ja" klicken** → App lädt Update herunter und installiert
 
-4. **App neustartet** → Version 1.7.4 läuft
+4. **App neustartet automatisch** → Version 1.7.5 läuft
 
-5. **Änderungen testen** (z.B. QR-Code in Rechnung generieren)
+5. **Änderungen testen**
 
 ---
 
@@ -231,7 +219,7 @@ Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Up
 
 ### ❌ FEHLER: Dateien fehlen im Release
 **Symptom:** Auto-Update funktioniert nicht
-**Lösung:** ALLE 3 Dateien hochladen (.msi + .msi.zip + .msi.zip.sig)
+**Lösung:** BEIDE Dateien hochladen (.exe + .exe.sig)
 
 ### ❌ FEHLER: Version nicht erhöht
 **Symptom:** Update wird nicht erkannt
@@ -250,9 +238,9 @@ Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Up
 - [ ] Git tag erstellt + gepusht
 - [ ] Dev-Server gestoppt
 - [ ] `npm run tauri build` erfolgreich
-- [ ] 3 Dateien vorhanden (*.msi, *.msi.zip, *.msi.zip.sig)
+- [ ] 2 Dateien vorhanden (*.exe, *.exe.sig)
 - [ ] GitHub Release erstellt
-- [ ] Alle 3 Dateien hochgeladen
+- [ ] Beide Dateien hochgeladen
 - [ ] Release published (nicht Draft!)
 - [ ] Auto-Update in installierter App getestet
 
@@ -261,7 +249,7 @@ Wenn Sie bereits eine ältere Version installiert haben, wird automatisch ein Up
 ## 🎯 Versionsnummern-Schema
 
 ```
-v1.7.4
+v1.7.5
   │ │ │
   │ │ └─ Patch: Bugfixes (QR-Code Fix, kleine Änderungen)
   │ └─── Minor: Neue Features (Month-spanning Bookings)
@@ -269,8 +257,8 @@ v1.7.4
 ```
 
 **Beispiele:**
-- Bugfix → `1.7.3` → `1.7.4`
-- Neues Feature → `1.7.4` → `1.8.0`
+- Bugfix → `1.7.4` → `1.7.5`
+- Neues Feature → `1.7.5` → `1.8.0`
 - Breaking Change → `1.8.0` → `2.0.0`
 
 ---
@@ -289,5 +277,16 @@ v1.7.4
 
 ---
 
+## 💡 Warum NSIS statt MSI?
+
+- ✅ **Auto-Update funktioniert besser** - Weniger Probleme mit UAC
+- ✅ **Kleinere Dateigröße** - ~6 MB statt ~9 MB
+- ✅ **Schnellere Installation**
+- ✅ **Bessere User Experience** beim Update
+
+**Hinweis:** Bestehende MSI-User müssen einmalig manuell auf NSIS umsteigen (alte Version deinstallieren, neue installieren). Danach funktioniert Auto-Update perfekt!
+
+---
+
 **Erstellt:** 2025-10-24
-**Letzte Aktualisierung:** 2025-10-24
+**Letzte Aktualisierung:** 2025-10-25 (NSIS Migration)
