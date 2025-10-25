@@ -39,8 +39,16 @@ echo ""
 
 # Step 4: Build with signing
 echo "🏗️  Step 4/5: Building release binaries (this takes ~5-10 minutes)..."
-export TAURI_SIGNING_PRIVATE_KEY="dW50cnVzdGVkIGNvbW1lbnQ6IHJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5ClJXUlRZMEl5YlJWSmYwd3pwYXNSLzh5aWlJdkR0S3ZWRFBVY3JTK3RjL2I5R042YmNzY0FBQkFBQUFBQUFBQUFBQUlBQUFBQUV6L0ZWcE56UzFFVnlpYUpHKy80dlVOYzlERmNVWjdMTVFmSHAzQ0NiaU42OUtzaVQ0SFlPVFVIMXl2NVE0bHVpRUoxU3YzSm8rTThCS0s2L200UzF0SHB1bXpZeDgyV0RiajhhUDdjM3RJZlVuNkVMcGlJUFJNWnFrdmFYZkpzdXFzZndkSk0ybjQ9Cg=="
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+
+# Load signing key from file
+if [ -f "src-tauri/dpolg-signing.key" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY=$(cat src-tauri/dpolg-signing.key)
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+else
+  echo "❌ ERROR: Signing key not found at src-tauri/dpolg-signing.key!"
+  exit 1
+fi
+
 npm run tauri build
 echo "✅ Build completed!"
 echo ""

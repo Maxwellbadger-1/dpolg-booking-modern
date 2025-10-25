@@ -61,3 +61,4 @@ build-signed.*
 # GitHub Token (just in case)
 .env.gh
 .github-token
+dpolg-cleaning-mobile/
