@@ -18,7 +18,7 @@ echo ""
 # Step 1: Update version in all files
 echo "📝 Step 1/5: Updating version numbers..."
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" package.json
-sed -i "s/version = \".*\"/version = \"${VERSION}\"/" src-tauri/Cargo.toml
+sed -i "0,/version = \".*\"/s//version = \"${VERSION}\"/" src-tauri/Cargo.toml  # Only first occurrence
 sed -i "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" src-tauri/tauri.conf.json
 echo "✅ Version updated to ${VERSION}"
 echo ""
