@@ -9,6 +9,106 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
+## 🚀 RELEASE-PROZESS (AUTOMATISIERT - IMMER SO!)
+
+**WICHTIG:** Bei JEDEM neuen Release IMMER diesen Prozess verwenden!
+
+### ⚡ EIN-BEFEHL-RELEASE (SCHNELLSTER WEG!)
+
+```bash
+./quick-release.sh 1.7.5
+```
+
+**Das war's!** Dieser Befehl macht ALLES automatisch:
+
+1. ✅ Bumpt Version in allen 3 Dateien (package.json, Cargo.toml, tauri.conf.json)
+2. ✅ Committed Version Bump
+3. ✅ Erstellt Git Tag (v1.7.5)
+4. ✅ Pusht zu GitHub
+5. ✅ Buildet lokal mit Signierung (~5-10 Min)
+6. ✅ Erstellt GitHub Release
+7. ✅ Uploaded .msi Datei
+8. ✅ Uploaded .msi.sig Datei
+9. ✅ Generiert + uploaded **latest.json** (für Tauri Auto-Update!)
+
+**Voraussetzungen (einmalig):**
+- `.github-token` Datei muss existieren (bereits vorhanden)
+- `src-tauri/dpolg-signing.key` Datei muss existieren (bereits vorhanden)
+
+### 📋 VOR jedem Release:
+
+```bash
+# 1. Alle Änderungen committen
+git add <geänderte-files>
+git commit -m "fix: Beschreibung der Änderung"
+
+# 2. EIN Befehl macht den Rest:
+./quick-release.sh 1.7.5
+```
+
+### 🔑 Wichtige Dateien (NIEMALS in Git committen!)
+
+Diese Dateien sind **lokal** und bereits in `.gitignore`:
+
+- `.github-token` - GitHub Personal Access Token
+- `src-tauri/dpolg-signing.key` - Private Signing Key (passwordless)
+- `*.db` - Datenbank-Dateien
+- `latest.json` - Auto-generiert beim Release
+
+### ✅ Was der Script automatisch macht (Tauri 2 Best Practices 2025)
+
+**latest.json Generation:**
+```json
+{
+  "version": "1.7.5",
+  "notes": "Release v1.7.5",
+  "pub_date": "2025-10-25T...",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "<content-from-.msi.sig>",
+      "url": "https://github.com/.../download/v1.7.5/...msi"
+    }
+  }
+}
+```
+
+**Endpoint in tauri.conf.json:**
+```json
+{
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
+```
+
+### 🧪 Nach dem Release testen:
+
+1. Öffne installierte App (ältere Version)
+2. Update-Dialog sollte erscheinen
+3. "Ja" klicken → Download + Installation
+4. App neustartet automatisch
+
+### ⏱️ Geschätzte Zeiten:
+
+| Schritt | Dauer |
+|---------|-------|
+| Code committen | 1-2 min |
+| `./quick-release.sh 1.7.5` | 7-12 min |
+| **GESAMT** | **~10 min** |
+
+### 🚨 NIEMALS:
+
+- ❌ NIEMALS GitHub Actions verwenden (funktioniert nicht mit headless_chrome)
+- ❌ NIEMALS manuell Dateien hochladen (Script macht das)
+- ❌ NIEMALS Signing Key oder Token in Git committen
+- ❌ NIEMALS latest.json vergessen (Auto-Update funktioniert sonst nicht!)
+
+---
+
 ## 🚨 KRITISCHE REGELN
 
 ### 🔥 REGEL #1 - TAURI AUTO-KONVERTIERUNG (WICHTIGSTE REGEL!)
@@ -657,6 +757,40 @@ git commit -m "fix: Revert broken feature"
 
 ---
 
-**Version:** 2.1 (Mit Regression Prevention)
-**Letzte Aktualisierung:** 2025-10-24
+## 🤖 CLAUDE REMINDER - BEI JEDEM RELEASE!
+
+**WENN DER USER NACH EINEM RELEASE FRAGT:**
+
+1. ✅ **IMMER** fragen: "Hast du bereits Code-Änderungen committed?"
+2. ✅ **IMMER** den automatisierten Prozess verwenden: `./quick-release.sh X.X.X`
+3. ✅ **NIEMALS** manuell Dateien hochladen
+4. ✅ **NIEMALS** GitHub Actions vorschlagen
+5. ✅ **IMMER** `latest.json` Generation im Script sicherstellen
+6. ✅ **IMMER** validieren dass `.github-token` und `src-tauri/dpolg-signing.key` existieren
+
+**QUICK CHECKLIST:**
+```bash
+# Vorher: Code committed?
+git status  # Sollte "nothing to commit" zeigen
+
+# Release:
+./quick-release.sh 1.7.5  # NUR DIESER EINE BEFEHL!
+
+# Nachher: Testen
+# → Installierte App öffnen
+# → Update-Dialog sollte erscheinen
+```
+
+**Das Script macht ALLES:**
+- Version Bump + Commit + Tag
+- Build mit Signierung
+- GitHub Release erstellen
+- Upload: .msi + .msi.sig + latest.json
+
+**Web Search validated:** ✅ 2025 Tauri 2 Best Practices (Oktober 2025)
+
+---
+
+**Version:** 2.2 (Mit Auto-Release Prozess)
+**Letzte Aktualisierung:** 2025-10-25
 **Status:** 🟢 Aktiv
