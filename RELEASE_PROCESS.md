@@ -113,12 +113,13 @@ netstat -ano | findstr :1423
 ```bash
 # Mit Signierung (KORREKT - IMMER SO!)
 export TAURI_SIGNING_PRIVATE_KEY="$(cat src-tauri/dpolg-signing.key)"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="dpolg2025"
 npm run tauri build
 ```
 
 **Signing Key Location:** `src-tauri/dpolg-signing.key`
-**Password:** Leer (keine Passphrase gesetzt)
+**Password:** `dpolg2025`
+**Public Key:** `dpolg-signing.key.pub` (für Verifizierung)
 
 ⚠️ **Ohne diese Environment Variables:**
 - ❌ Build erstellt NUR `.exe` Datei

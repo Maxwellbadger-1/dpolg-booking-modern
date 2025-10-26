@@ -43,7 +43,7 @@ echo "🏗️  Step 4/5: Building release binaries (this takes ~5-10 minutes)...
 # Load signing key from file
 if [ -f "src-tauri/dpolg-signing.key" ]; then
   export TAURI_SIGNING_PRIVATE_KEY=$(cat src-tauri/dpolg-signing.key)
-  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="dpolg2025"
 else
   echo "❌ ERROR: Signing key not found at src-tauri/dpolg-signing.key!"
   exit 1
