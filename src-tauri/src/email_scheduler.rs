@@ -32,6 +32,12 @@ pub fn start_email_scheduler() {
             if let Err(e) = check_and_send_payment_reminders() {
                 eprintln!("❌ Fehler beim Payment Reminder Check: {}", e);
             }
+
+            // AUTO-REMINDER: Erstelle zeitbasierte System-Erinnerungen
+            println!("🔔 Prüfe zeitbasierte System-Erinnerungen...");
+            if let Err(e) = crate::reminder_automation::daily_reminder_check() {
+                eprintln!("❌ Fehler beim Daily Reminder Check: {}", e);
+            }
         }
     });
 }

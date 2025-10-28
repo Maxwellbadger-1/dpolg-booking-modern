@@ -1,3 +1,4 @@
+// DEBUG LOGS ADDED - Version 1.0
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -244,10 +245,15 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   };
 
   const handleSendConfirmationEmail = async () => {
-    if (!booking) return;
+    console.log('🔵 [BookingDetails] handleSendConfirmationEmail CALLED', { bookingId, hasBooking: !!booking });
+    if (!booking) {
+      console.log('❌ [BookingDetails] No booking - aborting');
+      return;
+    }
 
     // ✅ LOADING TOAST - bleibt offen bis fertig
     const toastId = `confirmation-${bookingId}`;
+    console.log('🍞 [BookingDetails] Dispatching loading toast', { toastId });
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
         id: toastId,
@@ -259,9 +265,12 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     // ✅ ASYNC BACKGROUND PROCESS
     const sendEmailInBackground = async () => {
       try {
+        console.log('📧 [BookingDetails] Invoking send_confirmation_email_command', { bookingId });
         const result = await invoke<string>('send_confirmation_email_command', { bookingId });
+        console.log('✅ [BookingDetails] Email sent successfully', { result });
 
         // ✅ UPDATE LOADING TOAST mit Success
+        console.log('🍞 [BookingDetails] Dispatching success toast', { toastId });
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
             id: toastId,
@@ -270,6 +279,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
             duration: 3000
           }
         }));
+
+        // ✅ REMINDER BADGE UPDATE: Trigger Bell-Icon Count Refresh + Optimistic Update
+        console.log('📤 [BookingDetails] Dispatching reminder-updated event with type: auto_confirmation');
+        window.dispatchEvent(new CustomEvent('reminder-updated', {
+          detail: { reminderType: 'auto_confirmation' }
+        }));
+        console.log('✅ [BookingDetails] reminder-updated event dispatched');
       } catch (error) {
         // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
@@ -332,10 +348,15 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   };
 
   const handleSendInvoiceEmail = async () => {
-    if (!booking) return;
+    console.log('🟢 [BookingDetails] handleSendInvoiceEmail CALLED', { bookingId, hasBooking: !!booking });
+    if (!booking) {
+      console.log('❌ [BookingDetails] No booking - aborting');
+      return;
+    }
 
     // ✅ LOADING TOAST - bleibt offen bis fertig
     const toastId = `invoice-${bookingId}`;
+    console.log('🍞 [BookingDetails] Dispatching loading toast', { toastId });
     window.dispatchEvent(new CustomEvent('show-toast', {
       detail: {
         id: toastId,
@@ -347,11 +368,14 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
     // ✅ ASYNC BACKGROUND PROCESS
     const sendInvoiceInBackground = async () => {
       try {
+        console.log('📧 [BookingDetails] Invoking generate_and_send_invoice_command', { bookingId });
         // Verwende generate_and_send_invoice_command statt send_invoice_email_command
         // damit PDF automatisch generiert und angehängt wird
         const result = await invoke<string>('generate_and_send_invoice_command', { bookingId });
+        console.log('✅ [BookingDetails] Invoice sent successfully', { result });
 
         // ✅ UPDATE LOADING TOAST mit Success
+        console.log('🍞 [BookingDetails] Dispatching success toast', { toastId });
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: {
             id: toastId,
@@ -363,8 +387,16 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
 
         // Backend markiert Rechnung automatisch als versendet
         // Refresh globale BookingList und lokale Details (auch im Hintergrund)
+        console.log('🔄 [BookingDetails] Refreshing bookings and details');
         await refreshBookings();
         await loadBookingDetails();
+
+        // ✅ REMINDER BADGE UPDATE: Trigger Bell-Icon Count Refresh + Optimistic Update
+        console.log('📤 [BookingDetails] Dispatching reminder-updated event with type: auto_invoice');
+        window.dispatchEvent(new CustomEvent('reminder-updated', {
+          detail: { reminderType: 'auto_invoice' }
+        }));
+        console.log('✅ [BookingDetails] reminder-updated event dispatched');
       } catch (error) {
         // ✅ UPDATE LOADING TOAST mit Error
         window.dispatchEvent(new CustomEvent('show-toast', {
@@ -895,9 +927,24 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                     bookingId={bookingId}
                     onPaymentChange={async (isPaid, zahlungsmethode) => {
                       try {
+                        console.log('💰 [BookingDetails] Payment status changed', { bookingId, isPaid, zahlungsmethode });
                         await updateBookingPayment(bookingId, isPaid, zahlungsmethode);
+                        console.log('✅ [BookingDetails] Payment updated successfully');
+
                         // Reload booking details um aktuelle Daten zu zeigen
+                        console.log('🔄 [BookingDetails] Reloading booking details');
                         await loadBookingDetails();
+
+                        // ✅ Optimistic Update: Trigger reminder update wenn bezahlt
+                        if (isPaid) {
+                          console.log('📤 [BookingDetails] Dispatching reminder-updated event with type: auto_payment');
+                          window.dispatchEvent(new CustomEvent('reminder-updated', {
+                            detail: { reminderType: 'auto_payment' }
+                          }));
+                          console.log('✅ [BookingDetails] reminder-updated event dispatched');
+                        } else {
+                          console.log('ℹ️ [BookingDetails] Payment set to NOT paid - no event dispatched');
+                        }
                       } catch (error) {
                         setShowErrorDialog({
                           show: true,
@@ -1007,11 +1054,14 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
           </div>
         </div>
 
-        {/* Footer */}
+        {/* Footer - Debug Version 2.0 */}
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
-              onClick={handleSendConfirmationEmail}
+              onClick={() => {
+                console.log('🔵🔵🔵 BUTTON CLICKED - handleSendConfirmationEmail');
+                handleSendConfirmationEmail();
+              }}
               disabled={!booking || booking.ist_stiftungsfall}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition-colors text-sm"
               title={booking?.ist_stiftungsfall ? 'Stiftungsfall: Kein automatischer Email-Versand' : ''}

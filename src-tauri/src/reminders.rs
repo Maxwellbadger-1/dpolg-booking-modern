@@ -279,7 +279,7 @@ pub fn get_reminder_settings() -> Result<ReminderSettings> {
 
     conn.query_row(
         "SELECT id, auto_reminder_incomplete_data, auto_reminder_payment,
-                auto_reminder_checkin, auto_reminder_invoice, updated_at
+                auto_reminder_checkin, auto_reminder_invoice, auto_reminder_confirmation, updated_at
          FROM reminder_settings WHERE id = 1",
         [],
         |row| {
@@ -289,7 +289,8 @@ pub fn get_reminder_settings() -> Result<ReminderSettings> {
                 auto_reminder_payment: row.get::<_, i32>(2)? != 0,
                 auto_reminder_checkin: row.get::<_, i32>(3)? != 0,
                 auto_reminder_invoice: row.get::<_, i32>(4)? != 0,
-                updated_at: row.get(5)?,
+                auto_reminder_confirmation: row.get::<_, i32>(5)? != 0,
+                updated_at: row.get(6)?,
             })
         },
     )
@@ -306,6 +307,7 @@ pub fn save_reminder_settings(settings: ReminderSettings) -> Result<ReminderSett
              auto_reminder_payment = ?2,
              auto_reminder_checkin = ?3,
              auto_reminder_invoice = ?4,
+             auto_reminder_confirmation = ?5,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = 1",
         rusqlite::params![
@@ -313,6 +315,7 @@ pub fn save_reminder_settings(settings: ReminderSettings) -> Result<ReminderSett
             settings.auto_reminder_payment as i32,
             settings.auto_reminder_checkin as i32,
             settings.auto_reminder_invoice as i32,
+            settings.auto_reminder_confirmation as i32,
         ],
     )?;
 

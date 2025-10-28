@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Bell, Save, RefreshCw, AlertCircle } from 'lucide-react';
+import { Bell, Save, RefreshCw, AlertCircle, PlayCircle, Mail, Bug } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import type { ReminderSettings } from '../../types/reminder';
 
 interface NotificationSettings {
@@ -11,6 +12,16 @@ interface NotificationSettings {
   payment_reminder_repeat_days: number;
   scheduler_interval_hours: number;
   updated_at: string;
+}
+
+interface ScheduledEmail {
+  booking_id: number;
+  reservierungsnummer: string;
+  guest_name: string;
+  guest_email: string;
+  email_type: string;
+  scheduled_date: string;
+  reason: string;
 }
 
 export default function NotificationsTab() {
@@ -35,6 +46,9 @@ export default function NotificationsTab() {
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
+  const [showScheduled, setShowScheduled] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -87,6 +101,40 @@ export default function NotificationsTab() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestScheduler = async () => {
+    setTesting(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const result = await invoke<string>('trigger_email_check');
+      setSuccessMessage(`✅ ${result}`);
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err) {
+      console.error('Fehler beim Testen:', err);
+      setError(`Fehler: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleShowScheduled = async () => {
+    setTesting(true);
+    setError(null);
+
+    try {
+      const emails = await invoke<ScheduledEmail[]>('get_scheduled_emails');
+      setScheduledEmails(emails);
+      setShowScheduled(true);
+      console.log('📧 Scheduled emails:', emails);
+    } catch (err) {
+      console.error('Fehler beim Laden geplanter Emails:', err);
+      setError(`Fehler: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -326,6 +374,117 @@ export default function NotificationsTab() {
             • Bereits versendete Erinnerungen werden nicht erneut versendet (Duplikatsschutz).
           </p>
         </div>
+      </div>
+
+      {/* Debug/Testing Panel */}
+      <div className="border-t border-slate-700 pt-6">
+        <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+          <Bug className="w-5 h-5 text-amber-400" />
+          Testing & Debug
+        </h3>
+        <p className="text-sm text-slate-400 mb-4">
+          Testen Sie das Reminder-System und sehen Sie, welche Emails geplant sind.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Test Scheduler Button */}
+          <button
+            type="button"
+            onClick={handleTestScheduler}
+            disabled={testing}
+            className="px-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-600 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+          >
+            {testing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Prüfe...
+              </>
+            ) : (
+              <>
+                <PlayCircle className="w-4 h-4" />
+                Jetzt prüfen (manuell)
+              </>
+            )}
+          </button>
+
+          {/* Show Scheduled Emails Button */}
+          <button
+            type="button"
+            onClick={handleShowScheduled}
+            disabled={testing}
+            className="px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+          >
+            {testing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Lade...
+              </>
+            ) : (
+              <>
+                <Mail className="w-4 h-4" />
+                Geplante Emails anzeigen
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Scheduled Emails List */}
+        {showScheduled && (
+          <div className="mt-4 bg-slate-700/50 rounded-lg border border-slate-600 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-white">
+                Geplante automatische Emails ({scheduledEmails.length})
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowScheduled(false)}
+                className="text-xs text-slate-400 hover:text-white transition-colors"
+              >
+                Schließen
+              </button>
+            </div>
+
+            {scheduledEmails.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                ✅ Keine geplanten Emails gefunden. Alle Erinnerungen wurden bereits versendet oder es gibt keine anstehenden Buchungen.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {scheduledEmails.map((email, idx) => (
+                  <div key={idx} className="bg-slate-800/50 rounded p-3 border border-slate-600">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded ${
+                            email.email_type === 'Erinnerung'
+                              ? 'bg-blue-500/20 text-blue-300'
+                              : 'bg-amber-500/20 text-amber-300'
+                          }`}>
+                            {email.email_type}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {email.reservierungsnummer}
+                          </span>
+                        </div>
+                        <p className="text-sm text-white font-medium">
+                          {email.guest_name} ({email.guest_email})
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {email.reason}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-300 font-semibold">
+                          {email.scheduled_date}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Error Message */}

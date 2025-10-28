@@ -93,37 +93,44 @@ RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep -o '"id": [0-9]*' | head -1 | grep 
 echo "✅ Release created! ID: ${RELEASE_ID}"
 echo ""
 
-# Step 7: Upload files
+# Step 7: Upload files using curl (works on all platforms)
 echo "⬆️  Step 7/7: Uploading files to GitHub..."
+
 cd src-tauri/target/release/bundle/nsis
 
+# Define local filenames (with spaces)
+EXE_FILE="Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe"
+SIG_FILE="Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig"
+REPO="Maxwellbadger-1/dpolg-booking-modern"
+
 # Upload NSIS installer (.exe) file
-echo "  Uploading NSIS installer file..."
-curl -s -X POST \
+echo "  Uploading NSIS installer (.exe)..."
+curl -L -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "Content-Type: application/octet-stream" \
-  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe" \
-  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe" > /dev/null
+  "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe" \
+  --data-binary "@${EXE_FILE}" > /dev/null
 
 echo "  ✅ Installer uploaded!"
 
 # Upload .sig file
-echo "  Uploading .sig file..."
-curl -s -X POST \
+echo "  Uploading signature (.sig)..."
+curl -L -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "Content-Type: application/octet-stream" \
-  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe.sig" \
-  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig" > /dev/null
+  "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe.sig" \
+  --data-binary "@${SIG_FILE}" > /dev/null
 
-echo "  ✅ .sig uploaded!"
+echo "  ✅ Signature uploaded!"
 
-# Upload latest.json for Tauri updater
-echo "  Creating latest.json for Tauri updater..."
-SIGNATURE=$(cat "Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig")
+# Create latest.json for Tauri updater
+echo "  Creating latest.json..."
+SIGNATURE=$(cat "${SIG_FILE}")
+
 cat > latest.json << EOF
 {
   "version": "${VERSION}",
@@ -132,19 +139,20 @@ cat > latest.json << EOF
   "platforms": {
     "windows-x86_64": {
       "signature": "${SIGNATURE}",
-      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v${VERSION}/Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe"
+      "url": "https://github.com/${REPO}/releases/download/v${VERSION}/Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe"
     }
   }
 }
 EOF
 
+# Upload latest.json
 echo "  Uploading latest.json..."
-curl -s -X POST \
+curl -L -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   -H "Content-Type: application/json" \
-  "https://uploads.github.com/repos/Maxwellbadger-1/dpolg-booking-modern/releases/${RELEASE_ID}/assets?name=latest.json" \
+  "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=latest.json" \
   --data-binary "@latest.json" > /dev/null
 
 echo "  ✅ latest.json uploaded!"
@@ -152,7 +160,7 @@ echo ""
 
 # Cleanup
 cd ../../../../..
-rm release-data.json latest.json 2>/dev/null || true
+rm -f release-data.json 2>/dev/null || true
 
 echo "🎉 Release v${VERSION} erfolgreich veröffentlicht!"
 echo ""

@@ -756,6 +756,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
         zahlungsmethode: newMethod,
         bezahltAm: newPaidAt  // NEU: Datum an Backend senden
       });
+
+      // ✅ REMINDER BADGE UPDATE: Trigger Bell-Icon Count Refresh (only when marking as paid)
+      if (isPaid) {
+        window.dispatchEvent(new CustomEvent('reminder-updated'));
+      }
     } catch (error) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();

@@ -36,6 +36,27 @@ Das Token ist bereits in der Datei `.github-token` gespeichert.
 
 ⚠️ **WICHTIG:** VORHER Code-Änderungen committen (siehe Schritt 1 unten)!
 
+### 🖥️ Cross-Platform Support (Windows, Linux, Mac)
+
+Das `quick-release.sh` Script funktioniert VOLLAUTOMATISCH auf allen Plattformen:
+
+**Alle Plattformen (Windows, Linux, Mac):**
+- ✅ Verwendet `curl` mit GitHub REST API (Official Best Practice 2025)
+- ✅ Korrekte Behandlung von Dateinamen mit Leerzeichen
+- ✅ Funktioniert in Git Bash, WSL, Linux, macOS
+- ✅ **Keine manuelle Eingabe nötig!**
+
+**Technische Details:**
+- Methode: `curl --data-binary @filename` mit GitHub Upload API
+- Endpoint: `https://uploads.github.com/repos/OWNER/REPO/releases/ID/assets`
+- Headers: `Authorization: Bearer TOKEN`, `Content-Type: application/octet-stream`
+- Vorteile: Zuverlässig, plattformunabhängig, keine externen Dependencies
+
+**Warum nicht gh CLI?**
+- ❌ gh CLI hat bekannten Bug mit Leerzeichen in Dateinamen (Issue #10585)
+- ❌ Ersetzt Leerzeichen mit Punkten → "Stiftung der DPolG" → "Stiftung.der.DPolG"
+- ✅ curl funktioniert perfekt mit Spaces in Filenames
+
 ---
 
 ## 📋 Standard-Ablauf für JEDES Update (Manuell)
@@ -289,5 +310,61 @@ v1.7.5
 
 ---
 
+---
+
+## 📤 Manueller File-Upload (Falls Quick-Release fehlschlägt)
+
+Falls das automatische Quick-Release Script fehlschlägt, können die Dateien manuell hochgeladen werden:
+
+### Option 1: Mit curl Script (EMPFOHLEN)
+
+```bash
+# Script erstellen
+cat > upload-release.sh << 'EOF'
+#!/bin/bash
+# Upload files to GitHub Release
+set -e
+
+GITHUB_TOKEN=$(cat .github-token)
+RELEASE_ID="YOUR_RELEASE_ID"  # z.B. 257283329
+VERSION="YOUR_VERSION"         # z.B. 1.7.5
+REPO="Maxwellbadger-1/dpolg-booking-modern"
+
+cd "src-tauri/target/release/bundle/nsis"
+
+# Upload .exe
+curl -L -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/octet-stream" \
+  "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe"
+
+# Upload .sig
+curl -L -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -H "Content-Type: application/octet-stream" \
+  "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=Stiftung.der.DPolG.Buchungssystem_${VERSION}_x64-setup.exe.sig" \
+  --data-binary "@Stiftung der DPolG Buchungssystem_${VERSION}_x64-setup.exe.sig"
+EOF
+
+chmod +x upload-release.sh
+./upload-release.sh
+```
+
+### Option 2: GitHub Web UI (Drag & Drop)
+
+1. Öffnen: https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases
+2. Release finden und auf "Edit" klicken
+3. Dateien per Drag & Drop hochladen:
+   - `Stiftung der DPolG Buchungssystem_X.X.X_x64-setup.exe`
+   - `Stiftung der DPolG Buchungssystem_X.X.X_x64-setup.exe.sig`
+4. "Update release" klicken
+
+---
+
 **Erstellt:** 2025-10-24
-**Letzte Aktualisierung:** 2025-10-25 (NSIS Migration)
+**Letzte Aktualisierung:** 2025-10-26 (curl mit GitHub API - Official Best Practice)

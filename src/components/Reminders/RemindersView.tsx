@@ -82,12 +82,33 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
   };
 
   const handleMarkCompleted = async (id: number, completed: boolean) => {
+    console.log('✅ [RemindersView] handleMarkCompleted called', { id, completed });
+
+    // OPTIMISTIC UPDATE (2025 Best Practice)
+    // 1. Sofort Event dispatchen für Badge-Update (KEIN await!)
+    window.dispatchEvent(new CustomEvent('reminder-updated'));
+
+    // 2. Optimistisch lokales State updaten
+    console.log('⚡ [RemindersView] Optimistic update - setting allReminders');
+    setAllReminders(prev => prev.map(r =>
+      r.id === id ? { ...r, is_completed: completed ? 1 : 0 } : r
+    ));
+
     try {
+      // 3. Backend Update
+      console.log('📤 [RemindersView] Calling backend mark_reminder_completed_command');
       await invoke('mark_reminder_completed_command', { id, completed });
+      console.log('✅ [RemindersView] Backend update successful');
+
+      // 4. Final refresh für Konsistenz
+      console.log('🔄 [RemindersView] Refreshing reminders from backend');
+      await loadReminders();
+    } catch (error) {
+      console.error('❌ [RemindersView] Fehler beim Markieren der Erinnerung:', error);
+
+      // 5. Rollback bei Fehler
       await loadReminders();
       window.dispatchEvent(new CustomEvent('reminder-updated'));
-    } catch (error) {
-      console.error('Fehler beim Markieren der Erinnerung:', error);
     }
   };
 

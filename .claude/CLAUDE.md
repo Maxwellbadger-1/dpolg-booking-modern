@@ -306,7 +306,104 @@ useEffect(() => {
 - ✅ Read-Before-Write: Erst Datei lesen, dann ändern
 - ✅ Small Focused Commits: Ein Feature = Ein Commit
 
-### 6. Web-Recherche - AUTOMATISCH!
+### 6. SQLite Schema Changes - KRITISCH!
+
+**⚠️ WICHTIG: SQLite erlaubt KEINE direkten CHECK constraint Änderungen!**
+
+**Problem:**
+```sql
+-- ❌ FUNKTIONIERT NICHT:
+ALTER TABLE reminders
+ADD CONSTRAINT CHECK(reminder_type IN ('manual', 'auto_confirmation'));
+```
+
+**❌ FALSCHE Lösung: Datenbanken löschen**
+
+Das funktioniert NICHT bei bestehenden Produktionsdaten! `CREATE TABLE IF NOT EXISTS` ändert existierende Tabellen NICHT.
+
+**✅ RICHTIGE Lösung: Migration schreiben!**
+
+**Schritt 1:** Migration-Funktion in `database.rs` schreiben:
+
+```rust
+// MIGRATION: Recreate table with updated CHECK constraint
+fn migrate_reminders_table_check_constraint(conn: &Connection) -> Result<()> {
+    // Test if old constraint exists
+    let needs_migration = conn.execute(
+        "INSERT INTO reminders (booking_id, reminder_type, title, due_date, priority)
+         VALUES (NULL, 'auto_confirmation', 'TEST', '2025-01-01', 'low')",
+        [],
+    ).is_err();
+
+    if needs_migration {
+        println!("🔄 [MIGRATION] Recreating reminders table...");
+
+        conn.execute("PRAGMA foreign_keys = OFF", [])?;
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        // Rename old table
+        conn.execute("ALTER TABLE reminders RENAME TO reminders_old", [])?;
+
+        // Create new table with updated CHECK constraint
+        conn.execute("CREATE TABLE reminders (...new schema...)", [])?;
+
+        // Copy data
+        conn.execute("INSERT INTO reminders SELECT * FROM reminders_old", [])?;
+
+        // Drop old table
+        conn.execute("DROP TABLE reminders_old", [])?;
+
+        conn.execute("COMMIT", [])?;
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+        println!("✅ [MIGRATION] Reminders table recreated!");
+    } else {
+        // Clean up test row
+        conn.execute("DELETE FROM reminders WHERE title = 'TEST'", [])?;
+    }
+
+    Ok(())
+}
+```
+
+**Schritt 2:** Migration in `init_database()` aufrufen:
+
+```rust
+pub fn init_database() -> Result<()> {
+    // ... CREATE TABLE IF NOT EXISTS reminders ...
+
+    // MIGRATION: Fix CHECK constraint
+    migrate_reminders_table_check_constraint(&conn)?;
+
+    // ... rest of init ...
+}
+```
+
+**Schritt 3:** App neu kompilieren und starten:
+
+```bash
+# 1. App stoppen
+taskkill //F //IM dpolg-booking-modern.exe
+
+# 2. Rebuild
+cd src-tauri && cargo build
+
+# 3. App starten
+npx tauri dev --no-watch
+```
+
+**Die Migration läuft automatisch beim ersten Start und:**
+- ✅ Prüft ob Migration nötig ist (Test-Insert)
+- ✅ Erstellt neue Tabelle mit korrektem Schema
+- ✅ Migriert ALLE bestehenden Daten
+- ✅ Läuft nur EINMAL (idempotent)
+- ✅ Funktioniert mit Produktionsdaten
+
+**NIEMALS mehr Datenbanken löschen!** Verwende IMMER Migrations!
+
+**Web Search validated:** ✅ SQLite ALTER TABLE Limitations + Migration Best Practices (2025)
+
+### 7. Web-Recherche - AUTOMATISCH!
 
 **Trigger:** Nach 2-3 fehlgeschlagenen Lösungsversuchen SOFORT Web-Recherche durchführen!
 
@@ -315,7 +412,7 @@ useEffect(() => {
 - "github Library + Feature + example"
 - "React/Rust + Specific Error Message"
 
-### 7. Mobile App Deployment
+### 8. Mobile App Deployment
 
 **WICHTIG:** Bei JEDER Änderung an `dpolg-cleaning-mobile`:
 
@@ -704,6 +801,16 @@ Diese Bugs sind schon mehrmals aufgetreten:
 6. **Drag & Drop bricht** - z-index verhindert pointer events
    - ✅ Fix: Zellen ohne z-index, nur Dropdowns z-[100]
 
+7. **SQLite CHECK Constraint Fehler** - Neue Enum-Werte werden abgelehnt
+   - ❌ Fix: Datenbank löschen funktioniert NICHT (CREATE TABLE IF NOT EXISTS)
+   - ✅ Fix: Migration schreiben (siehe Regel #6)
+   - Beispiel: `auto_confirmation` zu reminder_type hinzufügen
+
+8. **Cargo build hängt nach Vite-Start** - Windows + Tauri 2 Problem
+   - ✅ Fix: `npx tauri dev --no-watch` verwenden
+   - ✅ Fix: Bei Problemen `cargo clean` + Neustart
+   - ⏱️ Cargo clean löscht ~2.8GB, neu kompilieren ~2-3 Min
+
 ---
 
 ### 🚨 Notfall-Recovery
@@ -754,6 +861,139 @@ git commit -m "fix: Revert broken feature"
 3. **Test after Merge** - Auch nach merge nochmal alles testen
 4. **Screenshot before/after** - Bei UI-Änderungen Screenshots machen
 5. **Ask before big refactors** - Große Änderungen mit Team absprechen
+
+---
+
+## 🚀 ENTWICKLUNGS-WORKFLOW (AUTOMATISIERT!)
+
+### ⚡ APP STARTEN - IMMER SO!
+
+**WICHTIG:** Bei JEDEM Start IMMER diesen Befehl verwenden:
+
+```bash
+npm run tauri:dev
+```
+
+**Das war's!** Dieser Befehl macht ALLES automatisch:
+
+1. ✅ Killt alte Prozesse auf Port 1420 + 1421 (Vite + HMR)
+2. ✅ Startet Vite Dev Server (Port 1420)
+3. ✅ Startet Tauri Dev (mit Hot Reload)
+4. ✅ Lädt IMMER die neuesten Code-Änderungen
+
+**Vorteile:**
+- ⚡ Keine Port-Konflikte mehr!
+- ⚡ Keine veralteten Builds im Hintergrund!
+- ⚡ Sofort einsatzbereit mit allen neuen Changes!
+- ⚡ Cross-Platform (Windows, Mac, Linux)
+
+### 📋 Alte manuelle Methode (NICHT MEHR VERWENDEN!)
+
+```bash
+# ❌ VERALTET - Funktioniert oft nicht wegen Port-Konflikten:
+npm run tauri dev
+
+# ❌ VERALTET - Manuelles Port-Killing:
+netstat -ano | findstr :1423
+taskkill //F //PID <pid>
+```
+
+### 🛠️ Technische Details (PRO-CONFIG 2025!)
+
+**Kill-Port Package (2025 Industry Standard):**
+- Verwendet: `kill-port` npm package
+- Cross-Platform: Windows/Mac/Linux
+- Pre-Dev Hook: `"predev": "kill-port 1420 1421 || echo 'Ports already free'"`
+
+**Ports (EINHEITLICH KONFIGURIERT!):**
+- **1420** - Vite Dev Server Port (vite.config.ts + tauri.conf.json)
+- **1421** - Vite HMR Port (Hot Module Replacement)
+
+**KRITISCHE REGEL: Port-Konsistenz (Web Search validated 2025)**
+
+⚠️ **ALLE Konfigs MÜSSEN denselben Port verwenden!**
+
+```typescript
+// vite.config.ts
+export default defineConfig({
+  server: {
+    port: 1420,              // ✅ Fester Port
+    strictPort: true,        // ✅ WICHTIG! Fail-fast bei Port-Konflikt
+    host: host || false,
+    hmr: host ? {
+      protocol: "ws",
+      host,
+      port: 1421,            // ✅ HMR Port
+    } : undefined,
+  }
+})
+```
+
+```json
+// tauri.conf.json
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",           // ✅ KEIN Port-Override!
+    "devUrl": "http://localhost:1420"            // ✅ Gleicher Port wie Vite!
+  }
+}
+```
+
+```json
+// package.json
+{
+  "scripts": {
+    "predev": "kill-port 1420 1421 || echo 'Ports already free'",  // ✅ Beide Ports
+    "tauri:dev": "npm run predev && tauri dev"
+  }
+}
+```
+
+**NIEMALS:**
+- ❌ Port-Override in Scripts: `npm run dev -- --port 1423` (BAD!)
+- ❌ Verschiedene Ports in verschiedenen Configs
+- ❌ `strictPort: false` verwenden (maskiert Probleme!)
+
+**Script-Kette:**
+```json
+{
+  "predev": "kill-port 1420 1421 || echo 'Ports already free'",
+  "dev": "vite",                    // ← Verwendet Port aus vite.config.ts
+  "tauri:dev": "npm run predev && tauri dev"
+}
+```
+
+### ✅ Was der Script automatisch macht
+
+1. **Port Cleanup:** Killt alle Prozesse auf 1420 + 1421 (Vite + HMR)
+2. **Fallback:** Falls Ports schon frei → Weiter ohne Fehler
+3. **Tauri Start:** Startet clean dev environment mit EINHEITLICHEM Port
+4. **Hot Reload:** Frontend + Backend Changes werden live geladen
+5. **Fail-Fast:** `strictPort: true` verhindert Port-Konflikte sofort
+
+### 🧪 Nach dem Start testen:
+
+1. App öffnet sich automatisch
+2. Änderungen im Code → Auto-Reload
+3. Console zeigt Debug-Logs (z.B. Reminder-System)
+
+### ⏱️ Geschätzte Zeiten:
+
+| Schritt | Dauer |
+|---------|-------|
+| Port Cleanup | 1-2 sek |
+| Vite Start | 2-3 sek |
+| Tauri Compile | 5-10 sek |
+| **GESAMT** | **~10 sek** |
+
+### 🚨 NIEMALS:
+
+- ❌ NIEMALS `npm run tauri dev` direkt verwenden (Port-Konflikte!)
+- ❌ NIEMALS manuell Prozesse killen (Script macht das!)
+- ❌ NIEMALS mehrere Dev-Server parallel starten
+- ❌ NIEMALS alte Tauri-Builds im Hintergrund lassen
+
+**Web Search validated:** ✅ 2025 Tauri 2 + npm kill-port Best Practices (Oktober 2025)
 
 ---
 
