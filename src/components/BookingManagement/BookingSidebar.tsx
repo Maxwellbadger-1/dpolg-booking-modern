@@ -522,6 +522,37 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         return;
       }
 
+      // SCHRITT 1: Berechne Grundpreis OHNE Services (um Basis für % zu haben)
+      const basePriceResult = await invoke<{
+        grundpreis: number;
+        anzahlNaechte: number;
+      }>('calculate_booking_price_command', {
+        roomId: formData.room_id,
+        checkin: formData.checkin_date,
+        checkout: formData.checkout_date,
+        isMember: guest.dpolg_mitglied,
+        services: [],  // Keine Services für Basis-Berechnung
+        discounts: [],
+      });
+
+      const grundpreis = basePriceResult.grundpreis;
+
+      // SCHRITT 2: Berechne Service-Preise (inkl. prozentuale Services basierend auf echtem Grundpreis)
+      const calculatedServices = services.map(s => {
+        let finalPrice = s.service_price;
+
+        // Wenn prozentualer Service, berechne von Grundpreis
+        if (s.price_type === 'percent' && s.original_value && grundpreis > 0) {
+          if (s.applies_to === 'overnight_price') {
+            finalPrice = grundpreis * (s.original_value / 100);
+          }
+          // total_price wird vom Backend berechnet (komplexer - braucht rekursive Berechnung)
+        }
+
+        return [s.service_name, finalPrice] as [string, number];
+      });
+
+      // SCHRITT 3: Finale Berechnung MIT berechneten Services und Rabatten
       const priceResult = await invoke<{
         grundpreis: number;
         servicesPreis: number;
@@ -536,7 +567,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         checkin: formData.checkin_date,
         checkout: formData.checkout_date,
         isMember: guest.dpolg_mitglied,
-        services: services.map(s => [s.service_name, s.service_price]),
+        services: calculatedServices,
         discounts: discounts.map(d => [d.discount_name, d.discount_type, d.discount_value]),
       });
 
