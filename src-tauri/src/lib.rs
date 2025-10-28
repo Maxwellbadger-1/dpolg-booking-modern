@@ -913,6 +913,44 @@ fn calculate_booking_price_command(
 }
 
 // ============================================================================
+// NEUE ARCHITEKTUR: Single Source of Truth Preisberechnung
+// ============================================================================
+
+/// NEUER COMMAND: Vollständige Preisberechnung mit allen Details
+///
+/// Dieser Command ersetzt calculate_booking_price_command() und liefert
+/// ALLE Preis-Informationen in einem strukturierten Format.
+///
+/// Frontend schickt komplette Service/Discount-Objekte (nicht nur Tupel!)
+/// Backend berechnet ALLES und gibt vollständigen Breakdown zurück.
+#[tauri::command]
+fn calculate_full_booking_price_command(
+    room_id: i64,
+    checkin: String,
+    checkout: String,
+    is_member: bool,
+    services: Option<Vec<pricing::ServiceInput>>,
+    discounts: Option<Vec<pricing::DiscountInput>>,
+) -> Result<pricing::FullPriceBreakdown, String> {
+    let conn = Connection::open(database::get_db_path())
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let services = services.unwrap_or_default();
+    let discounts = discounts.unwrap_or_default();
+
+    // Eine Funktion macht ALLES - Single Source of Truth!
+    pricing::calculate_full_booking_price(
+        room_id,
+        &checkin,
+        &checkout,
+        is_member,
+        &services,
+        &discounts,
+        &conn,
+    )
+}
+
+// ============================================================================
 // REPORTS & STATISTICS COMMANDS
 // ============================================================================
 
@@ -1393,6 +1431,7 @@ pub fn run() {
             // Pricing
             calculate_nights_command,
             calculate_booking_price_command,
+            calculate_full_booking_price_command,  // NEUE ARCHITEKTUR
             // Reports & Statistics
             get_report_stats_command,
             get_room_occupancy_command,

@@ -1,20 +1,100 @@
 // ============================================================================
-// PRICING LOGIC MODULE - Phase 2
+// PRICING LOGIC MODULE - Single Source of Truth Architecture
 // ============================================================================
 //
-// Dieses Modul enthält alle Funktionen zur Preisberechnung für Buchungen.
+// Dieses Modul enthält ALLE Funktionen zur Preisberechnung für Buchungen.
 // Alle Funktionen folgen den Business Rules aus dem MIGRATION_GUIDE.
+//
+// ARCHITEKTUR-PRINZIP: Single Source of Truth
+// - EINE zentrale Funktion berechnet ALLE Preise
+// - Frontend ruft NUR diese Funktion auf
+// - Frontend berechnet NIEMALS selbst
 //
 // Berechnungen:
 // - Anzahl Nächte = Differenz zwischen Check-in und Check-out
 // - Grundpreis = Nächte × Zimmerpreis (Mitglied/Nicht-Mitglied)
-// - Services-Summe = Summe aller zusätzlichen Services
+// - Services-Summe = Summe aller zusätzlichen Services (inkl. %)
 // - Rabatte anwenden (wenn vorhanden)
 // - Gesamtpreis = Grundpreis + Services - Rabatte
 // ============================================================================
 
 use chrono::{NaiveDate, Datelike};
 use rusqlite::Connection;
+use serde::{Serialize, Deserialize};
+
+// ============================================================================
+// NEUE ARCHITEKTUR: Vollständige Preis-Strukturen
+// ============================================================================
+
+/// Input: Service-Daten vom Frontend
+#[derive(Debug, Clone, Deserialize)]
+pub struct ServiceInput {
+    pub name: String,
+    pub price_type: String,        // "fixed" | "percent"
+    pub original_value: f64,       // Template-Wert (z.B. 19.0 für 19%)
+    pub applies_to: String,        // "overnight_price" | "total_price"
+    #[serde(default)]
+    pub template_id: Option<i64>,
+}
+
+/// Output: Berechneter Service mit allen Details
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceCalculation {
+    pub name: String,
+    pub price_type: String,
+    pub original_value: f64,
+    pub applies_to: String,
+    pub calculated_price: f64,     // FINALER berechneter Preis
+    pub base_amount: Option<f64>,  // Basis für % Berechnung
+}
+
+/// Input: Rabatt-Daten vom Frontend
+#[derive(Debug, Clone, Deserialize)]
+pub struct DiscountInput {
+    pub name: String,
+    pub discount_type: String,     // "fixed" | "percent"
+    pub value: f64,
+    #[serde(default)]
+    pub template_id: Option<i64>,
+}
+
+/// Output: Berechneter Rabatt mit allen Details
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscountCalculation {
+    pub name: String,
+    pub discount_type: String,
+    pub original_value: f64,
+    pub calculated_amount: f64,    // FINALER berechneter Betrag
+    pub base_amount: Option<f64>,  // Basis für % Berechnung
+}
+
+/// Output: VOLLSTÄNDIGER Preis-Breakdown (Single Source of Truth)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FullPriceBreakdown {
+    // Basis-Daten
+    pub base_price: f64,           // Grundpreis (Zimmer × Nächte)
+    pub nights: i32,
+    pub price_per_night: f64,
+    pub is_hauptsaison: bool,
+
+    // Services (MIT ALLEN Details!)
+    pub services: Vec<ServiceCalculation>,
+    pub services_total: f64,
+
+    // Rabatte (MIT ALLEN Details!)
+    pub discounts: Vec<DiscountCalculation>,
+    pub discounts_total: f64,
+
+    // Summen
+    pub subtotal: f64,             // Grundpreis + Services
+    pub total: f64,                // Nach Rabatten
+
+    // Meta
+    pub calculation_timestamp: String,
+}
 
 /// Berechnet die Anzahl der Nächte zwischen zwei Daten.
 ///
@@ -1311,4 +1391,186 @@ mod tests {
 
         assert_eq!(grundpreis, 135.0); // 3 × 45.0 (Nebensaison)
     }
+}
+
+// ============================================================================
+// SINGLE SOURCE OF TRUTH: Zentrale Preisberechnung
+// ============================================================================
+
+/// HAUPTFUNKTION: Berechnet ALLE Preise mit vollständigem Breakdown
+///
+/// Diese Funktion ist die EINZIGE Stelle für Preisberechnungen.
+/// Frontend ruft NUR diese Funktion auf - berechnet NIEMALS selbst!
+///
+/// # Arguments
+/// * `room_id` - Zimmer-ID
+/// * `checkin` - Check-in Datum (YYYY-MM-DD)
+/// * `checkout` - Check-out Datum (YYYY-MM-DD)
+/// * `is_member` - Ist Gast DPolG-Mitglied?
+/// * `services` - Liste von Services mit ALLEN Daten (price_type, original_value, etc.)
+/// * `discounts` - Liste von Rabatten
+/// * `conn` - Datenbankverbindung
+///
+/// # Returns
+/// * `Ok(FullPriceBreakdown)` - Vollständiger Breakdown mit ALLEN Details
+/// * `Err(String)` - Fehlermeldung
+pub fn calculate_full_booking_price(
+    room_id: i64,
+    checkin: &str,
+    checkout: &str,
+    is_member: bool,
+    services: &[ServiceInput],
+    discounts: &[DiscountInput],
+    conn: &Connection,
+) -> Result<FullPriceBreakdown, String> {
+
+    // SCHRITT 1: Grundpreis berechnen (Zimmer × Nächte, mit Saison-Logik)
+    let nights = calculate_nights(checkin, checkout)?;
+    let is_hauptsaison = is_hauptsaison_with_settings(checkin, conn)?;
+
+    // Hole Zimmer-Preise
+    let (preis_nebensaison, preis_hauptsaison, endreinigung_preis): (f64, f64, f64) = conn
+        .query_row(
+            "SELECT preis_nebensaison, preis_hauptsaison, endreinigung FROM rooms WHERE id = ?1",
+            rusqlite::params![room_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| format!("Zimmer nicht gefunden: {}", e))?;
+
+    // Wähle Preis basierend auf Saison
+    let price_per_night = if is_hauptsaison {
+        preis_hauptsaison
+    } else {
+        preis_nebensaison
+    };
+
+    let mut base_price = price_per_night * nights as f64;
+
+    // DPolG-Mitglieder-Rabatt auf Grundpreis (wenn aktiv)
+    if is_member {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv && rabatt_basis == "zimmerpreis" {
+            let rabatt_betrag = base_price * (rabatt_prozent / 100.0);
+            base_price -= rabatt_betrag;
+        }
+    }
+
+    // SCHRITT 2: Services berechnen (inkl. prozentuale Services!)
+    let mut calculated_services = Vec::new();
+    let mut services_running_total = 0.0;
+
+    // Endreinigung als erster Service (immer Festbetrag)
+    if endreinigung_preis > 0.0 {
+        calculated_services.push(ServiceCalculation {
+            name: "Endreinigung".to_string(),
+            price_type: "fixed".to_string(),
+            original_value: endreinigung_preis,
+            applies_to: "overnight_price".to_string(),
+            calculated_price: endreinigung_preis,
+            base_amount: Some(base_price),
+        });
+        services_running_total += endreinigung_preis;
+    }
+
+    // Weitere Services berechnen
+    for service in services {
+        let calculated_price = match service.price_type.as_str() {
+            "percent" => {
+                // Basis für Prozent-Berechnung ermitteln
+                let base = match service.applies_to.as_str() {
+                    "overnight_price" => base_price,
+                    "total_price" => base_price + services_running_total,
+                    _ => base_price,
+                };
+                base * (service.original_value / 100.0)
+            },
+            "fixed" => service.original_value,
+            _ => service.original_value,
+        };
+
+        services_running_total += calculated_price;
+
+        calculated_services.push(ServiceCalculation {
+            name: service.name.clone(),
+            price_type: service.price_type.clone(),
+            original_value: service.original_value,
+            applies_to: service.applies_to.clone(),
+            calculated_price,
+            base_amount: Some(base_price),
+        });
+    }
+
+    // SCHRITT 3: Rabatte berechnen
+    let subtotal = base_price + services_running_total;
+    let mut calculated_discounts = Vec::new();
+    let mut discounts_total = 0.0;
+
+    // DPolG-Mitglieder-Rabatt (wenn auf Gesamtpreis)
+    if is_member {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv && rabatt_basis == "gesamtpreis" {
+            let rabatt_betrag = subtotal * (rabatt_prozent / 100.0);
+            discounts_total += rabatt_betrag;
+
+            calculated_discounts.push(DiscountCalculation {
+                name: "DPolG-Mitgliederrabatt".to_string(),
+                discount_type: "percent".to_string(),
+                original_value: rabatt_prozent,
+                calculated_amount: rabatt_betrag,
+                base_amount: Some(subtotal),
+            });
+        }
+    }
+
+    // Weitere Rabatte
+    for discount in discounts {
+        let calculated_amount = match discount.discount_type.as_str() {
+            "percent" => subtotal * (discount.value / 100.0),
+            "fixed" => discount.value,
+            _ => 0.0,
+        };
+
+        discounts_total += calculated_amount;
+
+        calculated_discounts.push(DiscountCalculation {
+            name: discount.name.clone(),
+            discount_type: discount.discount_type.clone(),
+            original_value: discount.value,
+            calculated_amount,
+            base_amount: Some(subtotal),
+        });
+    }
+
+    // SCHRITT 4: Finale Summen
+    let total = subtotal - discounts_total;
+    let timestamp = chrono::Utc::now().to_rfc3339();
+
+    // Rückgabe: VOLLSTÄNDIGER Breakdown
+    Ok(FullPriceBreakdown {
+        base_price,
+        nights,
+        price_per_night,
+        is_hauptsaison,
+        services: calculated_services,
+        services_total: services_running_total,
+        discounts: calculated_discounts,
+        discounts_total,
+        subtotal,
+        total,
+        calculation_timestamp: timestamp,
+    })
 }
