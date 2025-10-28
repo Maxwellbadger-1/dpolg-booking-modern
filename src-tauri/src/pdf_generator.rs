@@ -183,14 +183,14 @@ pub async fn generate_and_send_invoice_command(
 
     // 1. PDF generieren
     println!("📄 Step 1: Generating PDF...");
-    let pdf_path = generate_invoice_pdf_command(app, booking_id)?;
+    let pdf_path = generate_invoice_pdf_command(app.clone(), booking_id)?;
     println!("✅ PDF generated: {}", pdf_path);
 
     // 2. Email mit PDF-Anhang versenden
     println!("📧 Step 2: Sending email with PDF attachment...");
     use std::path::PathBuf;
     let pdf_pathbuf = PathBuf::from(pdf_path);
-    crate::email::send_invoice_email_with_pdf(booking_id, pdf_pathbuf).await?;
+    crate::email::send_invoice_email_with_pdf(app, booking_id, pdf_pathbuf).await?;
     println!("✅ Email sent successfully!");
 
     println!("════════════════════════════════════════════════════════");

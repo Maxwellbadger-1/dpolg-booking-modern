@@ -13,6 +13,7 @@ mod backup;
 mod transaction_log;
 mod supabase;
 mod reminders;
+mod reminder_automation;
 mod invoice_html;
 mod payment_recipients;
 mod cleaning_timeline_pdf;
@@ -164,16 +165,16 @@ fn update_guest_command(
     kostenstelle: Option<String>,
     tags: Option<String>,
 ) -> Result<database::Guest, String> {
-    database::update_guest(
+    let result = database::update_guest(
         id,
         vorname,
         nachname,
         email,
-        telefon,
+        telefon.clone(),
         dpolg_mitglied,
-        strasse,
-        plz,
-        ort,
+        strasse.clone(),
+        plz.clone(),
+        ort.clone(),
         mitgliedsnummer,
         notizen,
         beruf,
@@ -199,7 +200,15 @@ fn update_guest_command(
         kostenstelle,
         tags,
     )
-    .map_err(|e| format!("Fehler beim Aktualisieren des Gastes: {}", e))
+    .map_err(|e| format!("Fehler beim Aktualisieren des Gastes: {}", e))?;
+
+    // AUTO-COMPLETE: Prüfe alle Buchungen dieses Gastes auf Incomplete-Data-Reminder
+    // Wenn Gast-Daten jetzt vollständig sind → schließe Reminder
+    if let Err(e) = reminder_automation::on_guest_updated(id, strasse, plz, ort, telefon) {
+        eprintln!("⚠️ Warnung: Konnte Incomplete-Data-Reminder nicht prüfen: {}", e);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -972,8 +981,8 @@ fn update_template_command(
 }
 
 #[tauri::command]
-async fn send_confirmation_email_command(booking_id: i64) -> Result<String, String> {
-    email::send_confirmation_email(booking_id).await
+async fn send_confirmation_email_command(app: tauri::AppHandle, booking_id: i64) -> Result<String, String> {
+    email::send_confirmation_email(app, booking_id).await
 }
 
 #[tauri::command]
@@ -992,14 +1001,14 @@ async fn send_invoice_email_command(app: tauri::AppHandle, booking_id: i64) -> R
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
 
     // 2. PDF generieren
-    let pdf_path_str = generate_invoice_pdf_html(app, booking)
+    let pdf_path_str = generate_invoice_pdf_html(app.clone(), booking)
         .map_err(|e| format!("Fehler beim Generieren des PDFs: {}", e))?;
 
     // 3. String zu PathBuf konvertieren
     let pdf_path = PathBuf::from(pdf_path_str);
 
     // 4. Email mit PDF-Anhang senden
-    email::send_invoice_email_with_pdf(booking_id, pdf_path).await
+    email::send_invoice_email_with_pdf(app, booking_id, pdf_path).await
 }
 
 #[tauri::command]
@@ -1037,8 +1046,15 @@ fn mark_booking_as_paid_command(
     booking_id: i64,
     zahlungsmethode: String,
 ) -> Result<database::Booking, String> {
-    database::mark_booking_as_paid(booking_id, zahlungsmethode)
-        .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))
+    let result = database::mark_booking_as_paid(booking_id, zahlungsmethode)
+        .map_err(|e| format!("Fehler beim Markieren der Buchung als bezahlt: {}", e))?;
+
+    // AUTO-COMPLETE: Schließe Zahlungs-Reminder automatisch (2025 Best Practice)
+    if let Err(e) = reminder_automation::on_booking_paid(booking_id) {
+        eprintln!("⚠️ Fehler beim Auto-Complete von Zahlungs-Reminder: {}", e);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1046,8 +1062,15 @@ fn mark_invoice_sent_command(
     booking_id: i64,
     email_address: String,
 ) -> Result<database::Booking, String> {
-    database::mark_invoice_sent(booking_id, email_address)
-        .map_err(|e| format!("Fehler beim Markieren der Rechnung als versendet: {}", e))
+    let result = database::mark_invoice_sent(booking_id, email_address)
+        .map_err(|e| format!("Fehler beim Markieren der Rechnung als versendet: {}", e))?;
+
+    // AUTO-COMPLETE: Schließe Invoice-Reminder automatisch (2025 Best Practice)
+    if let Err(e) = reminder_automation::on_invoice_sent(booking_id) {
+        eprintln!("⚠️ Fehler beim Auto-Complete von Invoice-Reminder: {}", e);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1061,12 +1084,22 @@ fn update_booking_status_command(
     booking_id: i64,
     new_status: String,
 ) -> Result<database::Booking, String> {
-    database::update_booking_status(booking_id, new_status)
-        .map_err(|e| format!("Fehler beim Ändern des Status: {}", e))
+    let result = database::update_booking_status(booking_id, new_status.clone())
+        .map_err(|e| format!("Fehler beim Ändern des Status: {}", e))?;
+
+    // AUTO-COMPLETE: Wenn Buchung storniert → Alle Reminder löschen
+    if new_status.to_lowercase() == "storniert" {
+        if let Err(e) = reminder_automation::on_booking_cancelled(booking_id) {
+            eprintln!("⚠️ Warnung: Konnte Reminder nicht löschen: {}", e);
+        }
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
 fn update_booking_payment_command(
+    app: tauri::AppHandle,
     booking_id: i64,
     bezahlt: bool,
     zahlungsmethode: Option<String>,
@@ -1078,8 +1111,26 @@ fn update_booking_payment_command(
     println!("   zahlungsmethode: {:?}", zahlungsmethode);
     println!("   bezahlt_am: {:?}", bezahlt_am);
 
-    database::update_booking_payment(booking_id, bezahlt, zahlungsmethode, bezahlt_am)
-        .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))
+    let result = database::update_booking_payment(booking_id, bezahlt, zahlungsmethode, bezahlt_am)
+        .map_err(|e| format!("Fehler beim Ändern des Bezahlt-Status: {}", e))?;
+
+    // AUTO-REMINDER: Wenn als bezahlt markiert → Payment-Reminder schließen
+    if bezahlt {
+        if let Err(e) = reminder_automation::on_booking_paid(booking_id) {
+            eprintln!("⚠️  Warnung: Konnte Payment-Reminder nicht auto-complete: {}", e);
+            // Nicht kritisch - Fehler nicht weitergeben
+        }
+
+        // EMIT EVENT ZUM FRONTEND für Optimistic UI Update
+        use tauri::Emitter;
+        let _ = app.emit("reminder-updated", serde_json::json!({
+            "reminderType": "auto_payment",
+            "bookingId": booking_id
+        }));
+        println!("📤 [TAURI EVENT] reminder-updated event emitted to frontend (payment)");
+    }
+
+    Ok(result)
 }
 
 // ============================================================================
@@ -1366,6 +1417,8 @@ pub fn run() {
             // Email Scheduler
             email_scheduler::trigger_email_check,
             email_scheduler::get_scheduled_emails,
+            // Reminder Automation
+            reminder_automation::trigger_daily_reminder_check,
             // Company Settings
             get_company_settings_command,
             save_company_settings_command,

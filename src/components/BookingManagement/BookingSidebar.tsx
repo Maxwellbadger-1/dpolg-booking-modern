@@ -18,6 +18,7 @@ import SearchableRoomPicker from './SearchableRoomPicker';
 import EmailSelectionDialog from './EmailSelectionDialog';
 import CompanionSelector from './CompanionSelector';
 import CancellationConfirmDialog from './CancellationConfirmDialog';
+import GuestDialog from '../GuestManagement/GuestDialog';
 
 interface BookingSidebarProps {
   bookingId: number | null;
@@ -207,6 +208,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [showSuccessDialog, setShowSuccessDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [showErrorDialog, setShowErrorDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<number | null>(null);
   const [createdGuestEmail, setCreatedGuestEmail] = useState<string>('');
 
@@ -1511,9 +1513,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   guests={guests}
                   selectedGuestId={formData.guest_id}
                   onSelectGuest={(guestId) => setFormData({ ...formData, guest_id: guestId })}
-                  onCreateNew={() => {
-                    alert('Neuen Gast anlegen - Feature kommt bald!');
-                  }}
+                  onCreateNew={() => setShowGuestDialog(true)}
                 />
 
                 <SearchableRoomPicker
@@ -2672,6 +2672,19 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           </div>
         </div>
       )}
+
+      {/* Guest Dialog (Neuen Gast anlegen) */}
+      <GuestDialog
+        isOpen={showGuestDialog}
+        onClose={() => setShowGuestDialog(false)}
+        onSuccess={async () => {
+          setShowGuestDialog(false);
+          // Gäste-Liste neu laden
+          const allGuests = await invoke<Guest[]>('get_all_guests_command');
+          setGuests(allGuests);
+          toast.success('Gast erfolgreich erstellt');
+        }}
+      />
     </>
   );
 }

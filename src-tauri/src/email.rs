@@ -13,6 +13,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use aes_gcm::aead::generic_array::GenericArray;
+use tauri::Emitter;
 
 // ============================================================================
 // EMAIL CONFIGURATION FUNCTIONS
@@ -579,8 +580,13 @@ fn create_all_placeholders(
 }
 
 /// Buchungsbestätigungs-Email senden
-pub async fn send_confirmation_email(booking_id: i64) -> Result<String, String> {
+pub async fn send_confirmation_email(app: tauri::AppHandle, booking_id: i64) -> Result<String, String> {
     use crate::database::get_booking_with_details_by_id;
+
+    println!("════════════════════════════════════════════════════════");
+    println!("📧 [CONFIRMATION-AUTO-COMPLETE] FUNCTION STARTED");
+    println!("   Booking ID: {}", booking_id);
+    println!("════════════════════════════════════════════════════════");
 
     // Lade Buchung mit allen Details
     let booking_details = get_booking_with_details_by_id(booking_id)
@@ -598,7 +604,38 @@ pub async fn send_confirmation_email(booking_id: i64) -> Result<String, String> 
 
     // Sende Email an die korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
     let recipient_email = get_recipient_email(&booking_details.guest);
-    send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "confirmation").await
+
+    println!("📧 [CONFIRMATION-AUTO-COMPLETE] Sending email to: {}", recipient_email);
+
+    let result = send_email_internal(&config, &recipient_email, &subject, &body, booking_id, booking_details.guest.id, "confirmation").await;
+
+    println!("📧 [CONFIRMATION-AUTO-COMPLETE] Email send result: {:?}", result);
+
+    // Bei Erfolg: Confirmation-Reminder automatisch schließen
+    if result.is_ok() {
+        println!("📧 [CONFIRMATION-AUTO-COMPLETE] Email SUCCESS - closing confirmation reminder...");
+
+        // AUTO-COMPLETE: Schließe Confirmation-Reminder automatisch
+        if let Err(e) = crate::reminder_automation::on_confirmation_sent(booking_id) {
+            eprintln!("⚠️  Fehler beim Auto-Complete von Confirmation-Reminder: {}", e);
+        } else {
+            println!("✅ [CONFIRMATION-AUTO-COMPLETE] on_confirmation_sent() completed successfully!");
+        }
+
+        // EMIT EVENT ZUM FRONTEND für Optimistic UI Update
+        let _ = app.emit("reminder-updated", serde_json::json!({
+            "reminderType": "auto_confirmation",
+            "bookingId": booking_id
+        }));
+        println!("📤 [TAURI EVENT] reminder-updated event emitted to frontend");
+    } else {
+        println!("❌ [CONFIRMATION-AUTO-COMPLETE] Email FAILED - not closing reminder");
+        println!("   Error: {:?}", result);
+    }
+
+    println!("════════════════════════════════════════════════════════");
+
+    result
 }
 
 /// Reminder-Email senden
@@ -621,8 +658,14 @@ pub async fn send_reminder_email(booking_id: i64) -> Result<String, String> {
 }
 
 /// Rechnungs-Email mit PDF-Anhang senden (NEU - automatisch)
-pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
+pub async fn send_invoice_email_with_pdf(app: tauri::AppHandle, booking_id: i64, pdf_path: PathBuf) -> Result<String, String> {
     use crate::database::{get_booking_with_details_by_id, mark_invoice_sent};
+
+    println!("════════════════════════════════════════════════════════");
+    println!("📧 [INVOICE-AUTO-COMPLETE] FUNCTION STARTED");
+    println!("   Booking ID: {}", booking_id);
+    println!("   PDF Path: {:?}", pdf_path);
+    println!("════════════════════════════════════════════════════════");
 
     let booking_details = get_booking_with_details_by_id(booking_id)
         .map_err(|e| format!("Fehler beim Laden der Buchung: {}", e))?;
@@ -637,6 +680,8 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
     // Wähle korrekte Empfänger-Adresse (rechnungs_email falls vorhanden, sonst email)
     let recipient_email = get_recipient_email(&booking_details.guest);
 
+    println!("📧 [INVOICE-AUTO-COMPLETE] Sending email to: {}", recipient_email);
+
     // Email versenden
     let result = send_email_with_attachment_internal(
         &config,
@@ -649,11 +694,36 @@ pub async fn send_invoice_email_with_pdf(booking_id: i64, pdf_path: PathBuf) -> 
         "invoice"
     ).await;
 
+    println!("📧 [INVOICE-AUTO-COMPLETE] Email send result: {:?}", result);
+
     // Bei Erfolg: Rechnung als versendet markieren (mit der tatsächlich verwendeten Email-Adresse)
     if result.is_ok() {
+        println!("📧 [INVOICE-AUTO-COMPLETE] Email SUCCESS - marking invoice as sent...");
+
         let _ = mark_invoice_sent(booking_id, recipient_email.clone())
             .map_err(|e| eprintln!("⚠️  Konnte Rechnung-Versendet-Status nicht setzen: {}", e));
+
+        println!("📧 [INVOICE-AUTO-COMPLETE] Calling on_invoice_sent({})...", booking_id);
+
+        // AUTO-COMPLETE: Schließe Invoice-Reminder automatisch
+        if let Err(e) = crate::reminder_automation::on_invoice_sent(booking_id) {
+            eprintln!("⚠️  Fehler beim Auto-Complete von Invoice-Reminder: {}", e);
+        } else {
+            println!("✅ [INVOICE-AUTO-COMPLETE] on_invoice_sent() completed successfully!");
+        }
+
+        // EMIT EVENT ZUM FRONTEND für Optimistic UI Update
+        let _ = app.emit("reminder-updated", serde_json::json!({
+            "reminderType": "auto_invoice",
+            "bookingId": booking_id
+        }));
+        println!("📤 [TAURI EVENT] reminder-updated event emitted to frontend (invoice)");
+    } else {
+        println!("❌ [INVOICE-AUTO-COMPLETE] Email FAILED - not marking as sent");
+        println!("   Error: {:?}", result);
     }
+
+    println!("════════════════════════════════════════════════════════");
 
     result
 }

@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Bell, Plus, CheckCircle, Clock, AlertTriangle, Calendar, Trash2, Edit2, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import type { Reminder, CreateReminderData, UpdateReminderData } from '../../types/reminder';
+import { useGlobalReminderUpdates } from '../../hooks/useGlobalReminderUpdates';
 
 interface BookingRemindersProps {
   bookingId: number;
@@ -15,20 +17,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
 
-  useEffect(() => {
-    loadReminders();
-  }, [bookingId]);
-
-  useEffect(() => {
-    // Event Listener für Reminder Updates
-    const handleReminderUpdate = () => {
-      loadReminders();
-    };
-    window.addEventListener('reminder-updated', handleReminderUpdate);
-    return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
-  }, []);
-
-  const loadReminders = async () => {
+  const loadReminders = useCallback(async () => {
     try {
       setLoading(true);
       const data = await invoke<Reminder[]>('get_reminders_for_booking_command', { bookingId });
@@ -38,7 +27,73 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [bookingId]);
+
+  useEffect(() => {
+    loadReminders();
+  }, [loadReminders]);
+
+  // Listen to Tauri events from backend
+  useEffect(() => {
+    const setupListener = async () => {
+      const unlisten = await listen('reminder-updated', (event: any) => {
+        const { reminderType, bookingId: eventBookingId } = event.payload;
+        if (eventBookingId === bookingId) {
+          setReminders(prev => prev.filter(r => r.reminder_type !== reminderType || r.status === 'completed'));
+          loadReminders();
+        }
+      });
+      return unlisten;
+    };
+
+    let unlistenFn: any = null;
+    setupListener().then(fn => { unlistenFn = fn; });
+
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, [bookingId, loadReminders]);
+
+  // Subscribe to global reminder updates (survives unmount/remount)
+  useGlobalReminderUpdates(bookingId, async (reminderType) => {
+    console.log('🔔 [BookingReminders] Update callback triggered', {
+      reminderType,
+      bookingId,
+      timestamp: new Date().toISOString()
+    });
+
+    // Optimistic update: Sofort aus UI entfernen
+    console.log('⚡ [BookingReminders] Optimistic update: Removing reminder type', reminderType);
+    setReminders(prev => {
+      console.log('   Before filter - reminders:', prev.length);
+      console.log('   Current reminders:', prev.map(r => ({ id: r.id, type: r.reminder_type, status: r.status, title: r.title })));
+      const filtered = prev.filter(r => {
+        // Keep reminder if: different type OR already completed
+        const keep = r.reminder_type !== reminderType || r.status === 'completed';
+        if (!keep) {
+          console.log('   🗑️ Removing reminder:', { id: r.id, type: r.reminder_type, status: r.status, title: r.title });
+        } else {
+          console.log('   ✅ Keeping reminder:', { id: r.id, type: r.reminder_type, status: r.status, title: r.title });
+        }
+        return keep;
+      });
+      console.log('   After filter - reminders:', filtered.length);
+      return filtered;
+    });
+
+    // Dann backend reload für Konsistenz
+    console.log('🔄 [BookingReminders] Reloading from backend...');
+    try {
+      setLoading(true);
+      const data = await invoke<Reminder[]>('get_reminders_for_booking_command', { bookingId });
+      console.log('✅ [BookingReminders] Backend reload complete - reminders:', data.length);
+      setReminders(data);
+    } catch (error) {
+      console.error('❌ [BookingReminders] Fehler beim Laden der Erinnerungen:', error);
+    } finally {
+      setLoading(false);
+    }
+  });
 
   const handleCreateReminder = async (data: CreateReminderData) => {
     try {
@@ -78,12 +133,27 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
   };
 
   const handleMarkCompleted = async (id: number) => {
+    // OPTIMISTIC UPDATE (2025 Best Practice)
+    // 1. Sofort Event dispatchen für Badge-Update (KEIN await!)
+    window.dispatchEvent(new CustomEvent('reminder-updated'));
+
+    // 2. Optimistisch lokales State updaten
+    setReminders(prev => prev.map(r =>
+      r.id === id ? { ...r, is_completed: 1 } : r
+    ));
+
     try {
+      // 3. Backend Update
       await invoke('mark_reminder_completed_command', { id, completed: true });
+
+      // 4. Final refresh für Konsistenz
       await loadReminders();
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
     } catch (error) {
       console.error('Fehler beim Markieren der Erinnerung:', error);
+
+      // 5. Rollback bei Fehler
+      await loadReminders();
+      window.dispatchEvent(new CustomEvent('reminder-updated'));
     }
   };
 

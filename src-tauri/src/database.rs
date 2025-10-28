@@ -1,9 +1,7 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::fs;
 use once_cell::sync::OnceCell;
-use tauri::Manager;
 
 // Global database path (set once at app startup)
 static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
@@ -315,6 +313,7 @@ pub struct ReminderSettings {
     pub auto_reminder_payment: bool,
     pub auto_reminder_checkin: bool,
     pub auto_reminder_invoice: bool,
+    pub auto_reminder_confirmation: bool,
     pub updated_at: String,
 }
 
@@ -669,7 +668,7 @@ pub fn init_database() -> Result<()> {
         "CREATE TABLE IF NOT EXISTS reminders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             booking_id INTEGER,
-            reminder_type TEXT NOT NULL CHECK(reminder_type IN ('manual', 'auto_incomplete_data', 'auto_payment', 'auto_checkin', 'auto_invoice')),
+            reminder_type TEXT NOT NULL CHECK(reminder_type IN ('manual', 'auto_incomplete_data', 'auto_payment', 'auto_checkin', 'auto_invoice', 'auto_confirmation')),
             title TEXT NOT NULL,
             description TEXT,
             due_date TEXT NOT NULL,
@@ -685,6 +684,14 @@ pub fn init_database() -> Result<()> {
         [],
     )?;
 
+    // MIGRATION: Fix CHECK constraint to include 'auto_confirmation'
+    // SQLite does not allow ALTER TABLE to modify CHECK constraints
+    // Solution: Check if old constraint exists, then recreate table
+    migrate_reminders_table_check_constraint(&conn)?;
+
+    // MIGRATION: Add completed_by field (auto vs manual completion tracking)
+    migrate_add_completed_by_field(&conn)?;
+
     // Reminder-System: Settings-Tabelle für Auto-Reminder On/Off
     conn.execute(
         "CREATE TABLE IF NOT EXISTS reminder_settings (
@@ -693,6 +700,7 @@ pub fn init_database() -> Result<()> {
             auto_reminder_payment INTEGER NOT NULL DEFAULT 1,
             auto_reminder_checkin INTEGER NOT NULL DEFAULT 1,
             auto_reminder_invoice INTEGER NOT NULL DEFAULT 1,
+            auto_reminder_confirmation INTEGER NOT NULL DEFAULT 1,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )",
         [],
@@ -703,6 +711,9 @@ pub fn init_database() -> Result<()> {
         "INSERT OR IGNORE INTO reminder_settings (id) VALUES (1)",
         [],
     )?;
+
+    // MIGRATION: Add auto_reminder_confirmation field for existing databases
+    migrate_add_confirmation_reminder_setting(&conn)?;
 
     // Stiftungsfall-Spalte hinzufügen falls noch nicht vorhanden
     add_column_if_not_exists(&conn, "bookings", "ist_stiftungsfall", "INTEGER DEFAULT 0")?;
@@ -735,9 +746,99 @@ pub fn init_database() -> Result<()> {
     // - Email-Suche für Gäste
     create_indexes(&conn)?;
 
-    // Insert sample data if tables are empty
-    // DEAKTIVIERT: Wir haben echte Produktionsdaten
-    // insert_sample_data(&conn)?;
+    // Insert minimal defaults if tables are empty (für Neuinstallation)
+    insert_minimal_defaults(&conn)?;
+
+    Ok(())
+}
+
+/// Fügt Minimal-Defaults ein, damit die App bei Neuinstallation voll funktionsfähig ist
+fn insert_minimal_defaults(conn: &Connection) -> Result<()> {
+    // 1. CHECK: Gibt es bereits Daten?
+    let room_count: i64 = conn.query_row("SELECT COUNT(*) FROM rooms", [], |row| row.get(0))?;
+
+    // Wenn schon Räume existieren → Skip (Produktionsdaten vorhanden)
+    if room_count > 0 {
+        println!("ℹ️  [DEFAULTS] Produktionsdaten gefunden - keine Defaults nötig");
+        return Ok(());
+    }
+
+    println!("🔧 [DEFAULTS] Neuinstallation erkannt - füge Minimal-Defaults ein...");
+
+    // 2. BEISPIEL-RAUM (damit Buchungen erstellt werden können)
+    conn.execute(
+        "INSERT INTO rooms (name, gebaeude_typ, capacity, price_member, price_non_member, nebensaison_preis, hauptsaison_preis, endreinigung, ort)
+         VALUES ('Beispielzimmer 1', 'Haupthaus', 2, 50.0, 70.0, 45.0, 60.0, 25.0, 'Ort')",
+        [],
+    )?;
+    println!("✅ [DEFAULTS] Beispiel-Raum erstellt");
+
+    // 3. COMPANY SETTINGS (Platzhalter für Rechnungen)
+    conn.execute(
+        "INSERT OR IGNORE INTO company_settings (
+            id, company_name, street_address, plz, city, country,
+            phone, email, website, tax_id, ceo_name, registry_court
+         )
+         VALUES (
+            1, 'Ihr Firmenname', 'Musterstraße 1', '12345', 'Musterstadt', 'Deutschland',
+            '+49 123 456789', 'info@beispiel.de', 'www.beispiel.de',
+            'DE123456789', 'Max Mustermann', 'Amtsgericht Musterstadt'
+         )",
+        [],
+    )?;
+    println!("✅ [DEFAULTS] Company Settings (Platzhalter) erstellt");
+
+    // 4. PAYMENT SETTINGS (Platzhalter für Rechnungen)
+    conn.execute(
+        "INSERT OR IGNORE INTO payment_settings (
+            id, bank_name, iban, bic, account_holder, mwst_rate, payment_due_days, reminder_after_days
+         )
+         VALUES (
+            1, 'Beispielbank', 'DE89370400440532013000', 'COBADEFFXXX', 'Ihr Firmenname', 19.0, 14, 14
+         )",
+        [],
+    )?;
+    println!("✅ [DEFAULTS] Payment Settings (Platzhalter) erstellt");
+
+    // 5. EMAIL CONFIG (Platzhalter - muss vom User konfiguriert werden)
+    conn.execute(
+        "INSERT OR IGNORE INTO email_config (
+            smtp_server, smtp_port, smtp_username, smtp_password, from_email, from_name, use_tls
+         )
+         VALUES (
+            'smtp.beispiel.de', 587, 'ihr-email@beispiel.de', 'PASSWORT_HIER_EINGEBEN', 'ihr-email@beispiel.de', 'Ihr Firmenname', 1
+         )",
+        [],
+    )?;
+    println!("✅ [DEFAULTS] Email Config (Platzhalter) erstellt");
+
+    // 6. EMAIL TEMPLATES (Standard-Templates)
+    let templates = [
+        ("confirmation", "Buchungsbestätigung für {{RESERVIERUNGSNUMMER}}",
+         "Sehr geehrte/r {{GAST_VORNAME}} {{GAST_NACHNAME}},\n\nhiermit bestätigen wir Ihre Buchung:\n\nReservierungsnummer: {{RESERVIERUNGSNUMMER}}\nZimmer: {{ZIMMER_NAME}}\nCheck-in: {{CHECKIN_DATUM}}\nCheck-out: {{CHECKOUT_DATUM}}\nGesamtpreis: {{GESAMTPREIS}}\n\nMit freundlichen Grüßen"),
+
+        ("invoice", "Rechnung {{RESERVIERUNGSNUMMER}}",
+         "Sehr geehrte/r {{GAST_VORNAME}} {{GAST_NACHNAME}},\n\nanbei erhalten Sie die Rechnung für Ihre Buchung {{RESERVIERUNGSNUMMER}}.\n\nMit freundlichen Grüßen"),
+
+        ("reminder", "Zahlungserinnerung {{RESERVIERUNGSNUMMER}}",
+         "Sehr geehrte/r {{GAST_VORNAME}} {{GAST_NACHNAME}},\n\nwir möchten Sie freundlich an die ausstehende Zahlung für Buchung {{RESERVIERUNGSNUMMER}} erinnern.\n\nMit freundlichen Grüßen"),
+    ];
+
+    for (name, subject, body) in templates {
+        conn.execute(
+            "INSERT OR IGNORE INTO email_templates (template_name, subject, body, description)
+             VALUES (?1, ?2, ?3, 'Standard-Template')",
+            [name, subject, body],
+        )?;
+    }
+    println!("✅ [DEFAULTS] Email Templates erstellt");
+
+    println!("🎉 [DEFAULTS] Minimal-Defaults erfolgreich eingefügt!");
+    println!("⚠️  [DEFAULTS] Bitte konfigurieren Sie in den Einstellungen:");
+    println!("   - Firmendaten (Einstellungen → Firma)");
+    println!("   - Zahlungsdaten (Einstellungen → Zahlung)");
+    println!("   - Email-Konfiguration (Einstellungen → Email)");
+    println!("   - Räume anlegen (Zimmerverwaltung)");
 
     Ok(())
 }
@@ -760,6 +861,125 @@ fn add_column_if_not_exists(
             &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, column_type),
             [],
         )?;
+    }
+
+    Ok(())
+}
+
+// MIGRATION: Recreate reminders table with updated CHECK constraint
+// SQLite does not support ALTER TABLE to modify CHECK constraints
+// This migration runs ONCE and only if the old constraint exists
+fn migrate_reminders_table_check_constraint(conn: &Connection) -> Result<()> {
+    // Check if we need to migrate by testing if 'auto_confirmation' is rejected
+    let needs_migration = conn.execute(
+        "INSERT INTO reminders (booking_id, reminder_type, title, due_date, priority)
+         VALUES (NULL, 'auto_confirmation', 'TEST', '2025-01-01', 'low')",
+        [],
+    ).is_err();
+
+    if needs_migration {
+        println!("🔄 [MIGRATION] Recreating reminders table with updated CHECK constraint...");
+
+        // Step 1: Disable foreign keys temporarily
+        conn.execute("PRAGMA foreign_keys = OFF", [])?;
+
+        // Step 2: Begin transaction
+        conn.execute("BEGIN TRANSACTION", [])?;
+
+        // Step 3: Rename old table
+        conn.execute("ALTER TABLE reminders RENAME TO reminders_old", [])?;
+
+        // Step 4: Create new table with correct CHECK constraint
+        conn.execute(
+            "CREATE TABLE reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id INTEGER,
+                reminder_type TEXT NOT NULL CHECK(reminder_type IN ('manual', 'auto_incomplete_data', 'auto_payment', 'auto_checkin', 'auto_invoice', 'auto_confirmation')),
+                title TEXT NOT NULL,
+                description TEXT,
+                due_date TEXT NOT NULL,
+                priority TEXT NOT NULL CHECK(priority IN ('low', 'medium', 'high')) DEFAULT 'medium',
+                is_completed INTEGER NOT NULL DEFAULT 0,
+                completed_at TEXT,
+                is_snoozed INTEGER NOT NULL DEFAULT 0,
+                snoozed_until TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Step 5: Copy data from old table
+        conn.execute(
+            "INSERT INTO reminders SELECT * FROM reminders_old",
+            [],
+        )?;
+
+        // Step 6: Drop old table
+        conn.execute("DROP TABLE reminders_old", [])?;
+
+        // Step 7: Commit transaction
+        conn.execute("COMMIT", [])?;
+
+        // Step 8: Re-enable foreign keys
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+        println!("✅ [MIGRATION] Reminders table recreated successfully!");
+    } else {
+        // Clean up test row
+        conn.execute("DELETE FROM reminders WHERE title = 'TEST' AND reminder_type = 'auto_confirmation'", [])?;
+    }
+
+    Ok(())
+}
+
+// MIGRATION: Add completed_by field to reminders table
+// Tracks whether reminder was completed manually or automatically
+fn migrate_add_completed_by_field(conn: &Connection) -> Result<()> {
+    // Check if column already exists
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('reminders') WHERE name = 'completed_by'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if !column_exists {
+        println!("🔄 [MIGRATION] Adding completed_by field to reminders table...");
+
+        conn.execute(
+            "ALTER TABLE reminders ADD COLUMN completed_by TEXT CHECK(completed_by IN ('manual', 'auto')) DEFAULT 'manual'",
+            [],
+        )?;
+
+        println!("✅ [MIGRATION] completed_by field added successfully!");
+    }
+
+    Ok(())
+}
+
+// MIGRATION: Add auto_reminder_confirmation field to reminder_settings table
+fn migrate_add_confirmation_reminder_setting(conn: &Connection) -> Result<()> {
+    // Check if column already exists
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('reminder_settings') WHERE name = 'auto_reminder_confirmation'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if !column_exists {
+        println!("🔄 [MIGRATION] Adding auto_reminder_confirmation field to reminder_settings table...");
+
+        conn.execute(
+            "ALTER TABLE reminder_settings ADD COLUMN auto_reminder_confirmation INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+
+        println!("✅ [MIGRATION] auto_reminder_confirmation field added successfully!");
     }
 
     Ok(())
@@ -2287,6 +2507,11 @@ pub fn create_booking(
         eprintln!("⚠️  Transaction Log Fehler: {}", e);
     }
 
+    // AUTO-REMINDER: Erstelle automatische Reminder für neue Buchung
+    if let Err(e) = crate::reminder_automation::on_booking_created(&booking_with_details) {
+        eprintln!("⚠️  Auto-Reminder Fehler: {}", e);
+    }
+
     println!("✅ DEBUG create_booking - Returning BookingWithDetails to frontend");
     Ok(booking_with_details)
 }
@@ -2390,6 +2615,11 @@ pub fn update_booking(
     let user_action = format!("Buchung {} aktualisiert", updated_booking.reservierungsnummer);
     if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
         eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    // AUTO-REMINDER: Prüfe ob Reminder aktualisiert werden müssen
+    if let Err(e) = crate::reminder_automation::on_booking_updated(&booking_with_details) {
+        eprintln!("⚠️  Auto-Reminder Update Fehler: {}", e);
     }
 
     Ok(booking_with_details)
@@ -2636,6 +2866,13 @@ pub fn update_booking_payment(id: i64, bezahlt: bool, zahlungsmethode: Option<St
     };
     if let Err(e) = crate::transaction_log::log_update("bookings", id, &old_data_json, &new_data_json, &user_action) {
         eprintln!("⚠️  Transaction Log Fehler: {}", e);
+    }
+
+    // AUTO-REMINDER: Schließe Zahlungs-Reminder wenn bezahlt
+    if bezahlt {
+        if let Err(e) = crate::reminder_automation::on_booking_paid(id) {
+            eprintln!("⚠️  Auto-Reminder Payment Fehler: {}", e);
+        }
     }
 
     Ok(updated_booking)
