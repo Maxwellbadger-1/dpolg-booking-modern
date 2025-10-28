@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { X, Briefcase, Euro, FileText, Smile, ClipboardList } from 'lucide-react';
+import { X, Briefcase, Euro, FileText, Smile, ClipboardList, Percent } from 'lucide-react';
 import { ServiceTemplate } from '../../types/booking';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
@@ -23,6 +23,8 @@ export default function ServiceTemplateDialog({
     description: '',
     price: 0,
     is_active: true,
+    price_type: 'fixed' as 'fixed' | 'percent',
+    applies_to: 'overnight_price' as 'overnight_price' | 'total_price',
     emoji: '',
     show_in_cleaning_plan: false,
     cleaning_plan_position: 'start' as 'start' | 'end',
@@ -39,6 +41,8 @@ export default function ServiceTemplateDialog({
         description: template.description || '',
         price: template.price,
         is_active: template.is_active,
+        price_type: template.price_type,
+        applies_to: template.applies_to,
         emoji: template.emoji || '',
         show_in_cleaning_plan: template.show_in_cleaning_plan,
         cleaning_plan_position: template.cleaning_plan_position,
@@ -49,6 +53,8 @@ export default function ServiceTemplateDialog({
         description: '',
         price: 0,
         is_active: true,
+        price_type: 'fixed',
+        applies_to: 'overnight_price',
         emoji: '',
         show_in_cleaning_plan: false,
         cleaning_plan_position: 'start',
@@ -88,6 +94,8 @@ export default function ServiceTemplateDialog({
           description: formData.description || null,
           price: formData.price,
           isActive: formData.is_active,
+          priceType: formData.price_type,
+          appliesTo: formData.applies_to,
           emoji: formData.emoji || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
@@ -98,6 +106,8 @@ export default function ServiceTemplateDialog({
           name: formData.name,
           description: formData.description || null,
           price: formData.price,
+          priceType: formData.price_type,
+          appliesTo: formData.applies_to,
           emoji: formData.emoji || null,
           showInCleaningPlan: formData.show_in_cleaning_plan,
           cleaningPlanPosition: formData.cleaning_plan_position,
@@ -181,26 +191,82 @@ export default function ServiceTemplateDialog({
             </div>
           </div>
 
+          {/* Price Type */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-slate-300">
+              Preis-Typ *
+            </label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, price_type: 'fixed' })}
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                  formData.price_type === 'fixed'
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                    : 'border-slate-600 bg-slate-700 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                <Euro className="w-5 h-5" />
+                <span className="font-medium">Fester Betrag</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, price_type: 'percent' })}
+                className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                  formData.price_type === 'percent'
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                    : 'border-slate-600 bg-slate-700 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                <Percent className="w-5 h-5" />
+                <span className="font-medium">Prozentual</span>
+              </button>
+            </div>
+          </div>
+
           {/* Price */}
           <div className="space-y-2">
             <label htmlFor="price" className="block text-sm font-medium text-slate-300">
-              Preis *
+              {formData.price_type === 'fixed' ? 'Preis-Betrag' : 'Preis-Prozentsatz'} *
             </label>
             <div className="relative">
-              <Euro className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              {formData.price_type === 'fixed' ? (
+                <Euro className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              ) : (
+                <Percent className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+              )}
               <input
                 id="price"
                 type="number"
-                step="0.01"
+                step={formData.price_type === 'fixed' ? '0.01' : '1'}
                 min="0"
+                max={formData.price_type === 'percent' ? '100' : undefined}
                 required
                 value={formData.price}
                 onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
                 className="w-full pl-12 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                placeholder="0.00"
+                placeholder={formData.price_type === 'fixed' ? '0.00' : '0'}
               />
             </div>
           </div>
+
+          {/* Applies To (nur bei Prozent) */}
+          {formData.price_type === 'percent' && (
+            <div className="space-y-2">
+              <label htmlFor="applies_to" className="block text-sm font-medium text-slate-300">
+                Worauf bezieht sich der Preis? *
+              </label>
+              <select
+                id="applies_to"
+                value={formData.applies_to}
+                onChange={(e) => setFormData({ ...formData, applies_to: e.target.value as 'overnight_price' | 'total_price' })}
+                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              >
+                <option value="overnight_price">Übernachtungspreis</option>
+                <option value="total_price">Gesamtpreis</option>
+              </select>
+            </div>
+          )}
 
           {/* Emoji */}
           <div className="space-y-2">

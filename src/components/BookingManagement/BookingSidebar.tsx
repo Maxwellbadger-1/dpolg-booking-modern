@@ -99,6 +99,10 @@ interface AdditionalService {
   service_name: string;
   service_price: number;
   template_id?: number;
+  // Neue Felder für prozentuale Services:
+  price_type?: 'fixed' | 'percent';
+  original_value?: number;
+  applies_to?: 'overnight_price' | 'total_price';
 }
 
 interface Discount {
@@ -209,6 +213,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [showErrorDialog, setShowErrorDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
+  const [showCloseConfirmDialog, setShowCloseConfirmDialog] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<number | null>(null);
   const [createdGuestEmail, setCreatedGuestEmail] = useState<string>('');
 
@@ -589,6 +594,17 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   };
 
   const handleClose = () => {
+    // Wenn im Edit- oder Create-Modus → Bestätigung anfordern
+    if (mode === 'edit' || mode === 'create') {
+      setShowCloseConfirmDialog(true);
+      return;
+    }
+
+    // Im View-Modus → Direkt schließen
+    closeWithoutConfirmation();
+  };
+
+  const closeWithoutConfirmation = () => {
     // Reset all state
     setMode('view');
     setBooking(null);
@@ -616,6 +632,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     setInvoicePdfs([]);
     setError(null);
     setPriceInfo(null);
+    setShowCloseConfirmDialog(false);
     onClose();
   };
 
@@ -800,10 +817,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 serviceTemplateId: service.template_id,
               });
             } else {
+              // Manuelle Services sind immer "fixed" (Festbetrag)
               await invoke('add_service_command', {
                 bookingId: result.id,
                 serviceName: service.service_name,
                 servicePrice: service.service_price,
+                priceType: 'fixed',
+                originalValue: service.service_price,
+                appliesTo: 'overnight_price',
               });
             }
           }
@@ -1204,10 +1225,24 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         key={service.id}
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
-                        <p className="font-semibold text-slate-900">{service.service_name}</p>
-                        <p className="font-semibold text-emerald-600">
-                          {service.service_price.toFixed(2)} €
-                        </p>
+                        <div className="flex items-center gap-3">
+                          <p className="font-semibold text-slate-900">{service.service_name}</p>
+                          {service.price_type === 'percent' && service.original_value && service.applies_to && (
+                            <span className="text-sm text-slate-500">
+                              ({service.original_value}% {service.applies_to === 'overnight_price' ? 'vom Grundpreis' : 'vom Gesamtpreis'})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {service.price_type === 'percent' ? (
+                            <Percent className="w-4 h-4 text-emerald-500" />
+                          ) : (
+                            <Euro className="w-4 h-4 text-emerald-500" />
+                          )}
+                          <p className="font-semibold text-emerald-600">
+                            {service.service_price.toFixed(2)} €
+                          </p>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2304,7 +2339,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             {template.name}
                           </span>
                           <span className="text-xs font-semibold text-emerald-600 ml-2">
-                            {template.price.toFixed(2)} €
+                            {template.price_type === 'percent'
+                              ? `${template.price.toFixed(1)} %`
+                              : `${template.price.toFixed(2)} €`}
                           </span>
                         </button>
                         );
@@ -2346,11 +2383,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
                       if (booking?.id) {
                         try {
-                          // 1. Service zum Backend hinzufügen
+                          // 1. Service zum Backend hinzufügen (manuelle Services sind immer "fixed")
                           await invoke('add_service_command', {
                             bookingId: booking.id,
                             serviceName: newService.service_name,
                             servicePrice: newService.service_price,
+                            priceType: 'fixed',
+                            originalValue: newService.service_price,
+                            appliesTo: 'overnight_price',
                           });
 
                           // 2. Buchung NEU laden (inkl. Services mit Emojis)
@@ -2367,7 +2407,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           setError('Fehler beim Hinzufügen des Service');
                         }
                       } else {
-                        setServices([...services, { ...newService }]);
+                        setServices([...services, { ...newService, price_type: 'fixed', original_value: newService.service_price, applies_to: 'overnight_price' }]);
                         setNewService({ service_name: '', service_price: 0 });
                         setError(null);
                       }
@@ -2669,6 +2709,40 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Close Confirmation Dialog */}
+      {showCloseConfirmDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60]">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="p-3 bg-amber-500/10 rounded-full">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-xl font-bold text-white mb-2">Änderungen verwerfen?</h3>
+                <p className="text-slate-300 text-sm">
+                  Sie haben ungespeicherte Änderungen. Möchten Sie wirklich fortfahren? Alle Änderungen gehen verloren.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCloseConfirmDialog(false)}
+                className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={closeWithoutConfirmation}
+                className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                Verwerfen
+              </button>
+            </div>
           </div>
         </div>
       )}

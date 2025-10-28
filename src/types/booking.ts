@@ -82,10 +82,24 @@ export interface Booking {
   created_at?: string;
 }
 
+// Additional Service (gebuchter Service mit berechneten Werten)
+export interface AdditionalService {
+  id: number;
+  booking_id: number;
+  service_name: string;
+  service_price: number;      // Berechneter finaler Preis
+  created_at: string;
+  template_id: number | null;
+  // Neue Felder für prozentuale Services:
+  price_type: 'fixed' | 'percent';
+  original_value: number;      // Festbetrag ODER Prozentsatz
+  applies_to: 'overnight_price' | 'total_price';
+}
+
 export interface BookingWithDetails extends Booking {
   room: Room;
   guest: Guest;
-  services: ServiceTemplate[];
+  services: AdditionalService[];
   discounts: DiscountTemplate[];
 }
 
@@ -105,6 +119,10 @@ export interface ServiceTemplate {
   description?: string;
   price: number;
   is_active: boolean;
+  // Preis-Typ: Festbetrag oder Prozent
+  price_type: 'fixed' | 'percent';
+  // Worauf bezieht sich der Prozent-Preis? (nur relevant bei price_type='percent')
+  applies_to: 'overnight_price' | 'total_price';
   // Emoji
   emoji?: string;
   // Putzplan-Integration

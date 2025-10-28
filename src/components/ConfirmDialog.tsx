@@ -5,23 +5,33 @@ interface ConfirmDialogProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  confirmText?: string;  // Alias für confirmLabel
   cancelLabel?: string;
   onConfirm: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
+  onClose?: () => void;  // Alias für onCancel
   variant?: 'danger' | 'warning' | 'info';
+  confirmButtonClass?: string;  // Custom button styling
 }
 
 export default function ConfirmDialog({
   isOpen,
   title,
   message,
-  confirmLabel = 'Bestätigen',
+  confirmLabel,
+  confirmText,
   cancelLabel = 'Abbrechen',
   onConfirm,
   onCancel,
+  onClose,
   variant = 'danger',
+  confirmButtonClass,
 }: ConfirmDialogProps) {
   if (!isOpen) return null;
+
+  // Aliase unterstützen
+  const finalConfirmLabel = confirmText || confirmLabel || 'Bestätigen';
+  const handleCancel = onClose || onCancel || (() => {});
 
   const variantStyles = {
     danger: {
@@ -39,10 +49,17 @@ export default function ConfirmDialog({
   };
 
   const styles = variantStyles[variant];
+  const buttonClass = confirmButtonClass || styles.button;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]"
+      onClick={handleCancel}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 animate-in fade-in zoom-in duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -52,7 +69,7 @@ export default function ConfirmDialog({
             <h2 className="text-xl font-bold text-slate-800">{title}</h2>
           </div>
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg hover:bg-slate-100"
           >
             <X className="w-5 h-5" />
@@ -67,16 +84,16 @@ export default function ConfirmDialog({
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 p-6 bg-slate-50 rounded-b-2xl">
           <button
-            onClick={onCancel}
+            onClick={handleCancel}
             className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg font-semibold hover:bg-slate-100 transition-colors"
           >
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
-            className={`px-4 py-2 ${styles.button} text-white rounded-lg font-semibold transition-colors`}
+            className={`px-4 py-2 ${buttonClass} text-white rounded-lg font-semibold transition-colors`}
           >
-            {confirmLabel}
+            {finalConfirmLabel}
           </button>
         </div>
       </div>

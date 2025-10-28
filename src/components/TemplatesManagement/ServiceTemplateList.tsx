@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Plus, Pencil, Trash2, Briefcase, Euro, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Briefcase, Euro, CheckCircle, XCircle, Percent } from 'lucide-react';
 import { ServiceTemplate } from '../../types/booking';
 import ServiceTemplateDialog from './ServiceTemplateDialog';
 import ConfirmDialog from '../ConfirmDialog';
@@ -136,11 +136,31 @@ export default function ServiceTemplateList() {
 
               {/* Price */}
               <div className="flex items-center gap-2 mb-4">
-                <Euro className="w-4 h-4 text-slate-400" />
-                <span className="text-2xl font-bold text-white">
-                  {template.price.toFixed(2)} €
-                </span>
+                {template.price_type === 'percent' ? (
+                  <>
+                    <Percent className="w-4 h-4 text-emerald-400" />
+                    <span className="text-2xl font-bold text-white">
+                      {template.price.toFixed(1)} %
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Euro className="w-4 h-4 text-slate-400" />
+                    <span className="text-2xl font-bold text-white">
+                      {template.price.toFixed(2)} €
+                    </span>
+                  </>
+                )}
               </div>
+
+              {/* Applies To (nur bei Prozent) */}
+              {template.price_type === 'percent' && (
+                <div className="text-xs text-slate-400 mb-4">
+                  {template.applies_to === 'overnight_price'
+                    ? '📊 Bezieht sich auf Übernachtungspreis'
+                    : '📊 Bezieht sich auf Gesamtpreis'}
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex gap-2">

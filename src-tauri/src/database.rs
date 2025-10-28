@@ -1,9 +1,7 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::fs;
 use once_cell::sync::OnceCell;
-use tauri::Manager;
 
 // Global database path (set once at app startup)
 static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
@@ -235,9 +233,13 @@ pub struct AdditionalService {
     pub id: i64,
     pub booking_id: i64,
     pub service_name: String,
-    pub service_price: f64,
+    pub service_price: f64, // Berechneter finaler Preis (bei Prozent: bereits berechnet!)
     pub created_at: String,
     pub template_id: Option<i64>, // Wenn Service von Template kommt (aus booking_services Junction-Table)
+    // Neue Felder für prozentuale Services (wie bei Rabatten)
+    pub price_type: String,        // 'fixed' oder 'percent'
+    pub original_value: f64,       // Original-Wert (Festbetrag ODER Prozent-Zahl)
+    pub applies_to: String,        // 'overnight_price' oder 'total_price' (nur relevant bei percent)
 }
 
 // Neue Tabelle: Rabatte für eine Buchung
@@ -259,6 +261,10 @@ pub struct ServiceTemplate {
     pub description: Option<String>,
     pub price: f64,
     pub is_active: bool,
+    // Preis-Typ: 'fixed' (Festbetrag) oder 'percent' (Prozent)
+    pub price_type: String, // 'fixed' | 'percent'
+    // Worauf bezieht sich der Prozent-Preis? (nur relevant wenn price_type = 'percent')
+    pub applies_to: String, // 'overnight_price' | 'total_price'
     // Emoji
     pub emoji: Option<String>,
     // Putzplan-Integration
@@ -748,6 +754,10 @@ pub fn init_database() -> Result<()> {
     // - Email-Suche für Gäste
     create_indexes(&conn)?;
 
+    // WICHTIG: Settings-Tabellen MÜSSEN vor insert_minimal_defaults() existieren!
+    // Diese Funktion erstellt ALLE Settings/Config-Tabellen (Email, Company, Payment, etc.)
+    create_settings_tables(&conn)?;
+
     // Insert minimal defaults if tables are empty (für Neuinstallation)
     insert_minimal_defaults(&conn)?;
 
@@ -1027,226 +1037,16 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Phase 6: Email-System Tabellen
-    // Tabelle für Email-Konfiguration (SMTP Settings)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS email_config (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            smtp_server TEXT NOT NULL,
-            smtp_port INTEGER NOT NULL,
-            smtp_username TEXT NOT NULL,
-            smtp_password TEXT NOT NULL,
-            from_email TEXT NOT NULL,
-            from_name TEXT NOT NULL,
-            use_tls INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
+    // NOTE: Email, Company, Payment, Notification, Pricing, Templates, Credit tables
+    // are now created in create_settings_tables() which is called separately in init_database()
 
-    // Tabelle für Email-Templates
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS email_templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            template_name TEXT NOT NULL UNIQUE,
-            subject TEXT NOT NULL,
-            body TEXT NOT NULL,
-            description TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Tabelle für Email-Logs (Versandhistorie)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS email_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_id INTEGER,
-            guest_id INTEGER NOT NULL,
-            template_name TEXT NOT NULL,
-            recipient_email TEXT NOT NULL,
-            subject TEXT NOT NULL,
-            status TEXT NOT NULL,
-            error_message TEXT,
-            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE SET NULL,
-            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE
-        )",
-        [],
-    )?;
-
-    // Index für Email-Logs
+    // Indexes für Email-Logs
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_email_logs_booking ON email_logs(booking_id)",
         [],
     )?;
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_email_logs_guest ON email_logs(guest_id)",
-        [],
-    )?;
-
-    // Standard-Email-Templates einfügen (falls noch nicht vorhanden)
-    insert_default_email_templates(&conn)?;
-
-    // Phase 7: Company & Payment Settings Tabellen
-    // Tabelle für Firmeneinstellungen (Single-Row Tabelle mit id=1)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS company_settings (
-            id INTEGER PRIMARY KEY CHECK(id = 1),
-            company_name TEXT NOT NULL,
-            street_address TEXT NOT NULL,
-            plz TEXT NOT NULL,
-            city TEXT NOT NULL,
-            country TEXT NOT NULL DEFAULT 'Deutschland',
-            phone TEXT NOT NULL,
-            fax TEXT,
-            email TEXT NOT NULL,
-            website TEXT NOT NULL,
-            tax_id TEXT NOT NULL,
-            ceo_name TEXT NOT NULL,
-            registry_court TEXT NOT NULL,
-            logo_path TEXT,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Tabelle für Zahlungseinstellungen (Single-Row Tabelle mit id=1)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS payment_settings (
-            id INTEGER PRIMARY KEY CHECK(id = 1),
-            bank_name TEXT NOT NULL,
-            iban TEXT NOT NULL,
-            bic TEXT NOT NULL,
-            account_holder TEXT NOT NULL,
-            mwst_rate REAL NOT NULL CHECK(mwst_rate >= 0 AND mwst_rate <= 100),
-            payment_due_days INTEGER NOT NULL DEFAULT 14,
-            reminder_after_days INTEGER NOT NULL DEFAULT 14,
-            payment_text TEXT,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Notification Settings Table (Email Scheduler Configuration)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS notification_settings (
-            id INTEGER PRIMARY KEY CHECK(id = 1),
-            checkin_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
-            payment_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
-            payment_reminder_after_days INTEGER NOT NULL DEFAULT 14,
-            payment_reminder_repeat_days INTEGER NOT NULL DEFAULT 14,
-            scheduler_interval_hours INTEGER NOT NULL DEFAULT 1,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Standard Notification Settings einfügen (falls noch nicht vorhanden)
-    conn.execute(
-        "INSERT OR IGNORE INTO notification_settings (id, checkin_reminders_enabled, payment_reminders_enabled, payment_reminder_after_days, payment_reminder_repeat_days, scheduler_interval_hours)
-         VALUES (1, 1, 1, 14, 14, 1)",
-        [],
-    )?;
-
-    // Pricing Settings Table (Saisonzeiten & Mitgliederrabatt)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS pricing_settings (
-            id INTEGER PRIMARY KEY CHECK(id = 1),
-            hauptsaison_aktiv BOOLEAN NOT NULL DEFAULT 1,
-            hauptsaison_start TEXT NOT NULL DEFAULT '06-01',
-            hauptsaison_ende TEXT NOT NULL DEFAULT '08-31',
-            mitglieder_rabatt_aktiv BOOLEAN NOT NULL DEFAULT 1,
-            mitglieder_rabatt_prozent REAL NOT NULL DEFAULT 15.0,
-            rabatt_basis TEXT NOT NULL DEFAULT 'zimmerpreis' CHECK(rabatt_basis IN ('zimmerpreis', 'gesamtpreis')),
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Standard Pricing Settings einfügen (falls noch nicht vorhanden)
-    conn.execute(
-        "INSERT OR IGNORE INTO pricing_settings (id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende, mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis)
-         VALUES (1, 1, '06-01', '08-31', 1, 15.0, 'zimmerpreis')",
-        [],
-    )?;
-
-    // Standard-Settings einfügen (falls noch nicht vorhanden)
-    insert_default_settings(&conn)?;
-
-    // Tabelle für Service-Templates (vordefinierte Zusatzleistungen)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS service_templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT,
-            price REAL NOT NULL CHECK(price >= 0),
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Tabelle für Rabatt-Templates (vordefinierte Rabatte)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS discount_templates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            description TEXT,
-            discount_type TEXT NOT NULL CHECK(discount_type IN ('percent', 'fixed')),
-            discount_value REAL NOT NULL CHECK(discount_value >= 0),
-            is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-        [],
-    )?;
-
-    // Junction-Table: Verbindung zwischen Buchungen und Service-Templates (Many-to-Many)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS booking_services (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_id INTEGER NOT NULL,
-            service_template_id INTEGER NOT NULL,
-            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
-            FOREIGN KEY (service_template_id) REFERENCES service_templates (id) ON DELETE CASCADE,
-            UNIQUE(booking_id, service_template_id)
-        )",
-        [],
-    )?;
-
-    // Junction-Table: Verbindung zwischen Buchungen und Discount-Templates (Many-to-Many)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS booking_discounts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            booking_id INTEGER NOT NULL,
-            discount_template_id INTEGER NOT NULL,
-            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
-            FOREIGN KEY (discount_template_id) REFERENCES discount_templates (id) ON DELETE CASCADE,
-            UNIQUE(booking_id, discount_template_id)
-        )",
-        [],
-    )?;
-
-    // Tabelle für Guthaben-Transaktionen (Credit System)
-    // Transaktions-basiertes System: Jede Änderung am Guthaben ist eine Transaktion
-    // Aktuelles Guthaben = SUM(amount) WHERE guest_id = X
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS guest_credit_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            guest_id INTEGER NOT NULL,
-            amount REAL NOT NULL,
-            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('added', 'used', 'expired', 'refund')),
-            booking_id INTEGER,
-            notes TEXT,
-            created_by TEXT DEFAULT 'System',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE,
-            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE SET NULL
-        )",
         [],
     )?;
 
@@ -1321,43 +1121,256 @@ fn create_indexes(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Erweitere service_templates um Emoji- und Putzplan-Felder
+    // NOTE: Template column migrations are now handled in create_settings_tables()
+
+    Ok(())
+}
+
+/// Erstellt ALLE Settings/Config-Tabellen (Email, Company, Payment, Notification, Pricing, Templates, Credit)
+/// Diese Funktion MUSS früh aufgerufen werden, damit Settings immer verfügbar sind!
+fn create_settings_tables(conn: &Connection) -> Result<()> {
+    println!("🔧 [DATABASE] Creating settings tables...");
+
+    // Phase 6: Email-System Tabellen
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            smtp_server TEXT NOT NULL,
+            smtp_port INTEGER NOT NULL,
+            smtp_username TEXT NOT NULL,
+            smtp_password TEXT NOT NULL,
+            from_email TEXT NOT NULL,
+            from_name TEXT NOT NULL,
+            use_tls INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_name TEXT NOT NULL UNIQUE,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS email_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER,
+            guest_id INTEGER NOT NULL,
+            template_name TEXT NOT NULL,
+            recipient_email TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error_message TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE SET NULL,
+            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE
+        )",
+        [],
+    )?;
+
+    // Standard-Email-Templates einfügen
+    insert_default_email_templates(&conn)?;
+
+    // Phase 7: Company & Payment Settings Tabellen
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS company_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            company_name TEXT NOT NULL,
+            street_address TEXT NOT NULL,
+            plz TEXT NOT NULL,
+            city TEXT NOT NULL,
+            country TEXT NOT NULL DEFAULT 'Deutschland',
+            phone TEXT NOT NULL,
+            fax TEXT,
+            email TEXT NOT NULL,
+            website TEXT NOT NULL,
+            tax_id TEXT NOT NULL,
+            ceo_name TEXT NOT NULL,
+            registry_court TEXT NOT NULL,
+            logo_path TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS payment_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            bank_name TEXT NOT NULL,
+            iban TEXT NOT NULL,
+            bic TEXT NOT NULL,
+            account_holder TEXT NOT NULL,
+            mwst_rate REAL NOT NULL CHECK(mwst_rate >= 0 AND mwst_rate <= 100),
+            payment_due_days INTEGER NOT NULL DEFAULT 14,
+            reminder_after_days INTEGER NOT NULL DEFAULT 14,
+            payment_text TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS notification_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            checkin_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+            payment_reminders_enabled BOOLEAN NOT NULL DEFAULT 1,
+            payment_reminder_after_days INTEGER NOT NULL DEFAULT 14,
+            payment_reminder_repeat_days INTEGER NOT NULL DEFAULT 14,
+            scheduler_interval_hours INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO notification_settings (id, checkin_reminders_enabled, payment_reminders_enabled, payment_reminder_after_days, payment_reminder_repeat_days, scheduler_interval_hours)
+         VALUES (1, 1, 1, 14, 14, 1)",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS pricing_settings (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            hauptsaison_aktiv BOOLEAN NOT NULL DEFAULT 1,
+            hauptsaison_start TEXT NOT NULL DEFAULT '06-01',
+            hauptsaison_ende TEXT NOT NULL DEFAULT '08-31',
+            mitglieder_rabatt_aktiv BOOLEAN NOT NULL DEFAULT 1,
+            mitglieder_rabatt_prozent REAL NOT NULL DEFAULT 15.0,
+            rabatt_basis TEXT NOT NULL DEFAULT 'zimmerpreis' CHECK(rabatt_basis IN ('zimmerpreis', 'gesamtpreis')),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO pricing_settings (id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende, mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis)
+         VALUES (1, 1, '06-01', '08-31', 1, 15.0, 'zimmerpreis')",
+        [],
+    )?;
+
+    // Standard-Settings einfügen
+    insert_default_settings(&conn)?;
+
+    // Template-Tabellen
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS service_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            price REAL NOT NULL CHECK(price >= 0),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS discount_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            discount_type TEXT NOT NULL CHECK(discount_type IN ('percent', 'fixed')),
+            discount_value REAL NOT NULL CHECK(discount_value >= 0),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS booking_services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            service_template_id INTEGER NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
+            FOREIGN KEY (service_template_id) REFERENCES service_templates (id) ON DELETE CASCADE,
+            UNIQUE(booking_id, service_template_id)
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS booking_discounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            discount_template_id INTEGER NOT NULL,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE CASCADE,
+            FOREIGN KEY (discount_template_id) REFERENCES discount_templates (id) ON DELETE CASCADE,
+            UNIQUE(booking_id, discount_template_id)
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS guest_credit_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            guest_id INTEGER NOT NULL,
+            amount REAL NOT NULL,
+            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('added', 'used', 'expired', 'refund')),
+            booking_id INTEGER,
+            notes TEXT,
+            created_by TEXT DEFAULT 'System',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (guest_id) REFERENCES guests (id) ON DELETE CASCADE,
+            FOREIGN KEY (booking_id) REFERENCES bookings (id) ON DELETE SET NULL
+        )",
+        [],
+    )?;
+
+    // Add columns to templates if they don't exist (Migrations)
     add_column_if_not_exists(&conn, "service_templates", "emoji", "TEXT")?;
     add_column_if_not_exists(&conn, "service_templates", "color_hex", "TEXT")?;
     add_column_if_not_exists(&conn, "service_templates", "show_in_cleaning_plan", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "service_templates", "cleaning_plan_position", "TEXT DEFAULT 'start'")?;
-
-    // ✨ NEU: Professional Cleaning Flags (Boolean statt Emoji-Detection!)
     add_column_if_not_exists(&conn, "service_templates", "requires_dog_cleaning", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "service_templates", "requires_bedding_change", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "service_templates", "requires_deep_cleaning", "INTEGER DEFAULT 0")?;
 
-    // 🔄 Automatische Migration: Setze Flags basierend auf Service-Namen & Emojis
-    // Services mit "Hund" im Namen → requires_dog_cleaning = true
-    conn.execute(
-        "UPDATE service_templates
-         SET requires_dog_cleaning = 1
-         WHERE (LOWER(name) LIKE '%hund%' OR emoji LIKE '%🐕%' OR emoji LIKE '%🐶%')
-         AND requires_dog_cleaning = 0",
-        [],
-    ).ok(); // Ignoriere Fehler falls Spalte noch nicht existiert
+    // NEU: Prozentuale Zusatzleistungen (wie bei Rabatten)
+    add_column_if_not_exists(&conn, "service_templates", "price_type", "TEXT DEFAULT 'fixed'")?;
+    add_column_if_not_exists(&conn, "service_templates", "applies_to", "TEXT DEFAULT 'overnight_price'")?;
 
-    // Services mit "Bett" im Namen → requires_bedding_change = true
-    conn.execute(
-        "UPDATE service_templates
-         SET requires_bedding_change = 1
-         WHERE (LOWER(name) LIKE '%bett%' OR LOWER(name) LIKE '%bettwäsche%' OR emoji LIKE '%🛏%')
-         AND requires_bedding_change = 0",
-        [],
-    ).ok(); // Ignoriere Fehler
+    // NEU: Prozentuale Services auch in actual bookings (additional_services Tabelle)
+    add_column_if_not_exists(&conn, "additional_services", "price_type", "TEXT DEFAULT 'fixed'")?;
+    add_column_if_not_exists(&conn, "additional_services", "original_value", "REAL DEFAULT 0")?;
+    add_column_if_not_exists(&conn, "additional_services", "applies_to", "TEXT DEFAULT 'overnight_price'")?;
 
-    // Erweitere discount_templates um Emoji- und Putzplan-Felder
     add_column_if_not_exists(&conn, "discount_templates", "emoji", "TEXT")?;
     add_column_if_not_exists(&conn, "discount_templates", "color_hex", "TEXT")?;
     add_column_if_not_exists(&conn, "discount_templates", "show_in_cleaning_plan", "INTEGER DEFAULT 0")?;
     add_column_if_not_exists(&conn, "discount_templates", "cleaning_plan_position", "TEXT DEFAULT 'start'")?;
     add_column_if_not_exists(&conn, "discount_templates", "applies_to", "TEXT DEFAULT 'total_price'")?;
 
+    // Automatic migration: Set flags based on service names & emojis
+    conn.execute(
+        "UPDATE service_templates
+         SET requires_dog_cleaning = 1
+         WHERE (LOWER(name) LIKE '%hund%' OR emoji LIKE '%🐕%' OR emoji LIKE '%🐶%')
+         AND requires_dog_cleaning = 0",
+        [],
+    ).ok();
+
+    conn.execute(
+        "UPDATE service_templates
+         SET requires_bedding_change = 1
+         WHERE (LOWER(name) LIKE '%bett%' OR LOWER(name) LIKE '%bettwäsche%' OR emoji LIKE '%🛏%')
+         AND requires_bedding_change = 0",
+        [],
+    ).ok();
+
+    println!("✅ [DATABASE] Settings tables created successfully");
     Ok(())
 }
 
@@ -1765,6 +1778,8 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
         // Services laden
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                    COALESCE(st.price_type, 'fixed') as price_type,
+                    COALESCE(st.applies_to, 'overnight_price') as applies_to,
                     st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
@@ -1779,11 +1794,13 @@ pub fn get_bookings_with_details() -> Result<Vec<BookingWithDetails>> {
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -3026,6 +3043,8 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
     // Services für diese Buchung laden (aus Junction-Table)
     let mut service_stmt = conn.prepare(
         "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                COALESCE(st.price_type, 'fixed') as price_type,
+                COALESCE(st.applies_to, 'overnight_price') as applies_to,
                 st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                 st.created_at, st.updated_at
          FROM service_templates st
@@ -3040,11 +3059,13 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
             description: row.get(2)?,
             price: row.get(3)?,
             is_active: row.get::<_, i32>(4)? != 0,
-            emoji: row.get(5)?,
-            show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
-            cleaning_plan_position: row.get(7)?,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
+            price_type: row.get(5)?,
+            applies_to: row.get(6)?,
+            emoji: row.get(7)?,
+            show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+            cleaning_plan_position: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -3087,19 +3108,54 @@ pub fn get_booking_with_details_by_id(id: i64) -> Result<BookingWithDetails> {
 // ADDITIONAL SERVICES - Phase 1.2
 // ============================================================================
 
+/// Helper-Funktion: Berechnet die Summe aller Services (mit Prozent-Support!)
+///
+/// Diese Funktion berücksichtigt prozentuale Services und berechnet sie korrekt:
+/// - Festbetrag: Wird direkt addiert
+/// - Prozent vom Grundpreis: Wird als % vom Grundpreis berechnet
+/// - Prozent vom Gesamtpreis: Wird rekursiv vom aktuellen Zwischentotal berechnet
+///
+/// WICHTIG: Services MÜSSEN in der richtigen Reihenfolge verarbeitet werden!
+fn calculate_services_total(services: &[AdditionalService], grundpreis: f64) -> f64 {
+    let mut services_total = 0.0;
+
+    for service in services {
+        if service.price_type == "percent" {
+            if service.applies_to == "overnight_price" {
+                // Prozent vom Grundpreis
+                let calculated_price = grundpreis * (service.original_value / 100.0);
+                services_total += calculated_price;
+            } else {
+                // Prozent vom bisherigen Gesamtpreis (Grundpreis + bereits addierte Services)
+                let base_price = grundpreis + services_total;
+                let calculated_price = base_price * (service.original_value / 100.0);
+                services_total += calculated_price;
+            }
+        } else {
+            // Festbetrag
+            services_total += service.service_price;
+        }
+    }
+
+    services_total
+}
+
 /// Fügt einen Service zu einer Buchung hinzu
 pub fn add_service_to_booking(
     booking_id: i64,
     service_name: String,
     service_price: f64,
+    price_type: String,        // 'fixed' oder 'percent'
+    original_value: f64,       // Festbetrag ODER Prozentsatz
+    applies_to: String,        // 'overnight_price' oder 'total_price'
 ) -> Result<AdditionalService> {
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     conn.execute(
-        "INSERT INTO additional_services (booking_id, service_name, service_price)
-         VALUES (?1, ?2, ?3)",
-        rusqlite::params![booking_id, service_name, service_price],
+        "INSERT INTO additional_services (booking_id, service_name, service_price, price_type, original_value, applies_to)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![booking_id, service_name, service_price, price_type, original_value, applies_to],
     )?;
 
     let id = conn.last_insert_rowid();
@@ -3107,16 +3163,35 @@ pub fn add_service_to_booking(
     // 💰 PREISBERECHNUNG: Nach Service-Hinzufügen Preise neu berechnen!
     println!("💰 [add_service_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
 
-    // Hole alle Services (inkl. dem neuen)
-    let all_services = get_booking_services(booking_id)?;
-    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
-
-    // Hole alle Discounts
-    let discounts = get_booking_discounts(booking_id)?;
-
     // Hole Buchung für Grundpreis
     let booking = get_booking_by_id(booking_id)?;
     let grundpreis = booking.grundpreis;
+
+    // Hole alle Services (inkl. dem neuen) - MIT prozentualer Berechnung!
+    let all_services = get_booking_services(booking_id)?;
+
+    // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
+    let services_total = calculate_services_total(&all_services, grundpreis);
+
+    println!("  💶 Services-Details:");
+    for service in &all_services {
+        if service.price_type == "percent" {
+            if service.applies_to == "overnight_price" {
+                let calculated_price = grundpreis * (service.original_value / 100.0);
+                println!("    🔢 '{}': {}% von {:.2}€ = {:.2}€",
+                    service.service_name, service.original_value, grundpreis, calculated_price);
+            } else {
+                println!("    🔢 '{}': {}% vom Gesamtpreis = dynamisch",
+                    service.service_name, service.original_value);
+            }
+        } else {
+            println!("    💵 '{}': Festbetrag {:.2}€",
+                service.service_name, service.service_price);
+        }
+    }
+
+    // Hole alle Discounts
+    let discounts = get_booking_discounts(booking_id)?;
 
     // Berechne Rabatt-Summe
     let mut rabatt_total = 0.0;
@@ -3132,7 +3207,7 @@ pub fn add_service_to_booking(
     let new_gesamtpreis = grundpreis + services_total - rabatt_total;
 
     println!("  📊 Grundpreis: {:.2}€", grundpreis);
-    println!("  📊 Services: {:.2}€", services_total);
+    println!("  📊 Services GESAMT: {:.2}€", services_total);
     println!("  📊 Rabatt: {:.2}€", rabatt_total);
     println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
 
@@ -3145,7 +3220,10 @@ pub fn add_service_to_booking(
     println!("✅ [add_service_to_booking] Preise erfolgreich aktualisiert!");
 
     conn.query_row(
-        "SELECT id, booking_id, service_name, service_price, created_at
+        "SELECT id, booking_id, service_name, service_price, created_at,
+                COALESCE(price_type, 'fixed') as price_type,
+                COALESCE(original_value, service_price) as original_value,
+                COALESCE(applies_to, 'overnight_price') as applies_to
          FROM additional_services WHERE id = ?1",
         rusqlite::params![id],
         |row| {
@@ -3156,6 +3234,9 @@ pub fn add_service_to_booking(
                 service_price: row.get(3)?,
                 created_at: row.get(4)?,
                 template_id: None, // Manuelle Services haben kein Template
+                price_type: row.get(5)?,
+                original_value: row.get(6)?,
+                applies_to: row.get(7)?,
             })
         },
     )
@@ -3205,16 +3286,18 @@ pub fn delete_service(service_id: i64) -> Result<()> {
     if let Some(bid) = booking_id {
         println!("💰 [delete_service] Berechne Preise neu für Buchung #{}", bid);
 
-        // Hole alle verbleibenden Services
-        let remaining_services = get_booking_services(bid)?;
-        let services_total: f64 = remaining_services.iter().map(|s| s.service_price).sum();
-
-        // Hole alle Discounts
-        let discounts = get_booking_discounts(bid)?;
-
         // Hole Buchung für Grundpreis
         let booking = get_booking_by_id(bid)?;
         let grundpreis = booking.grundpreis;
+
+        // Hole alle verbleibenden Services - MIT prozentualer Berechnung!
+        let remaining_services = get_booking_services(bid)?;
+
+        // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
+        let services_total = calculate_services_total(&remaining_services, grundpreis);
+
+        // Hole alle Discounts
+        let discounts = get_booking_discounts(bid)?;
 
         // Berechne Rabatt-Summe
         let mut rabatt_total = 0.0;
@@ -3256,7 +3339,10 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
     // 2. Template-basierte Services aus booking_services JOIN service_templates
     // NOTE: booking_services hat keine created_at Spalte, verwende CURRENT_TIMESTAMP
     let mut stmt = conn.prepare(
-        "SELECT id, booking_id, service_name, service_price, created_at, NULL as template_id
+        "SELECT id, booking_id, service_name, service_price, created_at, NULL as template_id,
+                COALESCE(price_type, 'fixed') as price_type,
+                COALESCE(original_value, service_price) as original_value,
+                COALESCE(applies_to, 'overnight_price') as applies_to
          FROM additional_services
          WHERE booking_id = ?1
 
@@ -3268,7 +3354,10 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
             st.name as service_name,
             st.price as service_price,
             datetime('now') as created_at,
-            bs.service_template_id as template_id
+            bs.service_template_id as template_id,
+            COALESCE(st.price_type, 'fixed') as price_type,
+            st.price as original_value,
+            COALESCE(st.applies_to, 'overnight_price') as applies_to
          FROM booking_services bs
          JOIN service_templates st ON bs.service_template_id = st.id
          WHERE bs.booking_id = ?1
@@ -3284,6 +3373,9 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
             service_price: row.get(3)?,
             created_at: row.get(4)?,
             template_id: row.get(5)?,
+            price_type: row.get(6)?,
+            original_value: row.get(7)?,
+            applies_to: row.get(8)?,
         })
     })?;
 
@@ -3316,9 +3408,28 @@ pub fn link_service_template_to_booking(
     let grundpreis = booking.grundpreis;
     let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
 
-    // Hole alle Services (inkl. dem neuen Template-Service)
+    // Hole alle Services (inkl. dem neuen Template-Service) - MIT prozentualer Berechnung!
     let all_services = get_booking_services(booking_id)?;
-    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+
+    // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
+    let services_total = calculate_services_total(&all_services, grundpreis);
+
+    println!("  💶 Services-Details:");
+    for service in &all_services {
+        if service.price_type == "percent" {
+            if service.applies_to == "overnight_price" {
+                let calculated_price = grundpreis * (service.original_value / 100.0);
+                println!("    🔢 '{}': {}% von {:.2}€ = {:.2}€",
+                    service.service_name, service.original_value, grundpreis, calculated_price);
+            } else {
+                println!("    🔢 '{}': {}% vom Gesamtpreis = dynamisch",
+                    service.service_name, service.original_value);
+            }
+        } else {
+            println!("    💵 '{}': Festbetrag {:.2}€",
+                service.service_name, service.service_price);
+        }
+    }
 
     // Hole alle Discount-Templates
     let discounts = get_booking_discounts(booking_id)?;
@@ -4291,6 +4402,8 @@ pub fn create_service_template(
     name: String,
     description: Option<String>,
     price: f64,
+    price_type: String,
+    applies_to: String,
     emoji: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
@@ -4313,18 +4426,30 @@ pub fn create_service_template(
         return Err(format!("Service '{}' existiert bereits", name));
     }
 
+    // Validiere price_type
+    if price_type != "fixed" && price_type != "percent" {
+        return Err("price_type muss 'fixed' oder 'percent' sein".to_string());
+    }
+
+    // Validiere applies_to
+    if applies_to != "overnight_price" && applies_to != "total_price" {
+        return Err("applies_to muss 'overnight_price' oder 'total_price' sein".to_string());
+    }
+
     // Validiere cleaning_plan_position
     if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
         return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
     }
 
     conn.execute(
-        "INSERT INTO service_templates (name, description, price, emoji, show_in_cleaning_plan, cleaning_plan_position)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO service_templates (name, description, price, price_type, applies_to, emoji, show_in_cleaning_plan, cleaning_plan_position)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         rusqlite::params![
             name,
             description,
             price,
+            price_type,
+            applies_to,
             emoji,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position
@@ -4335,7 +4460,10 @@ pub fn create_service_template(
     let id = conn.last_insert_rowid();
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+        "SELECT id, name, description, price, is_active,
+         COALESCE(price_type, 'fixed') as price_type,
+         COALESCE(applies_to, 'overnight_price') as applies_to,
+         emoji, show_in_cleaning_plan, cleaning_plan_position,
          created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
@@ -4346,11 +4474,13 @@ pub fn create_service_template(
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )
@@ -4363,7 +4493,11 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+            "SELECT id, name, description, price, is_active,
+             COALESCE(price_type, 'fixed') as price_type,
+             COALESCE(applies_to, 'overnight_price') as applies_to,
+             emoji, show_in_cleaning_plan,
+             COALESCE(cleaning_plan_position, 'start') as cleaning_plan_position,
              created_at, updated_at
              FROM service_templates ORDER BY name",
         )
@@ -4377,11 +4511,13 @@ pub fn get_all_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -4397,7 +4533,11 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+            "SELECT id, name, description, price, is_active,
+             COALESCE(price_type, 'fixed') as price_type,
+             COALESCE(applies_to, 'overnight_price') as applies_to,
+             emoji, show_in_cleaning_plan,
+             COALESCE(cleaning_plan_position, 'start') as cleaning_plan_position,
              created_at, updated_at
              FROM service_templates WHERE is_active = 1 ORDER BY name",
         )
@@ -4411,11 +4551,13 @@ pub fn get_active_service_templates() -> Result<Vec<ServiceTemplate>, String> {
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })
         .map_err(|e| format!("Query Fehler: {}", e))?
@@ -4431,6 +4573,8 @@ pub fn update_service_template(
     description: Option<String>,
     price: f64,
     is_active: bool,
+    price_type: String,
+    applies_to: String,
     emoji: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
@@ -4453,6 +4597,16 @@ pub fn update_service_template(
         return Err(format!("Service '{}' existiert bereits", name));
     }
 
+    // Validiere price_type
+    if price_type != "fixed" && price_type != "percent" {
+        return Err("price_type muss 'fixed' oder 'percent' sein".to_string());
+    }
+
+    // Validiere applies_to
+    if applies_to != "overnight_price" && applies_to != "total_price" {
+        return Err("applies_to muss 'overnight_price' oder 'total_price' sein".to_string());
+    }
+
     // Validiere cleaning_plan_position
     if cleaning_plan_position != "start" && cleaning_plan_position != "end" {
         return Err("cleaning_plan_position muss 'start' oder 'end' sein".to_string());
@@ -4461,14 +4615,17 @@ pub fn update_service_template(
     conn.execute(
         "UPDATE service_templates
          SET name = ?1, description = ?2, price = ?3, is_active = ?4,
-             emoji = ?5, show_in_cleaning_plan = ?6, cleaning_plan_position = ?7,
+             price_type = ?5, applies_to = ?6,
+             emoji = ?7, show_in_cleaning_plan = ?8, cleaning_plan_position = ?9,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?8",
+         WHERE id = ?10",
         rusqlite::params![
             name,
             description,
             price,
             if is_active { 1 } else { 0 },
+            price_type,
+            applies_to,
             emoji,
             if show_in_cleaning_plan { 1 } else { 0 },
             cleaning_plan_position,
@@ -4478,7 +4635,10 @@ pub fn update_service_template(
     .map_err(|e| format!("Fehler beim Aktualisieren: {}", e))?;
 
     conn.query_row(
-        "SELECT id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position,
+        "SELECT id, name, description, price, is_active,
+         COALESCE(price_type, 'fixed') as price_type,
+         COALESCE(applies_to, 'overnight_price') as applies_to,
+         emoji, show_in_cleaning_plan, cleaning_plan_position,
          created_at, updated_at
          FROM service_templates WHERE id = ?1",
         [id],
@@ -4489,11 +4649,13 @@ pub fn update_service_template(
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i64>(4)? == 1,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i64>(6)? == 1,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i64>(8)? == 1,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         },
     )
@@ -4970,6 +5132,8 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
         // Services laden (Templates mit emoji, show_in_cleaning_plan, etc.)
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                    COALESCE(st.price_type, 'fixed') as price_type,
+                    COALESCE(st.applies_to, 'overnight_price') as applies_to,
                     st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
@@ -4984,11 +5148,13 @@ pub fn get_bookings_by_checkout_date(date: &str) -> Result<Vec<BookingWithDetail
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -5147,6 +5313,8 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
         // Services laden (Templates mit emoji, show_in_cleaning_plan, etc.)
         let mut service_stmt = conn.prepare(
             "SELECT st.id, st.name, st.description, st.price, st.is_active,
+                    COALESCE(st.price_type, 'fixed') as price_type,
+                    COALESCE(st.applies_to, 'overnight_price') as applies_to,
                     st.emoji, st.show_in_cleaning_plan, st.cleaning_plan_position,
                     st.created_at, st.updated_at
              FROM service_templates st
@@ -5161,11 +5329,13 @@ pub fn get_bookings_by_checkin_date(date: &str) -> Result<Vec<BookingWithDetails
                 description: row.get(2)?,
                 price: row.get(3)?,
                 is_active: row.get::<_, i32>(4)? != 0,
-                emoji: row.get(5)?,
-                show_in_cleaning_plan: row.get::<_, i32>(6)? != 0,
-                cleaning_plan_position: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
+                price_type: row.get(5)?,
+                applies_to: row.get(6)?,
+                emoji: row.get(7)?,
+                show_in_cleaning_plan: row.get::<_, i32>(8)? != 0,
+                cleaning_plan_position: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 

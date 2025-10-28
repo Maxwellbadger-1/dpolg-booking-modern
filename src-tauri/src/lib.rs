@@ -565,8 +565,11 @@ fn add_service_command(
     booking_id: i64,
     service_name: String,
     service_price: f64,
+    price_type: String,        // 'fixed' oder 'percent'
+    original_value: f64,       // Festbetrag ODER Prozentsatz
+    applies_to: String,        // 'overnight_price' oder 'total_price'
 ) -> Result<database::AdditionalService, String> {
-    database::add_service_to_booking(booking_id, service_name, service_price)
+    database::add_service_to_booking(booking_id, service_name, service_price, price_type, original_value, applies_to)
         .map_err(|e| format!("Fehler beim Hinzufügen des Services: {}", e))
 }
 
@@ -1636,11 +1639,13 @@ fn create_service_template_command(
     name: String,
     description: Option<String>,
     price: f64,
+    price_type: String,
+    applies_to: String,
     emoji: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::create_service_template(name, description, price, emoji, show_in_cleaning_plan, cleaning_plan_position)
+    database::create_service_template(name, description, price, price_type, applies_to, emoji, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]
@@ -1660,11 +1665,13 @@ fn update_service_template_command(
     description: Option<String>,
     price: f64,
     is_active: bool,
+    price_type: String,
+    applies_to: String,
     emoji: Option<String>,
     show_in_cleaning_plan: bool,
     cleaning_plan_position: String,
 ) -> Result<database::ServiceTemplate, String> {
-    database::update_service_template(id, name, description, price, is_active, emoji, show_in_cleaning_plan, cleaning_plan_position)
+    database::update_service_template(id, name, description, price, is_active, price_type, applies_to, emoji, show_in_cleaning_plan, cleaning_plan_position)
 }
 
 #[tauri::command]

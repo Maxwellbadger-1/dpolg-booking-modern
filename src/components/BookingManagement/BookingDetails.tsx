@@ -96,6 +96,10 @@ interface AdditionalService {
   id: number;
   service_name: string;
   service_price: number;
+  // Neue Felder für prozentuale Services:
+  price_type: 'fixed' | 'percent';
+  original_value: number;
+  applies_to: 'overnight_price' | 'total_price';
 }
 
 interface Discount {
@@ -841,10 +845,28 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         key={service.id}
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
-                        <p className="font-semibold text-slate-900">{service.service_name}</p>
-                        <p className="font-semibold text-emerald-600">
-                          {service.service_price.toFixed(2)} €
-                        </p>
+                        <div className="flex items-center gap-3">
+                          <p className="font-semibold text-slate-900">{service.service_name}</p>
+                          {service.price_type === 'percent' && (
+                            <span className="text-sm text-slate-500">
+                              ({service.original_value}% {service.applies_to === 'overnight_price' ? 'vom Grundpreis' : 'vom Gesamtpreis'})
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {service.price_type === 'percent' ? (
+                            <Percent className="w-4 h-4 text-emerald-500" />
+                          ) : (
+                            <Euro className="w-4 h-4 text-emerald-500" />
+                          )}
+                          <p className="font-semibold text-emerald-600">
+                            {service.price_type === 'percent'
+                              ? service.applies_to === 'overnight_price'
+                                ? (booking.grundpreis * (service.original_value / 100)).toFixed(2)
+                                : '(berechnet)'
+                              : service.service_price.toFixed(2)} €
+                          </p>
+                        </div>
                       </div>
                     ))}
                   </div>
