@@ -12,6 +12,7 @@ import { de } from 'date-fns/locale';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
+import { formatCalculatedServicePrice, getServicePriceIcon } from '../../utils/priceFormatting';
 
 interface BookingDetailsProps {
   bookingId: number;
@@ -854,17 +855,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          {service.price_type === 'percent' ? (
+                          {getServicePriceIcon(service) === 'Percent' ? (
                             <Percent className="w-4 h-4 text-emerald-500" />
                           ) : (
                             <Euro className="w-4 h-4 text-emerald-500" />
                           )}
                           <p className="font-semibold text-emerald-600">
-                            {service.price_type === 'percent'
-                              ? service.applies_to === 'overnight_price'
-                                ? (booking.grundpreis * (service.original_value / 100)).toFixed(2)
-                                : '(berechnet)'
-                              : service.service_price.toFixed(2)} €
+                            {formatCalculatedServicePrice(service, booking.grundpreis)}
                           </p>
                         </div>
                       </div>

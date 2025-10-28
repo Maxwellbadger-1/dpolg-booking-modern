@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, Tag, Euro, Percent, CheckCircle, XCircle } from '
 import { DiscountTemplate } from '../../types/booking';
 import DiscountTemplateDialog from './DiscountTemplateDialog';
 import ConfirmDialog from '../ConfirmDialog';
+import { formatDiscountValue, getDiscountIcon } from '../../utils/priceFormatting';
 
 export default function DiscountTemplateList() {
   const [templates, setTemplates] = useState<DiscountTemplate[]>([]);
@@ -136,21 +137,14 @@ export default function DiscountTemplateList() {
 
               {/* Discount Value */}
               <div className="flex items-center gap-2 mb-4">
-                {template.discount_type === 'fixed' ? (
-                  <>
-                    <Euro className="w-4 h-4 text-slate-400" />
-                    <span className="text-2xl font-bold text-white">
-                      {template.discount_value.toFixed(2)} €
-                    </span>
-                  </>
+                {getDiscountIcon(template) === 'Percent' ? (
+                  <Percent className="w-4 h-4 text-slate-400" />
                 ) : (
-                  <>
-                    <Percent className="w-4 h-4 text-slate-400" />
-                    <span className="text-2xl font-bold text-white">
-                      {template.discount_value} %
-                    </span>
-                  </>
+                  <Euro className="w-4 h-4 text-slate-400" />
                 )}
+                <span className="text-2xl font-bold text-white">
+                  {formatDiscountValue(template)}
+                </span>
                 <span className="text-sm text-slate-400 ml-auto">
                   {template.discount_type === 'fixed' ? 'Fester Betrag' : 'Prozentual'}
                 </span>

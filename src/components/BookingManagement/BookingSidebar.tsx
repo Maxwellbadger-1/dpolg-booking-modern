@@ -8,6 +8,7 @@ import {
   FolderOpen, Eye, AlertTriangle, MessageSquare, Search, History,
   ChevronDown, ChevronUp, Info, Plus, Trash2, Bookmark, Loader2, Briefcase, Wallet
 } from 'lucide-react';
+import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import PaymentDropdown from './PaymentDropdown';
@@ -2339,9 +2340,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             {template.name}
                           </span>
                           <span className="text-xs font-semibold text-emerald-600 ml-2">
-                            {template.price_type === 'percent'
-                              ? `${template.price.toFixed(1)} %`
-                              : `${template.price.toFixed(2)} €`}
+                            {formatServicePrice(template)}
                           </span>
                         </button>
                         );
