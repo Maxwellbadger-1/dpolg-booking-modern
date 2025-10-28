@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, Info, Plus, Trash2, Bookmark, Loader2, Briefcase, Wallet
 } from 'lucide-react';
 import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
+import { usePriceCalculation, ServiceInput as PriceServiceInput, DiscountInput as PriceDiscountInput } from '../../hooks/usePriceCalculation';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import PaymentDropdown from './PaymentDropdown';
@@ -202,11 +203,36 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [error, setError] = useState<string | null>(null);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [priceInfo, setPriceInfo] = useState<any>(null);
   const [availabilityStatus, setAvailabilityStatus] = useState<{
     checking: boolean;
     available: boolean | null;
   }>({ checking: false, available: null });
+
+  // NEUE ARCHITEKTUR: Single Source of Truth Preisberechnung
+  const guest = guests.find(g => g.id === formData.guest_id);
+  const { priceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(
+    (mode === 'edit' || mode === 'create') && formData.room_id && formData.checkin_date && formData.checkout_date
+      ? {
+          roomId: formData.room_id,
+          checkin: formData.checkin_date,
+          checkout: formData.checkout_date,
+          isMember: guest?.dpolg_mitglied || false,
+          services: services.map(s => ({
+            name: s.service_name,
+            priceType: (s.price_type || 'fixed') as 'fixed' | 'percent',
+            originalValue: s.original_value || s.service_price,
+            appliesTo: (s.applies_to || 'overnight_price') as 'overnight_price' | 'total_price',
+            templateId: s.template_id,
+          })),
+          discounts: discounts.map(d => ({
+            name: d.discount_name,
+            discountType: d.discount_type as 'fixed' | 'percent',
+            value: d.discount_value,
+            templateId: d.template_id,
+          })),
+        }
+      : null
+  );
 
   // Dialog State
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -513,83 +539,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     }
   };
 
-  const calculatePrice = async () => {
-    try {
-      const guest = guests.find(g => g.id === formData.guest_id);
-      const room = rooms.find(r => r.id === formData.room_id);
-
-      if (!guest || !room || !formData.checkin_date || !formData.checkout_date) {
-        return;
-      }
-
-      // SCHRITT 1: Berechne Grundpreis OHNE Services (um Basis für % zu haben)
-      const basePriceResult = await invoke<{
-        grundpreis: number;
-        anzahlNaechte: number;
-      }>('calculate_booking_price_command', {
-        roomId: formData.room_id,
-        checkin: formData.checkin_date,
-        checkout: formData.checkout_date,
-        isMember: guest.dpolg_mitglied,
-        services: [],  // Keine Services für Basis-Berechnung
-        discounts: [],
-      });
-
-      const grundpreis = basePriceResult.grundpreis;
-
-      // SCHRITT 2: Berechne Service-Preise (inkl. prozentuale Services basierend auf echtem Grundpreis)
-      const calculatedServices = services.map(s => {
-        let finalPrice = s.service_price;
-
-        // Wenn prozentualer Service, berechne von Grundpreis
-        if (s.price_type === 'percent' && s.original_value && grundpreis > 0) {
-          if (s.applies_to === 'overnight_price') {
-            finalPrice = grundpreis * (s.original_value / 100);
-          }
-          // total_price wird vom Backend berechnet (komplexer - braucht rekursive Berechnung)
-        }
-
-        return [s.service_name, finalPrice] as [string, number];
-      });
-
-      // SCHRITT 3: Finale Berechnung MIT berechneten Services und Rabatten
-      const priceResult = await invoke<{
-        grundpreis: number;
-        servicesPreis: number;
-        rabattPreis: number;
-        gesamtpreis: number;
-        anzahlNaechte: number;
-        istHauptsaison: boolean;
-        servicesList?: any[];
-        discountsList?: any[];
-      }>('calculate_booking_price_command', {
-        roomId: formData.room_id,
-        checkin: formData.checkin_date,
-        checkout: formData.checkout_date,
-        isMember: guest.dpolg_mitglied,
-        services: calculatedServices,
-        discounts: discounts.map(d => [d.discount_name, d.discount_type, d.discount_value]),
-      });
-
-      const pricePerNight = priceResult.grundpreis / (priceResult.anzahlNaechte || 1);
-
-      setPriceInfo({
-        nights: priceResult.anzahlNaechte || 0,
-        pricePerNight,
-        basePrice: priceResult.grundpreis || 0,
-        servicesTotal: priceResult.servicesPreis || 0,
-        discountsTotal: priceResult.rabattPreis || 0,
-        totalPrice: priceResult.gesamtpreis || 0,
-        memberPrice: guest.dpolg_mitglied,
-        istHauptsaison: priceResult.istHauptsaison,
-        servicesList: priceResult.servicesList || [],
-        discountsList: priceResult.discountsList || [],
-      });
-    } catch (err) {
-      console.error('Fehler bei Preisberechnung:', err);
-      setPriceInfo(null);
-    }
-  };
+  // ALTE calculatePrice Funktion gelöscht - wird jetzt durch usePriceCalculation Hook ersetzt!
 
   const checkAvailability = async () => {
     try {
@@ -1965,38 +1915,43 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-blue-700">Anzahl Nächte:</span>
-                      <span className="font-semibold text-blue-900">{priceInfo.nights ?? 0}</span>
+                      <span className="font-semibold text-blue-900">{priceBreakdown?.nights ?? 0}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-blue-700">
-                        Preis pro Nacht {priceInfo.istHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
+                        Preis pro Nacht {priceBreakdown?.isHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
                       </span>
-                      <span className="font-semibold text-blue-900">{(priceInfo.pricePerNight ?? 0).toFixed(2)} €</span>
+                      <span className="font-semibold text-blue-900">{(priceBreakdown?.pricePerNight ?? 0).toFixed(2)} €</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-blue-700">Grundpreis:</span>
-                      <span className="font-semibold text-blue-900">{(priceInfo.basePrice ?? 0).toFixed(2)} €</span>
+                      <span className="font-semibold text-blue-900">{(priceBreakdown?.basePrice ?? 0).toFixed(2)} €</span>
                     </div>
 
-                    {priceInfo.servicesList && priceInfo.servicesList.length > 0 && (
+                    {priceBreakdown?.services && priceBreakdown.services.length > 0 && (
                       <>
-                        {priceInfo.servicesList.map((service: any, index: number) => (
+                        {priceBreakdown.services.map((service: any, index: number) => (
                           <div key={index} className="flex justify-between">
-                            <span className="text-emerald-700">+ {service.name}:</span>
-                            <span className="font-semibold text-emerald-700">{service.price.toFixed(2)} €</span>
+                            <span className="text-emerald-700">
+                              + {service.name}
+                              {service.priceType === 'percent' && (
+                                <span className="text-xs"> ({service.originalValue}% von {service.baseAmount?.toFixed(2)} €)</span>
+                              )}:
+                            </span>
+                            <span className="font-semibold text-emerald-700">{service.calculatedPrice.toFixed(2)} €</span>
                           </div>
                         ))}
                       </>
                     )}
 
-                    {priceInfo.discountsList && priceInfo.discountsList.length > 0 && (
+                    {priceBreakdown?.discounts && priceBreakdown.discounts.length > 0 && (
                       <>
-                        {priceInfo.discountsList.map((discount: any, index: number) => (
+                        {priceBreakdown.discounts.map((discount: any, index: number) => (
                           <div key={index} className="flex justify-between">
                             <span className="text-orange-700">
-                              - {discount.name} {discount.type === 'percent' && `(${discount.value}%)`}:
+                              - {discount.name} {discount.discountType === 'percent' && `(${discount.originalValue}%)`}:
                             </span>
-                            <span className="font-semibold text-orange-700">{discount.amount.toFixed(2)} €</span>
+                            <span className="font-semibold text-orange-700">{discount.calculatedAmount.toFixed(2)} €</span>
                           </div>
                         ))}
                       </>
@@ -2004,7 +1959,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
                     <div className="border-t border-blue-300 pt-2 mt-2 flex justify-between">
                       <span className="font-bold text-blue-900">Gesamtpreis:</span>
-                      <span className="font-bold text-blue-900 text-lg">{(priceInfo.totalPrice ?? 0).toFixed(2)} €</span>
+                      <span className="font-bold text-blue-900 text-lg">{(priceBreakdown?.total ?? 0).toFixed(2)} €</span>
                     </div>
                   </div>
                 </div>
@@ -2040,12 +1995,12 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                               <input
                                 type="number"
                                 min="0"
-                                max={Math.min(creditBalance, priceInfo.totalPrice)}
+                                max={Math.min(creditBalance, priceBreakdown?.total)}
                                 step="0.01"
                                 value={creditToApply || ''}
                                 onChange={(e) => {
                                   const value = parseFloat(e.target.value) || 0;
-                                  const maxAmount = Math.min(creditBalance, priceInfo.totalPrice);
+                                  const maxAmount = Math.min(creditBalance, priceBreakdown?.total);
                                   setCreditToApply(Math.min(value, maxAmount));
                                 }}
                                 placeholder="Betrag"
@@ -2053,14 +2008,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                               />
                               <button
                                 type="button"
-                                onClick={() => setCreditToApply(Math.min(creditBalance, priceInfo.totalPrice))}
+                                onClick={() => setCreditToApply(Math.min(creditBalance, priceBreakdown?.total))}
                                 className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-colors"
                               >
                                 Max
                               </button>
                             </div>
                             <p className="text-xs text-emerald-600 mt-1">
-                              Max. {Math.min(creditBalance, priceInfo.totalPrice).toFixed(2)} € (Guthaben oder Rechnungsbetrag)
+                              Max. {Math.min(creditBalance, priceBreakdown?.total).toFixed(2)} € (Guthaben oder Rechnungsbetrag)
                             </p>
                           </div>
 
@@ -2068,7 +2023,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             <div className="border-t border-emerald-300 pt-2 space-y-1.5">
                               <div className="flex justify-between text-xs">
                                 <span className="text-emerald-700">Ursprünglicher Preis:</span>
-                                <span className="font-semibold text-emerald-900">{priceInfo.totalPrice.toFixed(2)} €</span>
+                                <span className="font-semibold text-emerald-900">{priceBreakdown?.total.toFixed(2)} €</span>
                               </div>
                               <div className="flex justify-between text-xs">
                                 <span className="text-emerald-700">- Verrechnetes Guthaben:</span>
@@ -2076,7 +2031,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                               </div>
                               <div className="flex justify-between border-t border-emerald-300 pt-1.5">
                                 <span className="font-bold text-emerald-900 text-sm">Zu zahlender Betrag:</span>
-                                <span className="font-bold text-emerald-900 text-base">{(priceInfo.totalPrice - creditToApply).toFixed(2)} €</span>
+                                <span className="font-bold text-emerald-900 text-base">{(priceBreakdown?.total - creditToApply).toFixed(2)} €</span>
                               </div>
                             </div>
                           )}
