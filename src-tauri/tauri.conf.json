@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Stiftung der DPolG Buchungssystem",
-  "version": "1.7.5",
+  "version": "1.7.6",
   "identifier": "com.maximilianfegg.dpolg-booking-modern",
   "build": {
-    "beforeDevCommand": "npm run dev -- --port 1423",
-    "devUrl": "http://localhost:1423",
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
