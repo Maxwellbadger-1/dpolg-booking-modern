@@ -1241,7 +1241,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             <Euro className="w-4 h-4 text-emerald-500" />
                           )}
                           <p className="font-semibold text-emerald-600">
-                            {service.service_price.toFixed(2)} €
+                            {booking ? formatCalculatedServicePrice(service, booking.grundpreis) : `${service.service_price.toFixed(2)} €`}
                           </p>
                         </div>
                       </div>
@@ -2180,8 +2180,13 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           <span className="text-sm font-semibold text-slate-900">
                             {service.service_name}
                           </span>
+                          {service.price_type === 'percent' && service.original_value && service.applies_to && (
+                            <span className="text-xs text-slate-500">
+                              ({service.original_value}% {service.applies_to === 'overnight_price' ? 'vom Grundpreis' : 'vom Gesamtpreis'})
+                            </span>
+                          )}
                           <span className="text-sm font-semibold text-emerald-600">
-                            {service.service_price.toFixed(2)} €
+                            {booking ? formatCalculatedServicePrice(service, booking.grundpreis) : `${service.service_price.toFixed(2)} €`}
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -2285,6 +2290,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                 service_name: template.name,
                                 service_price: template.price,
                                 template_id: template.id,
+                                price_type: template.price_type,
+                                original_value: template.price,
+                                applies_to: template.applies_to,
                               };
 
                               if (booking?.id) {
