@@ -1,7 +1,9 @@
 use rusqlite::{Connection, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::fs;
 use once_cell::sync::OnceCell;
+use tauri::Manager;
 
 // Global database path (set once at app startup)
 static DB_PATH: OnceCell<PathBuf> = OnceCell::new();
