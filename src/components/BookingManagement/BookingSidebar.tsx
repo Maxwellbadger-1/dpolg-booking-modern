@@ -11,6 +11,7 @@ import {
 import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
 import { usePriceCalculation, ServiceInput as PriceServiceInput, DiscountInput as PriceDiscountInput } from '../../hooks/usePriceCalculation';
 import { formatDate } from '../../utils/dateFormatting';
+import { useBookingSync } from '../../hooks/useBookingSync';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
@@ -149,6 +150,7 @@ const STATUS_OPTIONS = [
 
 export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initialMode = 'view', prefillData }: BookingSidebarProps) {
   const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus } = useData();
+  const { syncBookingDatesQuiet } = useBookingSync();
 
   // Mode State
   const [mode, setMode] = useState<'view' | 'edit' | 'create'>(initialMode);
@@ -2214,20 +2216,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   setServices(updatedServices);
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
-                                  // WICHTIG: Sync BEIDE Dates (checkin + checkout) weil Services auf beiden Tagen erscheinen!
-                                  // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten in einem Aufruf zu synchronisieren
-                                  console.log('🔄 [BookingSidebar] Service gelöscht - Sync zu Turso für checkin + checkout');
-
                                   if (booking.checkout_date && booking.checkin_date) {
-                                    invoke('sync_affected_dates', {
+                                    syncBookingDatesQuiet({
                                       bookingId: booking.id,
                                       checkinDate: booking.checkin_date,
-                                      oldCheckout: booking.checkout_date,
-                                      newCheckout: booking.checkout_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Service-Delete-Sync erfolgreich:', result);
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Service-Delete-Sync Fehler:', error);
+                                      checkoutDate: booking.checkout_date
                                     });
                                   }
                                 } catch (error) {
@@ -2299,18 +2292,12 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   // WICHTIG: Sync BEIDE Dates (checkin + checkout) weil Services auf beiden Tagen erscheinen!
                                   // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten in einem Aufruf zu synchronisieren
-                                  console.log('🔄 [BookingSidebar] Service hinzugefügt - Sync zu Turso für checkin + checkout');
-
+                                  // 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   if (booking.checkout_date && booking.checkin_date) {
-                                    invoke('sync_affected_dates', {
+                                    syncBookingDatesQuiet({
                                       bookingId: booking.id,
                                       checkinDate: booking.checkin_date,
-                                      oldCheckout: booking.checkout_date,
-                                      newCheckout: booking.checkout_date
-                                    }).then((result: unknown) => {
-                                      console.log('✅ [BookingSidebar] Service-Add-Sync erfolgreich:', result);
-                                    }).catch((error: unknown) => {
-                                      console.error('❌ [BookingSidebar] Service-Add-Sync Fehler:', error);
+                                      checkoutDate: booking.checkout_date
                                     });
                                   }
                                 } catch (error) {

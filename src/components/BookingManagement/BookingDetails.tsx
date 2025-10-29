@@ -13,6 +13,7 @@ import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
 import { formatCalculatedServicePrice, getServicePriceIcon } from '../../utils/priceFormatting';
+import { syncBooking } from '../../hooks/useBookingSync';
 
 interface BookingDetailsProps {
   bookingId: number;
@@ -226,22 +227,13 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       setShowSuccessDialog({ show: true, message: 'Buchung erfolgreich storniert!' });
 
       // 🔄 SYNC zu Turso (Mobile App) - Entferne stornierte Buchung
-      // Wichtig: Backend filtert automatisch stornierte Buchungen (WHERE status != 'storniert')
-      // Wir müssen nur beide Dates (checkin + checkout) synchronisieren
-      console.log('🔄 [BookingDetails] Buchung storniert - Sync zu Mobile App für checkin + checkout');
-
-      // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten zu synchronisieren
-      // Verhindert Bug wo stornierte Buchungen teilweise im PDF bleiben
       if (booking.checkout_date && booking.checkin_date) {
-        invoke('sync_affected_dates', {
+        syncBooking({
           bookingId: booking.id,
           checkinDate: booking.checkin_date,
-          oldCheckout: booking.checkout_date,
-          newCheckout: booking.checkout_date
-        });
+          checkoutDate: booking.checkout_date
+        }).catch(console.error);
       }
-
-      console.log('✅ [BookingDetails] Mobile App Sync getriggert - stornierte Buchung wird entfernt');
     } catch (error) {
       console.error('Fehler beim Stornieren der Buchung:', error);
       setShowCancelDialog(false);

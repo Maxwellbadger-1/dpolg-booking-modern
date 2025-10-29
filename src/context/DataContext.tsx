@@ -15,6 +15,7 @@ import {
   UpdateRoomCommand,
   DeleteRoomCommand
 } from '../lib/commandManager';
+import { syncBooking } from '../hooks/useBookingSync';
 
 // Import Types from centralized location
 import type { Room, Guest, BookingWithDetails as Booking, PaymentRecipient } from '../types/booking';
@@ -580,21 +581,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Sync: DELETE by booking_id FIRST, then sync old + new dates
-        // FIX (2025-10-21): Prevents race condition where old tasks are re-created
-        // FIX (2025-10-21): BEIDE Daten synchronisieren (Check-in + Check-out)
-        //   Behebt Bug wo Buchungen nach Checkout-Änderung aus PDF verschwinden
-        // FIX (2025-10-24): Verwende EFFEKTIVE Checkout-Daten (berücksichtigt putzplan_checkout_date)
-        // REGEL #1: IMMER camelCase im Frontend! Tauri konvertiert automatisch!
-        invoke('sync_affected_dates', {
-          bookingId: id,  // 🔥 Tauri auto-converts: bookingId → booking_id
-          checkinDate: newCheckin || '',  // NEU! Verhindert Verschwinden aus PDF
-          oldCheckout: checkoutChanged ? effectiveOldCheckout : null,
-          newCheckout: effectiveNewCheckout || newCheckout
-        }).then((result: string) => {
+        // 🔄 SYNC zu Turso (Mobile App) - Verwende zentralen Sync Helper
+        syncBooking({
+          bookingId: id,
+          checkinDate: newCheckin || '',
+          checkoutDate: effectiveNewCheckout || newCheckout,
+          oldCheckoutDate: checkoutChanged ? effectiveOldCheckout : undefined
+        }).then((result) => {
           console.log('✅ [DataContext] Auto-Sync (UPDATE) erfolgreich:', result);
           toast.success('✅ Putzplan aktualisiert', { id: syncToast });
-        }).catch((error: any) => {
+        }).catch((error) => {
           console.error('❌ [DataContext] Auto-Sync (UPDATE) Fehler:', error);
           toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
         });
