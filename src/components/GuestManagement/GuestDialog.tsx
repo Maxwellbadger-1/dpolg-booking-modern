@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase, MapPinned, Building2, Wallet, Plus, Clock, History, Globe, Calendar, CreditCard, Tag, Settings, Home, Smartphone } from 'lucide-react';
 import { useData } from '../../context/DataContext';
+import { formatDateTime } from '../../utils/dateFormatting';
 
 // HMR Force Reload - Tab-based UI with 21 new fields
 
@@ -337,17 +338,10 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
     }
   };
 
-  // Format date for display
+  // Format date for display (using centralized utility)
   const formatDate = (dateStr: string): string => {
     try {
-      const date = new Date(dateStr);
-      return date.toLocaleDateString('de-DE', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      return formatDateTime(dateStr);
     } catch {
       return dateStr;
     }

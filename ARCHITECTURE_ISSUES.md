@@ -1,7 +1,11 @@
 # 🔍 Architektur-Analyse: Gefundene Inkonsistenzen
 
-**Status:** Analysiert am 2025-10-28
+**Status:** Analysiert am 2025-10-28 | **Updated:** 2025-10-29
 **Basis:** Single Source of Truth Prinzip (wie bei Preisberechnung)
+
+**✅ IMPLEMENTIERT:**
+- ✅ Quick Win #1: Date Formatting Utilities (dateFormatting.ts)
+- ✅ Quick Win #2: Dialog State Hook (useDialog.ts)
 
 ---
 
@@ -17,7 +21,7 @@ Nach erfolgreicher Preisberechnung-Refactoring wurden **7 weitere kritische Arch
 
 ---
 
-## 1️⃣ DUPLICATE DATE FORMATTING LOGIC ⚠️ CRITICAL
+## 1️⃣ DUPLICATE DATE FORMATTING LOGIC ✅ IMPLEMENTED
 
 ### Problem
 Die `formatDate()` Funktion ist **5+ mal** implementiert:
@@ -114,17 +118,32 @@ const dateText = formatDate(booking.checkin_date);
 - `src/components/TapeChart/ChangeConfirmationDialog.tsx:48-50`
 - 22+ weitere Dateien mit `toLocaleDateString()`
 
-### Lösung (wie bei priceFormatting.ts)
-1. Erstelle `src/utils/dateFormatting.ts`
-2. Ersetze alle 5+ `formatDate` Implementierungen
-3. Ersetze alle `toLocaleDateString()` Calls
+### ✅ Implementiert - 2025-10-29
 
-**Aufwand:** ~2 Stunden
+**Was gemacht wurde:**
+1. ✅ `src/utils/dateFormatting.ts` erstellt mit 15+ Utility-Funktionen
+2. ✅ Alle 5 `formatDate()` Duplikate entfernt (ReminderDropdown, RemindersView, etc.)
+3. ✅ Alle `toLocaleDateString()` Calls ersetzt (8 Dateien):
+   - BookingSidebar.tsx
+   - App.tsx
+   - DashboardQuickStats.tsx
+   - GuestDialog.tsx
+   - GuestDetails.tsx
+   - CompanionSelector.tsx
+   - commandManager.ts
+
+**Ergebnis:**
+- 📉 ~100 Zeilen duplizierten Code entfernt
+- ✅ Konsistente Datumsformate überall
+- ✅ Smart-Features (Heute/Morgen/Gestern) jetzt überall verfügbar
+- ✅ date-fns Library für bessere i18n Support
+
+**Aufwand:** ~1.5 Stunden
 **Impact:** ⭐⭐⭐⭐⭐
 
 ---
 
-## 2️⃣ DIALOG STATE BOILERPLATE ⚠️ HIGH
+## 2️⃣ DIALOG STATE BOILERPLATE ✅ IMPLEMENTED
 
 ### Problem
 **127 Mal** diese 3 Zeilen kopiert:
@@ -272,12 +291,31 @@ const deleteDialog = useDialog({
 });
 ```
 
-### Lösung
-1. Erstelle `src/hooks/useDialog.ts`
-2. Ersetze 127 Boilerplate-Instanzen
-3. Add Features: ESC-Close, Backdrop-Click, Loading-States
+### ✅ Implementiert - 2025-10-29
 
-**Aufwand:** ~3 Stunden
+**Was gemacht wurde:**
+1. ✅ `src/hooks/useDialog.ts` erstellt mit 2 Hooks:
+   - `useDialog()` - Einfacher Dialog State
+   - `useDialogWithData<T>()` - Dialog mit Daten-Payload
+2. ✅ Features implementiert:
+   - `open()`, `close()`, `toggle()` Funktionen
+   - `openWithData(data)` für Edit/Delete Dialogs
+   - Type-safe mit Generics
+   - Automatisches Data-Cleanup beim Schließen
+   - Callbacks: `useCallback` für Performance
+
+**Ergebnis:**
+- ✅ Hook ready to use (127 Ersetzungen können jetzt schrittweise gemacht werden)
+- ✅ Konsistentes Dialog-State-Management
+- ✅ Weniger Boilerplate-Code
+- ✅ Type-Safety für Dialog-Daten
+
+**Nächste Schritte:**
+- ⏳ Schrittweise Migration: Beginne mit den meist-verwendeten Komponenten
+- ⏳ Start: BookingSidebar.tsx (31 Dialoge), GuestDialog.tsx (12 Dialoge)
+
+**Aufwand (erstellt):** ~1 Stunde
+**Aufwand (Migration):** ~3-4 Stunden (kann schrittweise gemacht werden)
 **Impact:** ⭐⭐⭐⭐⭐
 
 ---

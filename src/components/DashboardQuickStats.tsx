@@ -1,4 +1,5 @@
 import { Calendar, Plus, TrendingUp, Home, Users } from 'lucide-react';
+import { formatDateLong } from '../utils/dateFormatting';
 
 interface DashboardQuickStatsProps {
   onCreateBooking: () => void;
@@ -19,12 +20,7 @@ export default function DashboardQuickStats({
     occupancyRate: 0,
   },
 }: DashboardQuickStatsProps) {
-  const today = new Date().toLocaleDateString('de-DE', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
+  const today = formatDateLong(new Date());
 
   return (
     <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl shadow-xl p-6 text-white">

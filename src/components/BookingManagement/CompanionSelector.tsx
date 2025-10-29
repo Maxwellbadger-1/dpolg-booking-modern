@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Plus, Trash2, Edit2, Users, AlertCircle, Check } from 'lucide-react';
 import type { GuestCompanion, AccompanyingGuest } from '../../types/booking';
+import { formatDate } from '../../utils/dateFormatting';
 
 interface CompanionSelectorProps {
   guestId: number; // Hauptgast
@@ -375,7 +376,7 @@ export default function CompanionSelector({ guestId, bookingId, roomCapacity, on
                     </div>
                     {companion.geburtsdatum && (
                       <p className="text-sm text-slate-500 mt-1">
-                        Geboren: {new Date(companion.geburtsdatum).toLocaleDateString('de-DE')}
+                        Geboren: {formatDate(companion.geburtsdatum)}
                       </p>
                     )}
                     {companion.notizen && (

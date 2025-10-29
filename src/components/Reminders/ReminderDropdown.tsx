@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { X, CheckCircle, Clock, AlertTriangle, Calendar, ChevronRight } from 'lucide-react';
 import type { Reminder } from '../../types/reminder';
+import { formatDateSmart } from '../../utils/dateFormatting';
 
 interface ReminderDropdownProps {
   isOpen: boolean;
@@ -64,23 +65,6 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
     }
   };
 
-  const formatDate = (dateStr: string): string => {
-    const date = new Date(dateStr);
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Vergleich nur nach Datum (ohne Uhrzeit)
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const tomorrowOnly = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
-
-    if (dateOnly.getTime() === todayOnly.getTime()) return 'Heute';
-    if (dateOnly.getTime() === tomorrowOnly.getTime()) return 'Morgen';
-    if (dateOnly < todayOnly) return 'Überfällig';
-
-    return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
-  };
 
   if (!isOpen) return null;
 
@@ -141,7 +125,7 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
                             ? 'bg-red-500/20 text-red-300'
                             : 'bg-blue-500/20 text-blue-300'
                         }`}>
-                          {formatDate(reminder.due_date)}
+                          {formatDateSmart(reminder.due_date)}
                         </span>
                       </div>
 

@@ -27,6 +27,7 @@ import RemindersView from './components/Reminders/RemindersView';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud, Bell } from 'lucide-react';
 import loadingAnimation from './loading-animation.json';
 import appIcon from './assets/app-icon.png';
+import { formatDateShort } from './utils/dateFormatting';
 
 interface Room {
   id: number;
@@ -498,12 +499,7 @@ function AppContent() {
 
             <div className="flex items-center gap-2 bg-slate-700/50 date-display py-2 rounded-lg backdrop-blur-sm">
               <Calendar className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-semibold text-white">{new Date().toLocaleDateString('de-DE', {
-                weekday: 'short',
-                day: '2-digit',
-                month: 'short',
-                year: 'numeric'
-              })}</span>
+              <span className="text-xs font-semibold text-white">{formatDateShort(new Date())}</span>
             </div>
           </div>
         </div>

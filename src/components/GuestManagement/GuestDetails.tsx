@@ -5,8 +5,7 @@ import {
   FileText, Edit2, TrendingUp, Clock, Euro, ChevronDown, ChevronUp,
   Users as UsersIcon, ShoppingBag, Tag, CheckCircle, AlertCircle, Search
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { de } from 'date-fns/locale';
+import { formatDate } from '../../utils/dateFormatting';
 
 interface GuestDetailsProps {
   guestId: number;
@@ -797,8 +796,8 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                         const matchesSearch =
                           searchQuery === '' ||
                           booking.reservierungsnummer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          new Date(booking.checkin_date).toLocaleDateString('de-DE').includes(searchQuery) ||
-                          new Date(booking.checkout_date).toLocaleDateString('de-DE').includes(searchQuery);
+                          formatDate(booking.checkin_date).includes(searchQuery) ||
+                          formatDate(booking.checkout_date).includes(searchQuery);
 
                         // Status Filter
                         const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;

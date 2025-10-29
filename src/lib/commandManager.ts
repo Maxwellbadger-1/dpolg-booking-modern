@@ -8,6 +8,7 @@
  */
 
 import { Booking, Guest, Room } from '../types/booking';
+import { formatDate } from '../utils/dateFormatting';
 
 // EmailLog interface (from EmailHistoryView)
 interface EmailLog {
@@ -335,7 +336,6 @@ export class UpdateBookingDatesCommand implements Command {
     private newRoomId: number,
     private setBookings: React.Dispatch<React.SetStateAction<Booking[]>>
   ) {
-    const formatDate = (date: string) => new Date(date).toLocaleDateString('de-DE');
     this.description = `Buchung verschoben: ${formatDate(oldCheckinDate)} → ${formatDate(newCheckinDate)}`;
     this.timestamp = new Date();
   }

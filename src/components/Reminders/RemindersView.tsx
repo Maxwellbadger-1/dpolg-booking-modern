@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Bell, Plus, CheckCircle, Clock, AlertTriangle, Calendar, Trash2, Edit2, Filter, ExternalLink } from 'lucide-react';
-import { format } from 'date-fns';
-import { de } from 'date-fns/locale';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Reminder, CreateReminderData, UpdateReminderData } from '../../types/reminder';
+import { formatDate } from '../../utils/dateFormatting';
 
 interface RemindersViewProps {
   onNavigateToBooking?: (bookingId: number) => void;
@@ -169,14 +168,6 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     }
   };
 
-  const formatDate = (dateStr: string): string => {
-    try {
-      const date = new Date(dateStr);
-      return format(date, 'dd.MM.yyyy', { locale: de });
-    } catch {
-      return dateStr;
-    }
-  };
 
   const isOverdue = (dateStr: string): boolean => {
     const date = new Date(dateStr);
@@ -677,7 +668,7 @@ function DeleteConfirmDialog({ reminder, onConfirm, onCancel }: DeleteConfirmDia
           )}
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Calendar className="w-3 h-3" />
-            <span>{format(new Date(reminder.due_date), 'dd.MM.yyyy', { locale: de })}</span>
+            <span>{formatDate(reminder.due_date)}</span>
             <span>•</span>
             <span className="capitalize">{reminder.priority} Priorität</span>
           </div>

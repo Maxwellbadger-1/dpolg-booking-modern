@@ -10,8 +10,7 @@ import {
 } from 'lucide-react';
 import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
 import { usePriceCalculation, ServiceInput as PriceServiceInput, DiscountInput as PriceDiscountInput } from '../../hooks/usePriceCalculation';
-import { format } from 'date-fns';
-import { de } from 'date-fns/locale';
+import { formatDate } from '../../utils/dateFormatting';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
@@ -1732,7 +1731,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                           </span>
                                         </div>
                                         <div className="text-sm text-slate-600 space-y-0.5">
-                                          <div>📅 {new Date(b.checkin_date).toLocaleDateString('de-DE')} - {new Date(b.checkout_date).toLocaleDateString('de-DE')}</div>
+                                          <div>📅 {formatDate(b.checkin_date)} - {formatDate(b.checkout_date)}</div>
                                           <div>🏠 {b.room?.name} ({b.room?.ort})</div>
                                           <div className="font-semibold text-slate-700">💰 {b.gesamtpreis.toFixed(2)} €</div>
                                         </div>
