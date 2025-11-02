@@ -10,8 +10,10 @@ import {
 } from 'lucide-react';
 import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
 import { usePriceCalculation, ServiceInput as PriceServiceInput, DiscountInput as PriceDiscountInput } from '../../hooks/usePriceCalculation';
-import { formatDate } from '../../utils/dateFormatting';
+import { formatDate, formatDateLong } from '../../utils/dateFormatting';
 import { useBookingSync } from '../../hooks/useBookingSync';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 import PaymentDropdown from './PaymentDropdown';
 import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
@@ -298,16 +300,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     }
   }, [isOpen, bookingId, initialMode]);
 
-  // Price calculation effect
-  useEffect(() => {
-    if (mode === 'edit' || mode === 'create') {
-      if (formData.room_id && formData.guest_id && formData.checkin_date && formData.checkout_date && guests.length > 0 && rooms.length > 0) {
-        calculatePrice();
-      } else {
-        setPriceInfo(null);
-      }
-    }
-  }, [mode, formData.room_id, formData.guest_id, formData.checkin_date, formData.checkout_date, services, discounts, guests, rooms]);
+  // Price calculation is now handled by usePriceCalculation hook automatically
 
   // Listen for refresh-data events (e.g., when guests are created/updated)
   useEffect(() => {
@@ -614,7 +607,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     setDiscounts([]);
     setInvoicePdfs([]);
     setError(null);
-    setPriceInfo(null);
+    // priceBreakdown is managed by usePriceCalculation hook
     setShowCloseConfirmDialog(false);
     onClose();
   };
