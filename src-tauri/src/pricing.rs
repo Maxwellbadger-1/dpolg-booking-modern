@@ -1431,7 +1431,7 @@ pub fn calculate_full_booking_price(
     // Hole Zimmer-Preise
     let (preis_nebensaison, preis_hauptsaison, endreinigung_preis): (f64, f64, f64) = conn
         .query_row(
-            "SELECT preis_nebensaison, preis_hauptsaison, endreinigung FROM rooms WHERE id = ?1",
+            "SELECT nebensaison_preis, hauptsaison_preis, endreinigung FROM rooms WHERE id = ?1",
             rusqlite::params![room_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
