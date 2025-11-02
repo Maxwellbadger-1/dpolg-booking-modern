@@ -678,11 +678,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     try {
       if (booking?.id) {
         // Update existing booking
-        const nights = priceInfo?.nights || 1;
-        const basePrice = priceInfo?.basePrice || 0;
-        const servicesTotal = priceInfo?.servicesTotal || 0;
-        const discountsTotal = priceInfo?.discountsTotal || 0;
-        const totalPrice = priceInfo?.totalPrice || basePrice;
+        const nights = priceBreakdown?.nights || 1;
+        const basePrice = priceBreakdown?.basePrice || 0;
+        const servicesTotal = priceBreakdown?.servicesTotal || 0;
+        const discountsTotal = priceBreakdown?.discountsTotal || 0;
+        const totalPrice = priceBreakdown?.total || basePrice;
 
         const updatePayload = {
           roomId: formData.room_id,
@@ -745,11 +745,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       } else {
         // Create new booking
         const reservierungsnummer = `RES-${Date.now()}`;
-        const nights = priceInfo?.nights || 1;
-        const basePrice = priceInfo?.basePrice || 0;
-        const servicesTotal = priceInfo?.servicesTotal || 0;
-        const discountsTotal = priceInfo?.discountsTotal || 0;
-        const totalPrice = priceInfo?.totalPrice || basePrice;
+        const nights = priceBreakdown?.nights || 1;
+        const basePrice = priceBreakdown?.basePrice || 0;
+        const servicesTotal = priceBreakdown?.servicesTotal || 0;
+        const discountsTotal = priceBreakdown?.discountsTotal || 0;
+        const totalPrice = priceBreakdown?.total || basePrice;
 
         const bookingData = {
           roomId: formData.room_id,
@@ -1907,7 +1907,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
               </div>
 
               {/* Price Info */}
-              {priceInfo && (
+              {priceBreakdown && (
                 <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
                   <h3 className="flex items-center gap-2 text-sm font-semibold text-blue-900 mb-3">
                     <DollarSign className="w-4 h-4" />
@@ -1986,7 +1986,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         <span className="font-bold text-emerald-900 text-base">{creditBalance.toFixed(2)} €</span>
                       </div>
 
-                      {creditBalance > 0 && priceInfo && (
+                      {creditBalance > 0 && priceBreakdown && (
                         <>
                           <div className="border-t border-emerald-300 pt-2">
                             <label className="block text-xs font-medium text-emerald-700 mb-1.5">
