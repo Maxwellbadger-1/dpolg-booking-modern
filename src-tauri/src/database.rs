@@ -498,6 +498,165 @@ pub fn get_connection() -> Result<Connection> {
     Ok(conn)
 }
 
+// ============================================================================
+// DATABASE MIGRATIONS
+// ============================================================================
+
+/// MIGRATION: Berechnet calculated_price für alle bestehenden booking_services
+/// UND aktualisiert die bookings Tabelle (services_preis, rabatt_preis, gesamtpreis)
+fn migrate_calculate_existing_service_prices(conn: &Connection) -> Result<()> {
+    // Prüfe ob Migration nötig ist (gibt es Services ohne calculated_price?)
+    let needs_migration: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM booking_services WHERE calculated_price IS NULL LIMIT 1)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(false);
+
+    if !needs_migration {
+        return Ok(());
+    }
+
+    println!("🔄 [MIGRATION] Berechne calculated_price für bestehende Services...");
+
+    // Hole alle Services OHNE calculated_price
+    let mut stmt = conn.prepare(
+        "SELECT bs.id, bs.booking_id, bs.service_template_id,
+                st.price, st.price_type, st.applies_to,
+                b.grundpreis
+         FROM booking_services bs
+         JOIN service_templates st ON bs.service_template_id = st.id
+         JOIN bookings b ON bs.booking_id = b.id
+         WHERE bs.calculated_price IS NULL"
+    )?;
+
+    let services: Vec<(i64, i64, f64, String, String, f64)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,  // bs.id
+                row.get(1)?,  // booking_id
+                row.get(3)?,  // template price
+                row.get::<_, String>(4).unwrap_or("fixed".to_string()),  // price_type
+                row.get::<_, String>(5).unwrap_or("overnight_price".to_string()),  // applies_to
+                row.get(6)?,  // grundpreis
+            ))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+
+    println!("   📊 Gefunden: {} Services ohne calculated_price", services.len());
+
+    // Sammle betroffene Bookings (für finale Preis-Updates)
+    let mut affected_bookings = std::collections::HashSet::new();
+
+    // Update jeden Service mit calculated_price
+    for (service_id, booking_id, template_price, price_type, applies_to, grundpreis) in services {
+        let calculated_price = if price_type == "percent" {
+            if applies_to == "overnight_price" {
+                grundpreis * (template_price / 100.0)
+            } else {
+                template_price
+            }
+        } else {
+            template_price
+        };
+
+        conn.execute(
+            "UPDATE booking_services SET calculated_price = ?1 WHERE id = ?2",
+            rusqlite::params![calculated_price, service_id],
+        )?;
+
+        println!("   ✅ Service #{} (Booking #{}): {:.2}€", service_id, booking_id, calculated_price);
+
+        affected_bookings.insert(booking_id);
+    }
+
+    // 🔥 KRITISCH: Aktualisiere bookings Tabelle für alle betroffenen Buchungen!
+    println!("🔄 [MIGRATION] Aktualisiere Preise für {} betroffene Buchungen...", affected_bookings.len());
+
+    for booking_id in affected_bookings {
+        // Hole Buchungs-Daten
+        let (grundpreis, ist_dpolg_mitglied): (f64, bool) = conn
+            .query_row(
+                "SELECT grundpreis, COALESCE(ist_dpolg_mitglied, 0) FROM bookings WHERE id = ?1",
+                rusqlite::params![booking_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+
+        // Berechne Services-Summe (JETZT mit calculated_price!)
+        let services_total: f64 = conn
+            .query_row(
+                "SELECT COALESCE(SUM(COALESCE(bs.calculated_price, st.price)), 0.0)
+                 FROM booking_services bs
+                 JOIN service_templates st ON bs.service_template_id = st.id
+                 WHERE bs.booking_id = ?1",
+                rusqlite::params![booking_id],
+                |row| row.get(0),
+            )?;
+
+        // Berechne Rabatt-Summe (Discount-Templates + DPolG)
+        let mut rabatt_total = 0.0;
+
+        // 1. Discount-Templates
+        let mut discount_stmt = conn.prepare(
+            "SELECT dt.discount_value, dt.discount_type
+             FROM booking_discounts bd
+             JOIN discount_templates dt ON bd.discount_template_id = dt.id
+             WHERE bd.booking_id = ?1"
+        )?;
+
+        let discounts: Vec<(f64, String)> = discount_stmt
+            .query_map(rusqlite::params![booking_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for (discount_value, discount_type) in discounts {
+            if discount_type == "percent" {
+                rabatt_total += grundpreis * (discount_value / 100.0);
+            } else {
+                rabatt_total += discount_value;
+            }
+        }
+
+        // 2. DPolG-Rabatt
+        if ist_dpolg_mitglied {
+            let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+                .query_row(
+                    "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+            if rabatt_aktiv {
+                let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                    "zimmerpreis" => grundpreis,
+                    "gesamtpreis" => grundpreis + services_total,
+                    _ => grundpreis,
+                };
+                let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
+                rabatt_total += dpolg_rabatt;
+            }
+        }
+
+        // Neuer Gesamtpreis
+        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+        // UPDATE bookings Tabelle
+        conn.execute(
+            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+        )?;
+
+        println!("   💰 Booking #{}: Services={:.2}€, Rabatt={:.2}€, Gesamt={:.2}€",
+            booking_id, services_total, rabatt_total, new_gesamtpreis);
+    }
+
+    println!("✅ [MIGRATION] calculated_price Migration abgeschlossen!");
+    Ok(())
+}
+
 pub fn init_database() -> Result<()> {
     let conn = Connection::open(get_db_path())?;
 
@@ -1346,6 +1505,12 @@ fn create_settings_tables(conn: &Connection) -> Result<()> {
     add_column_if_not_exists(&conn, "additional_services", "price_type", "TEXT DEFAULT 'fixed'")?;
     add_column_if_not_exists(&conn, "additional_services", "original_value", "REAL DEFAULT 0")?;
     add_column_if_not_exists(&conn, "additional_services", "applies_to", "TEXT DEFAULT 'overnight_price'")?;
+
+    // NEU: calculated_price für booking_services (junction table) - WICHTIG für prozentuale Services!
+    add_column_if_not_exists(&conn, "booking_services", "calculated_price", "REAL")?;
+
+    // MIGRATION: Berechne calculated_price für alle bestehenden booking_services
+    migrate_calculate_existing_service_prices(&conn)?;
 
     add_column_if_not_exists(&conn, "discount_templates", "emoji", "TEXT")?;
     add_column_if_not_exists(&conn, "discount_templates", "color_hex", "TEXT")?;
@@ -3352,7 +3517,7 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
             bs.id,
             bs.booking_id,
             st.name as service_name,
-            st.price as service_price,
+            COALESCE(bs.calculated_price, st.price) as service_price,
             datetime('now') as created_at,
             bs.service_template_id as template_id,
             COALESCE(st.price_type, 'fixed') as price_type,
@@ -3394,19 +3559,49 @@ pub fn link_service_template_to_booking(
     let conn = Connection::open(get_db_path())?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
-    conn.execute(
-        "INSERT INTO booking_services (booking_id, service_template_id)
-         VALUES (?1, ?2)",
-        rusqlite::params![booking_id, service_template_id],
-    )?;
+    // 💰 PREISBERECHNUNG: VORHER Template laden und Preis berechnen!
+    println!("💰 [link_service_template_to_booking] Berechne Preise für Service-Template #{}", service_template_id);
 
-    // 💰 PREISBERECHNUNG: Nach Service-Template-Verknüpfung Preise neu berechnen!
-    println!("💰 [link_service_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
-
-    // Hole Buchung für Grundpreis und DPolG-Status
+    // Hole Buchung für Grundpreis
     let booking = get_booking_by_id(booking_id)?;
     let grundpreis = booking.grundpreis;
     let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
+
+    // Hole Service-Template
+    let template: (String, f64, String, String) = conn
+        .query_row(
+            "SELECT name, price, COALESCE(price_type, 'fixed'), COALESCE(applies_to, 'overnight_price')
+             FROM service_templates WHERE id = ?1",
+            rusqlite::params![service_template_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+    let (service_name, template_price, price_type, applies_to) = template;
+
+    // Berechne calculated_price basierend auf price_type
+    let calculated_price = if price_type == "percent" {
+        if applies_to == "overnight_price" {
+            grundpreis * (template_price / 100.0)
+        } else {
+            // total_price: Kann erst beim finalen Abruf berechnet werden, speichere template_price
+            template_price
+        }
+    } else {
+        // fixed price
+        template_price
+    };
+
+    println!("  📊 Service '{}': Template={:.2}€, Type={}, Calculated={:.2}€",
+        service_name, template_price, price_type, calculated_price);
+
+    // INSERT mit calculated_price!
+    conn.execute(
+        "INSERT INTO booking_services (booking_id, service_template_id, calculated_price)
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![booking_id, service_template_id, calculated_price],
+    )?;
+
+    println!("💰 [link_service_template_to_booking] Berechne Gesamtpreise neu für Buchung #{}", booking_id);
 
     // Hole alle Services (inkl. dem neuen Template-Service) - MIT prozentualer Berechnung!
     let all_services = get_booking_services(booking_id)?;

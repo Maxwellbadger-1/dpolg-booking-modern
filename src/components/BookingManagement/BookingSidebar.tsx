@@ -2621,7 +2621,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           onClose={() => {
             setShowEmailDialog(false);
             setCreatedBookingId(null);
-            handleClose(); // Close sidebar after email dialog
+            closeWithoutConfirmation(); // ✅ Direkt schließen ohne Bestätigung (Buchung wurde bereits erstellt)
           }}
           bookingId={createdBookingId}
           guestEmail={createdGuestEmail}

@@ -1,6 +1,6 @@
 use crate::database::{
     get_booking_with_details_by_id, get_booking_credit_usage, get_company_settings,
-    get_payment_settings, BookingWithDetails, CompanySettings, PaymentSettings,
+    get_payment_settings, get_booking_services, BookingWithDetails, CompanySettings, PaymentSettings,
 };
 use crate::payment_recipients::get_payment_recipient;
 use chrono::NaiveDate;
@@ -479,11 +479,14 @@ fn generate_service_rows(booking: &BookingWithDetails, nights: i32) -> Result<St
         pos += 1;
     }
 
-    // 3. Services (Zusatzleistungen)
-    for service in &booking.services {
+    // 3. Services (Zusatzleistungen) - WICHTIG: Lade AdditionalService mit berechneten Preisen!
+    let additional_services = get_booking_services(booking.id)
+        .map_err(|e| format!("Fehler beim Laden der Services: {}", e))?;
+
+    for service in &additional_services {
         // Aktuell werden alle Services als Pauschale behandelt
         let quantity_label = "1 Pauschal".to_string();
-        let total_price = service.price;
+        let total_price = service.service_price; // ✅ service_price enthält bereits den BERECHNETEN Preis (auch bei Prozent!)
 
         rows.push(format!(
             r#"<tr>
@@ -497,10 +500,10 @@ fn generate_service_rows(booking: &BookingWithDetails, nights: i32) -> Result<St
                 <td>{}</td>
             </tr>"#,
             pos,
-            service.name,
-            service.description.as_ref().unwrap_or(&"".to_string()),
+            service.service_name,
+            "", // AdditionalService hat keine description
             quantity_label,
-            format_currency(service.price),
+            format_currency(service.service_price), // ✅ Anzeige des BERECHNETEN Preises
             format_currency(total_price)
         ));
         pos += 1;
