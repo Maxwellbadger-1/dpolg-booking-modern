@@ -37,14 +37,12 @@ export interface ServiceInput {
   priceType: 'fixed' | 'percent';
   originalValue: number;
   appliesTo: 'overnight_price' | 'total_price';
-  templateId?: number;
 }
 
 export interface DiscountInput {
   name: string;
   discountType: 'fixed' | 'percent';
   value: number;
-  templateId?: number;
 }
 
 export interface ServiceCalculation {

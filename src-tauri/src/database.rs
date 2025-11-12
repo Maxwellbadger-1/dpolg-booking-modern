@@ -574,80 +574,9 @@ fn migrate_calculate_existing_service_prices(conn: &Connection) -> Result<()> {
     // 🔥 KRITISCH: Aktualisiere bookings Tabelle für alle betroffenen Buchungen!
     println!("🔄 [MIGRATION] Aktualisiere Preise für {} betroffene Buchungen...", affected_bookings.len());
 
+    // recalculate_booking_prices() öffnet eigene Connection
     for booking_id in affected_bookings {
-        // Hole Buchungs-Daten
-        let (grundpreis, ist_dpolg_mitglied): (f64, bool) = conn
-            .query_row(
-                "SELECT grundpreis, COALESCE(ist_dpolg_mitglied, 0) FROM bookings WHERE id = ?1",
-                rusqlite::params![booking_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )?;
-
-        // Berechne Services-Summe (JETZT mit calculated_price!)
-        let services_total: f64 = conn
-            .query_row(
-                "SELECT COALESCE(SUM(COALESCE(bs.calculated_price, st.price)), 0.0)
-                 FROM booking_services bs
-                 JOIN service_templates st ON bs.service_template_id = st.id
-                 WHERE bs.booking_id = ?1",
-                rusqlite::params![booking_id],
-                |row| row.get(0),
-            )?;
-
-        // Berechne Rabatt-Summe (Discount-Templates + DPolG)
-        let mut rabatt_total = 0.0;
-
-        // 1. Discount-Templates
-        let mut discount_stmt = conn.prepare(
-            "SELECT dt.discount_value, dt.discount_type
-             FROM booking_discounts bd
-             JOIN discount_templates dt ON bd.discount_template_id = dt.id
-             WHERE bd.booking_id = ?1"
-        )?;
-
-        let discounts: Vec<(f64, String)> = discount_stmt
-            .query_map(rusqlite::params![booking_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        for (discount_value, discount_type) in discounts {
-            if discount_type == "percent" {
-                rabatt_total += grundpreis * (discount_value / 100.0);
-            } else {
-                rabatt_total += discount_value;
-            }
-        }
-
-        // 2. DPolG-Rabatt
-        if ist_dpolg_mitglied {
-            let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
-                .query_row(
-                    "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
-                    [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
-
-            if rabatt_aktiv {
-                let rabatt_basis_betrag = match rabatt_basis.as_str() {
-                    "zimmerpreis" => grundpreis,
-                    "gesamtpreis" => grundpreis + services_total,
-                    _ => grundpreis,
-                };
-                let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
-                rabatt_total += dpolg_rabatt;
-            }
-        }
-
-        // Neuer Gesamtpreis
-        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
-
-        // UPDATE bookings Tabelle
-        conn.execute(
-            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
-        )?;
+        let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(booking_id)?;
 
         println!("   💰 Booking #{}: Services={:.2}€, Rabatt={:.2}€, Gesamt={:.2}€",
             booking_id, services_total, rabatt_total, new_gesamtpreis);
@@ -3451,43 +3380,12 @@ pub fn delete_service(service_id: i64) -> Result<()> {
     if let Some(bid) = booking_id {
         println!("💰 [delete_service] Berechne Preise neu für Buchung #{}", bid);
 
-        // Hole Buchung für Grundpreis
-        let booking = get_booking_by_id(bid)?;
-        let grundpreis = booking.grundpreis;
+        drop(conn); // Release connection for recalculate_booking_prices
+        let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(bid)?;
 
-        // Hole alle verbleibenden Services - MIT prozentualer Berechnung!
-        let remaining_services = get_booking_services(bid)?;
-
-        // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
-        let services_total = calculate_services_total(&remaining_services, grundpreis);
-
-        // Hole alle Discounts
-        let discounts = get_booking_discounts(bid)?;
-
-        // Berechne Rabatt-Summe
-        let mut rabatt_total = 0.0;
-        for discount in &discounts {
-            if discount.discount_type == "percent" {
-                rabatt_total += grundpreis * (discount.discount_value / 100.0);
-            } else {
-                rabatt_total += discount.discount_value;
-            }
-        }
-
-        // Neuer Gesamtpreis
-        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
-
-        println!("  📊 Grundpreis: {:.2}€", grundpreis);
         println!("  📊 Services: {:.2}€", services_total);
         println!("  📊 Rabatt: {:.2}€", rabatt_total);
         println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
-
-        // Update bookings-Tabelle mit neuen Preisen
-        conn.execute(
-            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, bid],
-        )?;
-
         println!("✅ [delete_service] Preise erfolgreich aktualisiert!");
     }
 
@@ -3548,6 +3446,87 @@ pub fn get_booking_services(booking_id: i64) -> Result<Vec<AdditionalService>> {
 }
 
 // ============================================================================
+// PRICE RECALCULATION - CENTRAL FUNCTION (Single Source of Truth)
+// ============================================================================
+
+/// Berechnet ALLE Preise für eine Buchung neu und updated die bookings-Tabelle
+///
+/// Diese zentrale Funktion wird von allen Service/Discount-Operationen aufgerufen
+/// um sicherzustellen, dass services_preis, rabatt_preis und gesamtpreis konsistent sind.
+///
+/// # Arguments
+/// * `booking_id` - ID der Buchung
+///
+/// # Returns
+/// * `Ok((services_total, rabatt_total, gesamtpreis))` - Die berechneten Werte
+/// * `Err(String)` - Fehlermeldung
+pub fn recalculate_booking_prices(booking_id: i64) -> Result<(f64, f64, f64)> {
+    let conn = Connection::open(get_db_path())?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
+
+    // Hole Buchungs-Daten
+    let (grundpreis, ist_dpolg_mitglied): (f64, bool) = conn
+        .query_row(
+            "SELECT grundpreis, COALESCE(ist_dpolg_mitglied, 0) FROM bookings WHERE id = ?1",
+            rusqlite::params![booking_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+    // Hole alle Services (inkl. dem neuen Template-Service) - MIT prozentualer Berechnung!
+    let all_services = get_booking_services(booking_id)?;
+
+    // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
+    let services_total = calculate_services_total(&all_services, grundpreis);
+
+    // Hole alle Discount-Templates
+    let discounts = get_booking_discounts(booking_id)?;
+
+    // Berechne Rabatt-Summe (Discount-Templates + DPolG-Rabatt)
+    let mut rabatt_total = 0.0;
+
+    // 1. Discount-Templates
+    for discount in &discounts {
+        if discount.discount_type == "percent" {
+            rabatt_total += grundpreis * (discount.discount_value / 100.0);
+        } else {
+            rabatt_total += discount.discount_value;
+        }
+    }
+
+    // 2. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
+    if ist_dpolg_mitglied {
+        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
+            .query_row(
+                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
+
+        if rabatt_aktiv {
+            let rabatt_basis_betrag = match rabatt_basis.as_str() {
+                "zimmerpreis" => grundpreis,
+                "gesamtpreis" => grundpreis + services_total,
+                _ => grundpreis,
+            };
+            let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
+            rabatt_total += dpolg_rabatt;
+        }
+    }
+
+    // Neuer Gesamtpreis
+    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+
+    // UPDATE bookings-Tabelle
+    conn.execute(
+        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
+        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
+    )?;
+
+    Ok((services_total, rabatt_total, new_gesamtpreis))
+}
+
+// ============================================================================
 // SERVICE & DISCOUNT TEMPLATE LINKING - Junction Tables
 // ============================================================================
 
@@ -3565,7 +3544,6 @@ pub fn link_service_template_to_booking(
     // Hole Buchung für Grundpreis
     let booking = get_booking_by_id(booking_id)?;
     let grundpreis = booking.grundpreis;
-    let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
 
     // Hole Service-Template
     let template: (String, f64, String, String) = conn
@@ -3603,79 +3581,13 @@ pub fn link_service_template_to_booking(
 
     println!("💰 [link_service_template_to_booking] Berechne Gesamtpreise neu für Buchung #{}", booking_id);
 
-    // Hole alle Services (inkl. dem neuen Template-Service) - MIT prozentualer Berechnung!
-    let all_services = get_booking_services(booking_id)?;
-
-    // Berechne Services-Summe MIT Prozent-Support (wie bei Rabatten!)
-    let services_total = calculate_services_total(&all_services, grundpreis);
-
-    println!("  💶 Services-Details:");
-    for service in &all_services {
-        if service.price_type == "percent" {
-            if service.applies_to == "overnight_price" {
-                let calculated_price = grundpreis * (service.original_value / 100.0);
-                println!("    🔢 '{}': {}% von {:.2}€ = {:.2}€",
-                    service.service_name, service.original_value, grundpreis, calculated_price);
-            } else {
-                println!("    🔢 '{}': {}% vom Gesamtpreis = dynamisch",
-                    service.service_name, service.original_value);
-            }
-        } else {
-            println!("    💵 '{}': Festbetrag {:.2}€",
-                service.service_name, service.service_price);
-        }
-    }
-
-    // Hole alle Discount-Templates
-    let discounts = get_booking_discounts(booking_id)?;
-
-    // Berechne Rabatt-Summe (Discount-Templates + DPolG-Rabatt)
-    let mut rabatt_total = 0.0;
-
-    // 1. Discount-Templates
-    for discount in &discounts {
-        if discount.discount_type == "percent" {
-            rabatt_total += grundpreis * (discount.discount_value / 100.0);
-        } else {
-            rabatt_total += discount.discount_value;
-        }
-    }
-
-    // 2. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
-    if ist_dpolg_mitglied {
-        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
-            .query_row(
-                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
-
-        if rabatt_aktiv {
-            let rabatt_basis_betrag = match rabatt_basis.as_str() {
-                "zimmerpreis" => grundpreis,
-                "gesamtpreis" => grundpreis + services_total,
-                _ => grundpreis,
-            };
-            let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
-            rabatt_total += dpolg_rabatt;
-            println!("  🎫 DPolG-Rabatt: {:.2}€ ({}% auf {})", dpolg_rabatt, rabatt_prozent, rabatt_basis);
-        }
-    }
-
-    // Neuer Gesamtpreis
-    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
+    // ✅ ZENTRALE FUNKTION verwenden (ersetzt duplizierten Code!)
+    let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(booking_id)?;
 
     println!("  📊 Grundpreis: {:.2}€", grundpreis);
     println!("  📊 Services: {:.2}€", services_total);
     println!("  📊 Rabatt: {:.2}€", rabatt_total);
     println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
-
-    // Update bookings-Tabelle mit neuen Preisen
-    conn.execute(
-        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
-    )?;
 
     println!("✅ [link_service_template_to_booking] Preise erfolgreich aktualisiert!");
 
@@ -3699,66 +3611,12 @@ pub fn link_discount_template_to_booking(
     // 💰 PREISBERECHNUNG: Nach Discount-Template-Verknüpfung Preise neu berechnen!
     println!("💰 [link_discount_template_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
 
-    // Hole Buchung für Grundpreis und DPolG-Status
-    let booking = get_booking_by_id(booking_id)?;
-    let grundpreis = booking.grundpreis;
-    let ist_dpolg_mitglied = booking.ist_dpolg_mitglied;
+    drop(conn); // Release connection for recalculate_booking_prices
+    let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(booking_id)?;
 
-    // Hole alle Services
-    let all_services = get_booking_services(booking_id)?;
-    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
-
-    // Hole alle Discount-Templates (inkl. dem neuen Template-Discount)
-    let discounts = get_booking_discounts(booking_id)?;
-
-    // Berechne Rabatt-Summe (Discount-Templates + DPolG-Rabatt)
-    let mut rabatt_total = 0.0;
-
-    // 1. Discount-Templates
-    for discount in &discounts {
-        if discount.discount_type == "percent" {
-            rabatt_total += grundpreis * (discount.discount_value / 100.0);
-        } else {
-            rabatt_total += discount.discount_value;
-        }
-    }
-
-    // 2. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
-    if ist_dpolg_mitglied {
-        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
-            .query_row(
-                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
-
-        if rabatt_aktiv {
-            let rabatt_basis_betrag = match rabatt_basis.as_str() {
-                "zimmerpreis" => grundpreis,
-                "gesamtpreis" => grundpreis + services_total,
-                _ => grundpreis,
-            };
-            let dpolg_rabatt = rabatt_basis_betrag * (rabatt_prozent / 100.0);
-            rabatt_total += dpolg_rabatt;
-            println!("  🎫 DPolG-Rabatt: {:.2}€ ({}% auf {})", dpolg_rabatt, rabatt_prozent, rabatt_basis);
-        }
-    }
-
-    // Neuer Gesamtpreis
-    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
-
-    println!("  📊 Grundpreis: {:.2}€", grundpreis);
     println!("  📊 Services: {:.2}€", services_total);
     println!("  📊 Rabatt: {:.2}€", rabatt_total);
     println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
-
-    // Update bookings-Tabelle mit neuen Preisen
-    conn.execute(
-        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
-    )?;
-
     println!("✅ [link_discount_template_to_booking] Preise erfolgreich aktualisiert!");
 
     Ok(())
@@ -4012,43 +3870,15 @@ pub fn add_discount_to_booking(
     // 💰 PREISBERECHNUNG: Nach Discount-Hinzufügen Preise neu berechnen!
     println!("💰 [add_discount_to_booking] Berechne Preise neu für Buchung #{}", booking_id);
 
-    // Hole alle Services
-    let all_services = get_booking_services(booking_id)?;
-    let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+    drop(conn); // Release connection for recalculate_booking_prices
+    let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(booking_id)?;
 
-    // Hole alle Discounts (inkl. dem neuen)
-    let discounts = get_booking_discounts(booking_id)?;
-
-    // Hole Buchung für Grundpreis
-    let booking = get_booking_by_id(booking_id)?;
-    let grundpreis = booking.grundpreis;
-
-    // Berechne Rabatt-Summe
-    let mut rabatt_total = 0.0;
-    for discount in &discounts {
-        if discount.discount_type == "percent" {
-            rabatt_total += grundpreis * (discount.discount_value / 100.0);
-        } else {
-            rabatt_total += discount.discount_value;
-        }
-    }
-
-    // Neuer Gesamtpreis
-    let new_gesamtpreis = grundpreis + services_total - rabatt_total;
-
-    println!("  📊 Grundpreis: {:.2}€", grundpreis);
     println!("  📊 Services: {:.2}€", services_total);
     println!("  📊 Rabatt: {:.2}€", rabatt_total);
     println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
-
-    // Update bookings-Tabelle mit neuen Preisen
-    conn.execute(
-        "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-        rusqlite::params![services_total, rabatt_total, new_gesamtpreis, booking_id],
-    )?;
-
     println!("✅ [add_discount_to_booking] Preise erfolgreich aktualisiert!");
 
+    let conn = Connection::open(get_db_path())?;
     conn.query_row(
         "SELECT id, booking_id, discount_name, discount_type, discount_value, created_at
          FROM discounts WHERE id = ?1",
@@ -4094,41 +3924,12 @@ pub fn delete_discount(discount_id: i64) -> Result<()> {
     if let Some(bid) = booking_id {
         println!("💰 [delete_discount] Berechne Preise neu für Buchung #{}", bid);
 
-        // Hole alle Services
-        let all_services = get_booking_services(bid)?;
-        let services_total: f64 = all_services.iter().map(|s| s.service_price).sum();
+        drop(conn); // Release connection for recalculate_booking_prices
+        let (services_total, rabatt_total, new_gesamtpreis) = recalculate_booking_prices(bid)?;
 
-        // Hole alle verbleibenden Discounts
-        let remaining_discounts = get_booking_discounts(bid)?;
-
-        // Hole Buchung für Grundpreis
-        let booking = get_booking_by_id(bid)?;
-        let grundpreis = booking.grundpreis;
-
-        // Berechne Rabatt-Summe
-        let mut rabatt_total = 0.0;
-        for discount in &remaining_discounts {
-            if discount.discount_type == "percent" {
-                rabatt_total += grundpreis * (discount.discount_value / 100.0);
-            } else {
-                rabatt_total += discount.discount_value;
-            }
-        }
-
-        // Neuer Gesamtpreis
-        let new_gesamtpreis = grundpreis + services_total - rabatt_total;
-
-        println!("  📊 Grundpreis: {:.2}€", grundpreis);
         println!("  📊 Services: {:.2}€", services_total);
         println!("  📊 Rabatt: {:.2}€", rabatt_total);
         println!("  📊 NEU Gesamt: {:.2}€", new_gesamtpreis);
-
-        // Update bookings-Tabelle mit neuen Preisen
-        conn.execute(
-            "UPDATE bookings SET services_preis = ?1, rabatt_preis = ?2, gesamtpreis = ?3 WHERE id = ?4",
-            rusqlite::params![services_total, rabatt_total, new_gesamtpreis, bid],
-        )?;
-
         println!("✅ [delete_discount] Preise erfolgreich aktualisiert!");
     }
 

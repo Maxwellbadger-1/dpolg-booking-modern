@@ -28,13 +28,12 @@ use serde::{Serialize, Deserialize};
 
 /// Input: Service-Daten vom Frontend
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]  // ← WICHTIG: Frontend sendet camelCase!
 pub struct ServiceInput {
     pub name: String,
     pub price_type: String,        // "fixed" | "percent"
     pub original_value: f64,       // Template-Wert (z.B. 19.0 für 19%)
     pub applies_to: String,        // "overnight_price" | "total_price"
-    #[serde(default)]
-    pub template_id: Option<i64>,
 }
 
 /// Output: Berechneter Service mit allen Details
@@ -51,12 +50,11 @@ pub struct ServiceCalculation {
 
 /// Input: Rabatt-Daten vom Frontend
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]  // ← WICHTIG: Frontend sendet camelCase!
 pub struct DiscountInput {
     pub name: String,
     pub discount_type: String,     // "fixed" | "percent"
     pub value: f64,
-    #[serde(default)]
-    pub template_id: Option<i64>,
 }
 
 /// Output: Berechneter Rabatt mit allen Details
@@ -200,17 +198,6 @@ pub fn apply_discount_fixed(price: f64, discount_amount: f64) -> f64 {
     capped_discount
 }
 
-/// Berechnet die Gesamtsumme aller Services.
-///
-/// # Arguments
-/// * `services` - Array von Service-Tupeln (Name, Preis)
-///
-/// # Returns
-/// * `f64` - Gesamtsumme aller Services
-pub fn calculate_services_total(services: &[(String, f64)]) -> f64 {
-    services.iter().map(|(_, price)| price).sum()
-}
-
 /// Prüft ob ein Datum in der Hauptsaison liegt (basierend auf pricing_settings).
 ///
 /// Lädt die Hauptsaison-Zeiträume dynamisch aus pricing_settings Tabelle.
@@ -288,117 +275,6 @@ fn is_date_in_season(date: NaiveDate, start_month: u32, start_day: u32, end_mont
     } else {
         false
     }
-}
-
-/// Berechnet alle Preiskomponenten einer Buchung basierend auf Datenbank und Parametern.
-///
-/// Dies ist die Hauptfunktion für die Preiskalkulation einer Buchung.
-///
-/// # Arguments
-/// * `room_id` - ID des Zimmers
-/// * `checkin` - Check-in Datum (YYYY-MM-DD)
-/// * `checkout` - Check-out Datum (YYYY-MM-DD)
-/// * `is_member` - Ist der Gast DPolG Stiftung Mitglied?
-/// * `services` - Array von Services (Name, Preis)
-/// * `discounts` - Array von Rabatten (Name, Typ, Wert)
-/// * `conn` - Datenbankverbindung
-///
-/// # Returns
-/// * `Ok((grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte))`
-/// * `Err(String)` - Fehlermeldung
-///
-/// # Neue Preisberechnung (Preisliste 2025 - Dynamisch konfigurierbar):
-/// - Saisonpreise: Hauptsaison vs. Nebensaison (konfigurierbar in pricing_settings)
-/// - DPolG-Rabatt: Prozentsatz und Aktivierung konfigurierbar (aus pricing_settings)
-/// - Rabatt-Basis: Wählbar zwischen "zimmerpreis" (nur Zimmer) oder "gesamtpreis" (Zimmer + Services)
-/// - Endreinigung: Automatisch pro Zimmer hinzugefügt
-///
-/// # Discount Types
-/// * "percent" - Prozentualer Rabatt (0-100)
-/// * "fixed" - Fixer Rabattbetrag
-pub fn calculate_booking_total(
-    room_id: i64,
-    checkin: &str,
-    checkout: &str,
-    is_member: bool,
-    services: &[(String, f64)],
-    discounts: &[(String, String, f64)], // (Name, Typ, Wert)
-    conn: &Connection,
-) -> Result<(f64, f64, f64, f64, i32), String> {
-    // 1. Lade Zimmerinformationen und Endreinigung aus der Datenbank
-    let (room_price, endreinigung): (f64, f64) = conn
-        .query_row(
-            "SELECT nebensaison_preis, hauptsaison_preis, endreinigung FROM rooms WHERE id = ?1",
-            rusqlite::params![room_id],
-            |row| {
-                let nebensaison: f64 = row.get(0)?;
-                let hauptsaison: f64 = row.get(1)?;
-                let endreinigung: f64 = row.get(2)?;
-
-                // Saisonerkennung basierend auf pricing_settings
-                let is_hs = is_hauptsaison_with_settings(checkin, conn).unwrap_or(false);
-                let price = if is_hs { hauptsaison } else { nebensaison };
-
-                Ok((price, endreinigung))
-            },
-        )
-        .map_err(|e| format!("Fehler beim Laden des Zimmers: {}", e))?;
-
-    // 2. Berechne Anzahl der Nächte
-    let anzahl_naechte = calculate_nights(checkin, checkout)?;
-
-    // 3. Berechne Grundpreis (Nächte × Saisonpreis)
-    let grundpreis = calculate_base_price(anzahl_naechte, room_price);
-
-    // 4. Berechne Services-Summe (inkl. Endreinigung)
-    let mut services_preis = calculate_services_total(services);
-    services_preis += endreinigung; // Endreinigung automatisch hinzufügen
-
-    // 5. Berechne Zwischensumme (vor Rabatten)
-    let subtotal = grundpreis + services_preis;
-
-    // 6. DPolG-Rabatt automatisch für Mitglieder laden (aus pricing_settings)
-    let mut rabatt_preis = 0.0;
-    if is_member {
-        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
-            .query_row(
-                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap_or((true, 15.0, "zimmerpreis".to_string())); // Fallback
-
-        // Nur Rabatt anwenden wenn aktiv
-        if rabatt_aktiv {
-            let rabatt_basis_betrag = match rabatt_basis.as_str() {
-                "zimmerpreis" => grundpreis,  // Nur Zimmerpreis (ohne Services)
-                "gesamtpreis" => subtotal,    // Zimmerpreis + Services
-                _ => grundpreis,              // Fallback: nur Zimmerpreis
-            };
-
-            rabatt_preis += apply_discount_percentage(rabatt_basis_betrag, rabatt_prozent);
-        }
-    }
-
-    // 7. Berechne zusätzliche Rabatte
-    for (_, discount_type, discount_value) in discounts {
-        let discount_amount = match discount_type.as_str() {
-            "percent" => apply_discount_percentage(subtotal, *discount_value),
-            "fixed" => apply_discount_fixed(subtotal, *discount_value),
-            _ => {
-                return Err(format!(
-                    "Ungültiger Rabatt-Typ: {}. Erlaubt: 'percent' oder 'fixed'",
-                    discount_type
-                ))
-            }
-        };
-        rabatt_preis += discount_amount;
-    }
-
-    // 8. Berechne Gesamtpreis
-    let gesamtpreis = calculate_total_price(grundpreis, services_preis, rabatt_preis);
-
-    Ok((grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte))
 }
 
 // ============================================================================

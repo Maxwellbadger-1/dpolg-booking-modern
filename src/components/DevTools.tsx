@@ -254,11 +254,13 @@ export default function DevTools() {
 
   const testCalculatePrice = async (roomId: number) => {
     try {
-      const price = await invoke('calculate_booking_price_command', {
+      const price = await invoke('calculate_full_booking_price_command', {
         roomId: roomId,
         checkin: '2025-10-01',
         checkout: '2025-10-05',
         isMember: true,
+        services: [],
+        discounts: [],
       });
       addResult('Calculate Price', 'success', 'Preisberechnung erfolgreich', price);
     } catch (error) {

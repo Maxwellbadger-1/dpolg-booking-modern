@@ -803,114 +803,6 @@ fn calculate_nights_command(checkin: String, checkout: String) -> Result<i32, St
     pricing::calculate_nights(&checkin, &checkout)
 }
 
-#[tauri::command]
-fn calculate_booking_price_command(
-    room_id: i64,
-    checkin: String,
-    checkout: String,
-    is_member: bool,
-    services: Option<Vec<(String, f64)>>,
-    discounts: Option<Vec<(String, String, f64)>>,
-) -> Result<serde_json::Value, String> {
-    let conn = Connection::open(database::get_db_path())
-        .map_err(|e| format!("Datenbankfehler: {}", e))?;
-
-    let services = services.unwrap_or_default();
-    let discounts = discounts.unwrap_or_default();
-
-    let (grundpreis, services_preis, rabatt_preis, gesamtpreis, anzahl_naechte) =
-        pricing::calculate_booking_total(room_id, &checkin, &checkout, is_member, &services, &discounts, &conn)?;
-
-    // Prüfe Saison für UI-Anzeige
-    let is_hauptsaison = pricing::is_hauptsaison_with_settings(&checkin, &conn)?;
-
-    // Lade Endreinigung aus Zimmer-Daten
-    let endreinigung: f64 = conn
-        .query_row(
-            "SELECT endreinigung FROM rooms WHERE id = ?1",
-            rusqlite::params![room_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0.0);
-
-    // Konvertiere Services zu Array mit Namen und Preisen
-    let mut services_list: Vec<serde_json::Value> = Vec::new();
-
-    // Endreinigung als ersten Service hinzufügen (wenn > 0)
-    if endreinigung > 0.0 {
-        services_list.push(serde_json::json!({
-            "name": "Endreinigung",
-            "price": endreinigung
-        }));
-    }
-
-    // Weitere Services hinzufügen
-    for (name, price) in services.iter() {
-        services_list.push(serde_json::json!({
-            "name": name,
-            "price": price
-        }));
-    }
-
-    // Berechne Zwischensumme für Rabatt-Berechnung
-    let subtotal_for_discounts = grundpreis + services_preis;
-
-    // Erstelle Discounts-Liste
-    let mut discounts_list: Vec<serde_json::Value> = Vec::new();
-
-    // Füge DPolG-Rabatt hinzu wenn Mitglied
-    if is_member {
-        let (rabatt_aktiv, rabatt_prozent, rabatt_basis): (bool, f64, String) = conn
-            .query_row(
-                "SELECT mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis FROM pricing_settings WHERE id = 1",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .unwrap_or((true, 15.0, "zimmerpreis".to_string()));
-
-        if rabatt_aktiv {
-            let rabatt_basis_betrag = match rabatt_basis.as_str() {
-                "zimmerpreis" => grundpreis,
-                "gesamtpreis" => subtotal_for_discounts,
-                _ => grundpreis,
-            };
-            let dpolg_rabatt_betrag = rabatt_basis_betrag * (rabatt_prozent / 100.0);
-
-            discounts_list.push(serde_json::json!({
-                "name": "DPolG-Mitgliederrabatt",
-                "type": "percent",
-                "value": rabatt_prozent,
-                "amount": dpolg_rabatt_betrag
-            }));
-        }
-    }
-
-    // Konvertiere zusätzliche Discounts zu Array
-    for (name, discount_type, value) in discounts.iter() {
-        let calculated_amount = match discount_type.as_str() {
-            "percent" => subtotal_for_discounts * (value / 100.0),
-            "fixed" => *value,
-            _ => 0.0,
-        };
-        discounts_list.push(serde_json::json!({
-            "name": name,
-            "type": discount_type,
-            "value": value,
-            "amount": calculated_amount
-        }));
-    }
-
-    Ok(serde_json::json!({
-        "grundpreis": grundpreis,
-        "servicesPreis": services_preis,
-        "rabattPreis": rabatt_preis,
-        "gesamtpreis": gesamtpreis,
-        "anzahlNaechte": anzahl_naechte,
-        "istHauptsaison": is_hauptsaison,
-        "servicesList": services_list,
-        "discountsList": discounts_list
-    }))
-}
 
 // ============================================================================
 // NEUE ARCHITEKTUR: Single Source of Truth Preisberechnung
@@ -1430,8 +1322,7 @@ pub fn run() {
             check_room_availability_command,
             // Pricing
             calculate_nights_command,
-            calculate_booking_price_command,
-            calculate_full_booking_price_command,  // NEUE ARCHITEKTUR
+            calculate_full_booking_price_command,  // Single Source of Truth
             // Reports & Statistics
             get_report_stats_command,
             get_room_occupancy_command,

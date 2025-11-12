@@ -225,13 +225,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
             priceType: (s.price_type || 'fixed') as 'fixed' | 'percent',
             originalValue: s.original_value || s.service_price,
             appliesTo: (s.applies_to || 'overnight_price') as 'overnight_price' | 'total_price',
-            templateId: s.template_id,
           })),
           discounts: discounts.map(d => ({
             name: d.discount_name,
             discountType: d.discount_type as 'fixed' | 'percent',
             value: d.discount_value,
-            templateId: d.template_id,
           })),
         }
       : null
