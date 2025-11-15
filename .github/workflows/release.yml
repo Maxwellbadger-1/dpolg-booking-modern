@@ -71,6 +71,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          # PostgreSQL Production Configuration (2025 Best Practice)
+          ENVIRONMENT: production
+          DATABASE_HOST: ${{ secrets.DB_HOST }}
+          DATABASE_PORT: ${{ secrets.DB_PORT }}
+          DATABASE_NAME: ${{ secrets.DB_NAME }}
+          DATABASE_USER: ${{ secrets.DB_USER }}
+          DATABASE_PASSWORD: ${{ secrets.DB_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Stiftung der DPolG Buchungssystem ${{ github.ref_name }}'

@@ -189,22 +189,23 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
     : (STATUS_COLORS[booking.status] || STATUS_COLORS.bestaetigt);
 
   // Detect if pointer is in resize zone (dnd-timeline pattern)
+  // FIX: Disable resize handles for clipped edges (month-spanning bookings)
   const getResizeDirection = useCallback((e: React.PointerEvent, element: HTMLElement): ResizeDirection => {
     const rect = element.getBoundingClientRect();
     const mouseX = e.clientX;
 
-    // Check left edge (start)
-    if (Math.abs(mouseX - rect.left) <= RESIZE_HANDLE_WIDTH / 2) {
+    // Check left edge (start) - ONLY if not clipped from previous month
+    if (!continuesFromPreviousMonth && Math.abs(mouseX - rect.left) <= RESIZE_HANDLE_WIDTH / 2) {
       return 'start';
     }
 
-    // Check right edge (end)
-    if (Math.abs(mouseX - rect.right) <= RESIZE_HANDLE_WIDTH / 2) {
+    // Check right edge (end) - ONLY if not clipped into next month
+    if (!continuesNextMonth && Math.abs(mouseX - rect.right) <= RESIZE_HANDLE_WIDTH / 2) {
       return 'end';
     }
 
     return null;
-  }, []);
+  }, [continuesFromPreviousMonth, continuesNextMonth]);
 
   // Track if this was a click or drag
   const clickStartPos = useRef<{ x: number; y: number } | null>(null);
@@ -261,9 +262,19 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
     if (direction) {
       setCursor('ew-resize');
     } else {
-      setCursor('move');
+      // Check if hovering over clipped edge (show not-allowed cursor)
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mouseX = e.clientX;
+      const isNearLeftEdge = Math.abs(mouseX - rect.left) <= RESIZE_HANDLE_WIDTH / 2;
+      const isNearRightEdge = Math.abs(mouseX - rect.right) <= RESIZE_HANDLE_WIDTH / 2;
+
+      if ((isNearLeftEdge && continuesFromPreviousMonth) || (isNearRightEdge && continuesNextMonth)) {
+        setCursor('not-allowed');
+      } else {
+        setCursor('move');
+      }
     }
-  }, [getResizeDirection, isOverlay, isResizing]);
+  }, [getResizeDirection, isOverlay, isResizing, continuesFromPreviousMonth, continuesNextMonth]);
 
   // Layout effect to handle resize events with LIVE preview
   useLayoutEffect(() => {
@@ -380,10 +391,10 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       {/* LEFT ARROW - Continues from previous month */}
       {continuesFromPreviousMonth && (
         <div
-          className="absolute left-0.5 top-0.5 w-5 h-5 flex items-center justify-center bg-purple-500/90 rounded shadow-lg"
-          title="Fortsetzung von vorigem Monat"
+          className="absolute left-0 top-0 bottom-0 w-8 flex items-center justify-center bg-purple-600/95 border-r-2 border-purple-400 shadow-xl pointer-events-none"
+          title="Fortsetzung von vorigem Monat - Linke Kante kann nicht geändert werden"
         >
-          <span className="text-white text-xs font-bold">←</span>
+          <span className="text-white text-lg font-bold drop-shadow-lg">◀</span>
         </div>
       )}
 
@@ -426,10 +437,10 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       {/* RIGHT ARROW - Continues to next month */}
       {continuesNextMonth && (
         <div
-          className="absolute right-0.5 top-0.5 w-5 h-5 flex items-center justify-center bg-purple-500/90 rounded shadow-lg"
-          title="Fortsetzung in nächsten Monat"
+          className="absolute right-0 top-0 bottom-0 w-8 flex items-center justify-center bg-purple-600/95 border-l-2 border-purple-400 shadow-xl pointer-events-none"
+          title="Fortsetzung in nächsten Monat - Rechte Kante kann nicht geändert werden"
         >
-          <span className="text-white text-xs font-bold">→</span>
+          <span className="text-white text-lg font-bold drop-shadow-lg">▶</span>
         </div>
       )}
 
@@ -617,7 +628,28 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     setScrollToToday(true);
   };
 
-  // Scroll to today's date column
+  // Auto-scroll to today on initial mount
+  useEffect(() => {
+    // Delay to ensure chart is rendered first
+    const timer = setTimeout(() => {
+      if (chartContainerRef.current && days.length > 0) {
+        const today = startOfDay(new Date());
+        const todayIndex = days.findIndex(day => isSameDay(day, today));
+
+        if (todayIndex !== -1) {
+          const scrollPosition = todayIndex * density.cellWidth;
+          chartContainerRef.current.scrollTo({
+            left: scrollPosition,
+            behavior: 'auto' // No animation on initial load
+          });
+        }
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, []); // Run only once on mount
+
+  // Scroll to today's date column (triggered by button)
   useEffect(() => {
     if (scrollToToday && chartContainerRef.current) {
       const today = startOfDay(new Date());
@@ -866,8 +898,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       const currentBooking = prev.find(b => b.id === bookingId);
       if (!currentBooking) return prev;
 
-      const currentCheckin = new Date(currentBooking.checkin_date);
-      const currentCheckout = new Date(currentBooking.checkout_date);
+      // FIX: Use ORIGINAL booking data from context (not clipped data from localBookings)
+      // This ensures resize works correctly for month-spanning bookings
+      const originalBooking = bookings.find(b => b.id === bookingId) || currentBooking;
+      const currentCheckin = new Date(originalBooking.checkin_date);
+      const currentCheckout = new Date(originalBooking.checkout_date);
 
       let newCheckin = currentCheckin;
       let newCheckout = currentCheckout;

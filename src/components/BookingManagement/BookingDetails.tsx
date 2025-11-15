@@ -847,13 +847,9 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                           )}
                         </div>
                         <div className="flex items-center gap-2">
-                          {getServicePriceIcon(service) === 'Percent' ? (
-                            <Percent className="w-4 h-4 text-emerald-500" />
-                          ) : (
-                            <Euro className="w-4 h-4 text-emerald-500" />
-                          )}
+                          <Euro className="w-4 h-4 text-emerald-500" />
                           <p className="font-semibold text-emerald-600">
-                            {formatCalculatedServicePrice(service, booking.grundpreis)}
+                            {service.service_price.toFixed(2)} €
                           </p>
                         </div>
                       </div>

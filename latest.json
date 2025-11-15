@@ -1,11 +1,11 @@
-{
-  "version": "1.7.3",
-  "notes": "## Version 1.7.3 - Putzplan Sync Fix\n\n🔧 **Critical Fix:**\n- Fixed mobile app preview in Putzplan Sync tab\n- Updated Content Security Policy to allow iframe embedding\n- Mobile app now loads correctly in both mobile and desktop preview modes\n\n📱 **What's Fixed:**\n- iframe blocking issue resolved\n- CSP now includes frame-src and child-src for Vercel domain\n- Desktop and mobile preview both working\n\n**Upgrade from v1.7.2:** This fixes the \"Content blocked\" error in the Putzplan Sync preview.",
-  "pub_date": "2025-10-24T10:00:00Z",
-  "platforms": {
-    "windows-x86_64": {
-      "signature": "",
-      "url": "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.3/Stiftung.der.DPolG.Buchungssystem_1.7.3_x64_en-US.msi"
-    }
-  }
+﻿{
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTVjJkZkhwMVNtcjkrbEJUL21hREZYNENpSHpXZUhzR2pUKzhLc1M5aWdLQlpiYTFQb3ZJMEZrYktrejYwWnJjeGU3R0xrM3hQam93NDdBejVKWnp0aU12b0Fwek0ycXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYxNjQzNDI2CWZpbGU6U3RpZnR1bmcgZGVyIERQb2xHIEJ1Y2h1bmdzc3lzdGVtXzEuNy42X3g2NC1zZXR1cC5leGUKVENEWDdJYzhaVmJGcEQ3NjZMMWl3b1ZZQ1h4Ri9jdmZSQmJla3FDVmViakw5SkZkSTJ5cTNuSGxoVXNLUDB5SE01SDBnRU8zUmsxUlR0TU1XS1ZWQlE9PQo=",
+                                             "url":  "https://github.com/Maxwellbadger-1/dpolg-booking-modern/releases/download/v1.7.6/Stiftung_der_DPolG_Buchungssystem_1.7.6_x64-setup.exe"
+                                         }
+                  },
+    "pub_date":  "2025-10-28T09:24:55Z",
+    "version":  "1.7.6",
+    "notes":  "Release v1.7.6 - Optimistic UI Updates \u0026 First-Install Defaults"
 }

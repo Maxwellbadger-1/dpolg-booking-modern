@@ -9,6 +9,120 @@ Ein modernes, performantes Hotel-Buchungssystem mit intuitiver Tape Chart Visual
 
 ---
 
+## 🗄️ DATENBANK - MULTI-USER SETUP (ORACLE CLOUD)
+
+**Status:** ✅ PostgreSQL Server läuft auf Oracle Cloud (Always Free)
+
+### 📡 Production Database Server
+
+**Oracle Cloud PostgreSQL 16.11:**
+- **Host:** `141.147.3.123`
+- **Port (pgBouncer):** `6432` (Connection Pooling - EMPFOHLEN!)
+- **Port (Direct):** `5432` (Nur für Admin-Tasks)
+- **Database:** `dpolg_booking`
+- **User:** `dpolg_admin`
+- **Password:** `DPolG2025SecureBooking`
+
+**Connection String (für Backend):**
+```
+postgres://dpolg_admin:DPolG2025SecureBooking@141.147.3.123:6432/dpolg_booking
+```
+
+### 🔐 SSH Access (Server-Administration)
+
+**SSH Credentials:**
+- **Host:** `ubuntu@141.147.3.123`
+- **Key:** `~/Downloads/ssh-key-2025-11-14.key`
+- **OS:** Ubuntu 22.04.5 LTS (Oracle Cloud)
+
+**SSH Verbinden:**
+```bash
+ssh -i ~/Downloads/ssh-key-2025-11-14.key ubuntu@141.147.3.123
+```
+
+### 🛠️ Server-Komponenten
+
+| Komponente | Version | Port | Status |
+|------------|---------|------|--------|
+| PostgreSQL | 16.11 | 5432 | ✅ Running |
+| pgBouncer | 1.25.0 | 6432 | ✅ Running |
+| Ubuntu | 22.04.5 LTS | - | ✅ Active |
+
+**pgBouncer Config:**
+- Pool Mode: `transaction`
+- Max Client Connections: `100`
+- Default Pool Size: `20`
+- Reserve Pool Size: `5`
+
+### 🔥 Firewall Rules (Oracle Cloud + Ubuntu)
+
+**Offene Ports:**
+- `22` - SSH (Key-based Auth)
+- `5432` - PostgreSQL (Direct Access)
+- `6432` - pgBouncer (Connection Pooling)
+
+### 📊 Datenbank-Struktur
+
+**SQLite → PostgreSQL Migration:**
+- Status: ✅ Completed (1,740 rows migrated across 23 tables)
+- Methode: Custom Python script with Boolean type casting
+- Original DB: `src-tauri/booking_system.db` (1.3 MB)
+
+**Tabellen (alle migriert):**
+- `rooms` (10 rows), `guests` (257 rows), `bookings` (323 rows)
+- `additional_services` (392 rows), `discounts` (185 rows)
+- `accompanying_guests` (52 rows), `guest_companions` (52 rows)
+- `email_logs` (448 rows), `reminders`, `email_attachments`
+- `service_templates`, `discount_templates`, `payment_recipients`
+- Uvm. (insgesamt 23 Tabellen)
+
+### 🏗️ Backend Architektur (Modern 2025)
+
+**Repository Pattern mit Type-safe Queries:**
+- `src-tauri/src/database_pg/` - PostgreSQL Layer
+  - `pool.rs` - Connection Pooling (deadpool-postgres)
+  - `error.rs` - Type-safe Error Handling
+  - `models.rs` - Rust Structs für alle Entities
+  - `repositories/` - Business Logic (CRUD Operations)
+    - `room_repository.rs` - ✅ FERTIG (6 Methoden + 6 Commands)
+    - `guest_repository.rs` - ✅ FERTIG (8 Methoden + 8 Commands)
+    - `booking_repository.rs` - ✅ FERTIG (11 Methoden)
+    - `additional_service_repository.rs` - ✅ FERTIG (7 Methoden)
+    - `discount_repository.rs` - ✅ FERTIG (7 Methoden)
+    - ~18 weitere Repositories (Email, Reminder, Companion, etc.)
+
+**Environment Configuration:**
+- `src-tauri/src/config.rs` - Dev/Prod Config
+- Development: `.env` file (lokal, NOT in Git)
+- Production: GitHub Secrets (CI/CD)
+
+### 🚀 Nächste Schritte
+
+1. ✅ PostgreSQL Server Setup (Oracle Cloud)
+2. ✅ pgBouncer Connection Pooling
+3. ✅ SQLite → PostgreSQL Migration (1,740 rows)
+4. ✅ Modern Architecture Implementation (Repository Pattern)
+5. ✅ Room + Guest + Booking Repositories (25 Methoden, 14 Commands)
+6. ⏳ Service + Discount + Email + Reminder Repositories (~4 Repositories)
+7. ⏳ Remaining ~18 Repositories erstellen
+8. ⏳ Alle Commands zu lib_pg.rs migrieren (~86 Commands)
+9. ⏳ Multi-User Testing (5-10 gleichzeitige User)
+10. ⏳ Production Deployment via GitHub Actions
+
+**Fortschritts-Tracking:**
+- Repositories: 5/23 fertig (22%) ← **+2 heute!**
+- Commands: 14/~100 fertig (14%)
+- Datensätze: 1,167/1,740 (67%) ← **67% abgedeckt!**
+- **Siehe:** [PROGRESS_SESSION_2.md](../PROGRESS_SESSION_2.md) für Details!
+
+**Siehe auch:**
+- [POSTGRESQL_ARCHITECTURE.md](../POSTGRESQL_ARCHITECTURE.md) - Vollständige Architektur-Dokumentation
+- [DEVELOPMENT_WORKFLOW.md](../DEVELOPMENT_WORKFLOW.md) - HMR + GitHub CI/CD Workflow
+- [GITHUB_SECRETS_SETUP.md](../GITHUB_SECRETS_SETUP.md) - Production Build Configuration
+- [PROGRESS_SESSION_2.md](../PROGRESS_SESSION_2.md) - **NEU:** Detaillierter Fortschrittsbericht
+
+---
+
 ## 🚀 RELEASE-PROZESS (AUTOMATISIERT - IMMER SO!)
 
 **WICHTIG:** Bei JEDEM neuen Release IMMER diesen Prozess verwenden!
