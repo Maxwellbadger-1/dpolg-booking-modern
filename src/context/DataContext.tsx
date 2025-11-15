@@ -428,7 +428,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     try {
       // 3. Backend Delete
-      await invoke('delete_payment_recipient', { id });
+      await invoke('delete_payment_recipient_pg', { id });
 
       // 4. Event für Undo-Button
       window.dispatchEvent(new CustomEvent('refresh-data'));

@@ -40,7 +40,7 @@ export default function PaymentRecipientsTab() {
 
   const handleDelete = async (recipient: PaymentRecipient) => {
     try {
-      await invoke('delete_payment_recipient', { id: recipient.id });
+      await invoke('delete_payment_recipient_pg', { id: recipient.id });
       // Optimistic Update
       setRecipients(prev => prev.filter(r => r.id !== recipient.id));
       setShowDeleteConfirm(null);
