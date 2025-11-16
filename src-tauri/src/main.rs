@@ -2,5 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    dpolg_booking_modern_lib::run()
+    // Use PostgreSQL version (new, modern architecture)
+    dpolg_booking_modern_lib::lib_pg::run_pg()
+
+    // Old SQLite version (legacy):
+    // dpolg_booking_modern_lib::run()
 }
