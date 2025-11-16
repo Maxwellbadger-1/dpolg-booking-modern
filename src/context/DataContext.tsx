@@ -525,13 +525,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     ));
 
     try {
-      // 3. Backend Update
-      const invokePayload = { id, ...sanitizedData };
+      // 3. Backend Update with Optimistic Locking (2025 Best Practice)
+      const invokePayload = {
+        id,
+        ...sanitizedData,
+        expectedUpdatedAt: oldBooking?.updated_at,  // ← OPTIMISTIC LOCKING: Version check
+      };
       console.log('📤 [DataContext] Calling invoke with:');
       console.log('  payment_recipient_id:', invokePayload.payment_recipient_id);
+      console.log('  expectedUpdatedAt:', invokePayload.expectedUpdatedAt, '(Optimistic Locking)');
       console.log('  Complete payload:', JSON.stringify(invokePayload, null, 2));
 
-      const booking = await invoke<Booking>('update_booking_command', invokePayload);
+      const booking = await invoke<Booking>('update_booking_pg', invokePayload);
 
       // 4. AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
       // FIX: Support both camelCase and snake_case (Backwards-Compatibility)
@@ -609,6 +614,22 @@ export function DataProvider({ children }: { children: ReactNode }) {
           b.id === id ? oldBooking : b
         ));
       }
+
+      // 7. Optimistic Locking Conflict Detection (2025 Best Practice)
+      const errorMsg = String(error);
+      if (errorMsg.includes('was modified by another user') || errorMsg.includes('Conflict:')) {
+        console.error('⚠️ [DataContext] CONFLICT DETECTED:', errorMsg);
+        toast.error('⚠️ Dieser Datensatz wurde von einem anderen Benutzer geändert. Bitte aktualisieren Sie die Seite und versuchen Sie es erneut.', {
+          duration: 6000,  // Länger anzeigen bei Konflikt
+          style: {
+            background: '#dc2626',  // Rot für Konflikt
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
+        });
+      }
+
       throw error;
     }
   }, [bookings]);
