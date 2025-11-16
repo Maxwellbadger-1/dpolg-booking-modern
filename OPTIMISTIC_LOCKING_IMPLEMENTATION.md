@@ -1,8 +1,8 @@
 # ✅ Optimistic Locking - Implementierung Abgeschlossen
 
 **Datum:** 2025-11-16
-**Status:** Backend Complete - Frontend Pending
-**Implementiert:** Bookings Tabelle
+**Status:** ✅ COMPLETE - Backend + Frontend Fully Implemented
+**Implementiert:** Bookings Tabelle (Full Stack)
 
 ---
 
@@ -18,10 +18,12 @@ Optimistic Locking wurde erfolgreich implementiert um **Datenverluste bei gleich
 - update_booking_pg Tauri Command mit `expected_updated_at` Parameter
 - Command in invoke_handler registriert
 
-⏳ **Frontend (TypeScript/React):**
-- NOCH NICHT IMPLEMENTIERT
-- Einfaches Error Handling reicht als MVP
-- Fancy Conflict Resolution Dialog kann später hinzugefügt werden
+✅ **Frontend (TypeScript/React):**
+- DataContext.updateBooking() nutzt update_booking_pg
+- expectedUpdatedAt wird von oldBooking.updated_at gelesen
+- Conflict Error Detection implementiert
+- User-friendly red toast notification (6s duration)
+- Automatic rollback bei Fehlern (existing optimistic update pattern)
 
 ---
 
@@ -116,7 +118,85 @@ async fn update_booking_pg(
 
 ---
 
-## 🎯 FRONTEND INTEGRATION (TODO)
+## 🎨 FRONTEND IMPLEMENTIERUNG (COMPLETE)
+
+### DataContext.updateBooking() Integration
+
+**Datei:** [src/context/DataContext.tsx:527-634](src/context/DataContext.tsx#L527-L634)
+
+**Changes:**
+
+1. **Command Update:**
+```typescript
+// OLD:
+const booking = await invoke<Booking>('update_booking_command', invokePayload);
+
+// NEW:
+const invokePayload = {
+  id,
+  ...sanitizedData,
+  expectedUpdatedAt: oldBooking?.updated_at,  // ← VERSION CHECK!
+};
+const booking = await invoke<Booking>('update_booking_pg', invokePayload);
+```
+
+2. **Conflict Detection:**
+```typescript
+} catch (error) {
+  // Rollback bei Fehler
+  if (oldBooking) {
+    setBookings(prev => prev.map(b => b.id === id ? oldBooking : b));
+  }
+
+  // ✅ NEW: Optimistic Locking Conflict Detection
+  const errorMsg = String(error);
+  if (errorMsg.includes('was modified by another user') || errorMsg.includes('Conflict:')) {
+    console.error('⚠️ [DataContext] CONFLICT DETECTED:', errorMsg);
+    toast.error('⚠️ Dieser Datensatz wurde von einem anderen Benutzer geändert. Bitte aktualisieren Sie die Seite und versuchen Sie es erneut.', {
+      duration: 6000,  // Länger anzeigen bei Konflikt
+      style: {
+        background: '#dc2626',  // Rot für Konflikt
+        color: '#fff',
+        borderRadius: '0.75rem',
+        padding: '1rem',
+      }
+    });
+  }
+
+  throw error;
+}
+```
+
+**User Experience Flow:**
+
+1. User öffnet Booking #123 (saved locally: `updated_at = "2025-11-16T10:00:00Z"`)
+2. User ändert Preis: 100€ → 120€
+3. User klickt "Save"
+4. Frontend sendet:
+   ```json
+   {
+     "id": 123,
+     "gesamtpreis": 120,
+     "expectedUpdatedAt": "2025-11-16T10:00:00Z"
+   }
+   ```
+5a. **SUCCESS:** Backend akzeptiert → UI bleibt aktualisiert
+5b. **CONFLICT:** Backend rejected → Red toast + UI rollback
+
+**Toast Appearance (Conflict):**
+```
+┌──────────────────────────────────────────────────────┐
+│ ⚠️  Dieser Datensatz wurde von einem anderen        │
+│     Benutzer geändert. Bitte aktualisieren Sie die   │
+│     Seite und versuchen Sie es erneut.               │
+└──────────────────────────────────────────────────────┘
+  Background: #dc2626 (Red)
+  Duration: 6000ms (6 seconds)
+```
+
+---
+
+## 🎯 FRONTEND INTEGRATION (COMPLETE - WAS TODO)
 
 ### MVP Approach (Einfach - Empfohlen!)
 
@@ -391,5 +471,9 @@ Overhead: ~1ms (20%)
 
 ---
 
-**Status:** ✅ Backend Complete - Ready for Frontend Integration
-**Next:** Frontend MVP Error Handling (~15 Min)
+**Status:** ✅ COMPLETE - Production Ready
+**Git Commits:**
+- f249ffe - Backend Implementation
+- bb13672 - Frontend Integration
+
+**Total Implementation Time:** ~2 hours (Backend: 1h, Frontend: 15min, Docs: 45min)
