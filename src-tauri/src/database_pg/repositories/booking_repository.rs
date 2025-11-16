@@ -115,7 +115,10 @@ impl BookingRepository {
         Ok(Booking::from(row))
     }
 
-    /// Update an existing booking
+    /// Update an existing booking with Optimistic Locking (2025 Best Practice)
+    ///
+    /// Uses `expected_updated_at` to detect if another user has modified the record.
+    /// Returns ConflictError if the record was changed by another user.
     #[allow(clippy::too_many_arguments)]
     pub async fn update(
         pool: &DbPool,
@@ -144,44 +147,87 @@ impl BookingRepository {
         payment_recipient_id: Option<i32>,
         putzplan_checkout_date: Option<String>,
         ist_dpolg_mitglied: Option<bool>,
+        expected_updated_at: Option<String>,  // ← NEW: Optimistic Locking parameter
     ) -> DbResult<Booking> {
         let client = pool.get().await?;
 
-        let row = client
-            .query_one(
-                "UPDATE bookings SET
-                    room_id = $2, guest_id = $3, reservierungsnummer = $4,
-                    checkin_date = $5, checkout_date = $6, anzahl_gaeste = $7,
-                    status = $8, gesamtpreis = $9, bemerkungen = $10,
-                    anzahl_begleitpersonen = $11, grundpreis = $12, services_preis = $13,
-                    rabatt_preis = $14, anzahl_naechte = $15, bezahlt = $16,
-                    bezahlt_am = $17, zahlungsmethode = $18, mahnung_gesendet_am = $19,
-                    rechnung_versendet_am = $20, rechnung_versendet_an = $21,
-                    ist_stiftungsfall = $22, payment_recipient_id = $23,
-                    putzplan_checkout_date = $24, ist_dpolg_mitglied = $25,
-                    updated_at = CURRENT_TIMESTAMP
-                 WHERE id = $1
-                 RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                           anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
-                           anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                           anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
-                           mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
-                           ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                           ist_dpolg_mitglied",
-                &[
-                    &id, &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
-                    &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
-                    &anzahl_begleitpersonen, &grundpreis, &services_preis, &rabatt_preis,
-                    &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
-                    &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
-                    &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
-                    &ist_dpolg_mitglied,
-                ],
-            )
-            .await
-            .map_err(|_| crate::database_pg::DbError::NotFound(format!("Booking with ID {} not found", id)))?;
+        // If expected_updated_at is provided, use optimistic locking
+        if let Some(expected_ts) = expected_updated_at {
+            // Try update with version check
+            let rows_affected = client
+                .execute(
+                    "UPDATE bookings SET
+                        room_id = $2, guest_id = $3, reservierungsnummer = $4,
+                        checkin_date = $5, checkout_date = $6, anzahl_gaeste = $7,
+                        status = $8, gesamtpreis = $9, bemerkungen = $10,
+                        anzahl_begleitpersonen = $11, grundpreis = $12, services_preis = $13,
+                        rabatt_preis = $14, anzahl_naechte = $15, bezahlt = $16,
+                        bezahlt_am = $17, zahlungsmethode = $18, mahnung_gesendet_am = $19,
+                        rechnung_versendet_am = $20, rechnung_versendet_an = $21,
+                        ist_stiftungsfall = $22, payment_recipient_id = $23,
+                        putzplan_checkout_date = $24, ist_dpolg_mitglied = $25,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1 AND updated_at = $26",  // ← VERSION CHECK!
+                    &[
+                        &id, &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
+                        &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
+                        &anzahl_begleitpersonen, &grundpreis, &services_preis, &rabatt_preis,
+                        &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
+                        &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
+                        &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
+                        &ist_dpolg_mitglied, &expected_ts,
+                    ],
+                )
+                .await?;
 
-        Ok(Booking::from(row))
+            // Check if update succeeded (rows_affected should be 1)
+            if rows_affected == 0 {
+                return Err(crate::database_pg::DbError::ConflictError(format!(
+                    "Booking {} was modified by another user. Please refresh and try again.",
+                    id
+                )));
+            }
+
+            // Return updated booking
+            Self::get_by_id(pool, id).await
+        } else {
+            // Fallback: Update without optimistic locking (for backward compatibility)
+            let row = client
+                .query_one(
+                    "UPDATE bookings SET
+                        room_id = $2, guest_id = $3, reservierungsnummer = $4,
+                        checkin_date = $5, checkout_date = $6, anzahl_gaeste = $7,
+                        status = $8, gesamtpreis = $9, bemerkungen = $10,
+                        anzahl_begleitpersonen = $11, grundpreis = $12, services_preis = $13,
+                        rabatt_preis = $14, anzahl_naechte = $15, bezahlt = $16,
+                        bezahlt_am = $17, zahlungsmethode = $18, mahnung_gesendet_am = $19,
+                        rechnung_versendet_am = $20, rechnung_versendet_an = $21,
+                        ist_stiftungsfall = $22, payment_recipient_id = $23,
+                        putzplan_checkout_date = $24, ist_dpolg_mitglied = $25,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1
+                     RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
+                               anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                               anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
+                               anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                               mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
+                               ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
+                               ist_dpolg_mitglied",
+                    &[
+                        &id, &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
+                        &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
+                        &anzahl_begleitpersonen, &grundpreis, &services_preis, &rabatt_preis,
+                        &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
+                        &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
+                        &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
+                        &ist_dpolg_mitglied,
+                    ],
+                )
+                .await
+                .map_err(|_| crate::database_pg::DbError::NotFound(format!("Booking with ID {} not found", id)))?;
+
+            Ok(Booking::from(row))
+        }
     }
 
     /// Delete a booking

@@ -19,6 +19,8 @@ pub enum DbError {
     ValidationError(String),
     /// Constraint violation (e.g., unique, foreign key)
     ConstraintViolation(String),
+    /// Optimistic locking conflict - record was modified by another user
+    ConflictError(String),
     /// General database error
     Other(String),
 }
@@ -31,6 +33,7 @@ impl fmt::Display for DbError {
             DbError::NotFound(msg) => write!(f, "Record not found: {}", msg),
             DbError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             DbError::ConstraintViolation(msg) => write!(f, "Constraint violation: {}", msg),
+            DbError::ConflictError(msg) => write!(f, "Conflict: {}", msg),
             DbError::Other(msg) => write!(f, "Database error: {}", msg),
         }
     }

@@ -444,6 +444,94 @@ async fn get_guest_count_pg(pool: State<'_, DbPool>) -> Result<i64, String> {
 }
 
 // ============================================================================
+// BOOKING COMMANDS (PostgreSQL) - WITH OPTIMISTIC LOCKING
+// ============================================================================
+
+/// Update booking with Optimistic Locking support (2025 Best Practice)
+///
+/// If `expected_updated_at` is provided, the update will only succeed if the record
+/// hasn't been modified by another user. Otherwise, returns a ConflictError.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn update_booking_pg(
+    pool: State<'_, DbPool>,
+    id: i32,
+    room_id: i32,
+    guest_id: i32,
+    reservierungsnummer: String,
+    checkin_date: String,
+    checkout_date: String,
+    anzahl_gaeste: i32,
+    status: String,
+    gesamtpreis: f64,
+    bemerkungen: Option<String>,
+    anzahl_begleitpersonen: Option<i32>,
+    grundpreis: Option<f64>,
+    services_preis: Option<f64>,
+    rabatt_preis: Option<f64>,
+    anzahl_naechte: Option<i32>,
+    bezahlt: Option<bool>,
+    bezahlt_am: Option<String>,
+    zahlungsmethode: Option<String>,
+    mahnung_gesendet_am: Option<String>,
+    rechnung_versendet_am: Option<String>,
+    rechnung_versendet_an: Option<String>,
+    ist_stiftungsfall: Option<bool>,
+    payment_recipient_id: Option<i32>,
+    putzplan_checkout_date: Option<String>,
+    ist_dpolg_mitglied: Option<bool>,
+    expected_updated_at: Option<String>,  // ← OPTIMISTIC LOCKING!
+) -> Result<database_pg::Booking, String> {
+    println!("update_booking_pg called: id={}, optimistic_locking={}",
+             id, expected_updated_at.is_some());
+
+    match BookingRepository::update(
+        &pool,
+        id,
+        room_id,
+        guest_id,
+        reservierungsnummer,
+        checkin_date,
+        checkout_date,
+        anzahl_gaeste,
+        status,
+        gesamtpreis,
+        bemerkungen,
+        anzahl_begleitpersonen,
+        grundpreis,
+        services_preis,
+        rabatt_preis,
+        anzahl_naechte,
+        bezahlt,
+        bezahlt_am,
+        zahlungsmethode,
+        mahnung_gesendet_am,
+        rechnung_versendet_am,
+        rechnung_versendet_an,
+        ist_stiftungsfall,
+        payment_recipient_id,
+        putzplan_checkout_date,
+        ist_dpolg_mitglied,
+        expected_updated_at,  // Pass through to repository
+    ).await {
+        Ok(booking) => {
+            println!("Successfully updated booking: {}", booking.reservierungsnummer);
+            Ok(booking)
+        }
+        Err(e) => {
+            // Check if it's a conflict error
+            let error_msg = e.to_string();
+            if error_msg.contains("was modified by another user") {
+                eprintln!("⚠️ CONFLICT: Booking {} was modified concurrently", id);
+            } else {
+                eprintln!("Error updating booking: {}", e);
+            }
+            Err(error_msg)
+        }
+    }
+}
+
+// ============================================================================
 // APPLICATION SETUP & RUN
 // ============================================================================
 
@@ -497,6 +585,9 @@ pub fn run_pg() {
             search_guests_pg,
             get_guests_by_membership_pg,
             get_guest_count_pg,
+
+            // Booking Management (PostgreSQL) - WITH OPTIMISTIC LOCKING
+            update_booking_pg,
 
             // Additional Services
             get_all_additional_services_pg,
