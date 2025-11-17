@@ -3,31 +3,31 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod config;
-mod database_pg;
-
-use config::AppConfig;
-use database_pg::{
-    DbPool,
-    RoomRepository,
-    GuestRepository,
-    BookingRepository,
-    AdditionalServiceRepository,
-    DiscountRepository,
-    EmailLogRepository,
-    ReminderRepository,
-    AccompanyingGuestRepository,
-    ServiceTemplateRepository,
-    DiscountTemplateRepository,
-    PaymentRecipientRepository,
-    CompanySettingsRepository,
-    PricingSettingsRepository,
-    EmailConfigRepository,
-    EmailTemplateRepository,
-    NotificationSettingsRepository,
-    PaymentSettingsRepository,
+use crate::config::AppConfig;
+use crate::database_pg::{
+    self,
+    pool::DbPool,
+    repositories::{
+        room_repository::RoomRepository,
+        guest_repository::GuestRepository,
+        booking_repository::BookingRepository,
+        additional_service_repository::AdditionalServiceRepository,
+        discount_repository::DiscountRepository,
+        email_log_repository::EmailLogRepository,
+        reminder_repository::ReminderRepository,
+        accompanying_guest_repository::AccompanyingGuestRepository,
+        service_template_repository::ServiceTemplateRepository,
+        discount_template_repository::DiscountTemplateRepository,
+        payment_recipient_repository::PaymentRecipientRepository,
+        company_settings_repository::CompanySettingsRepository,
+        pricing_settings_repository::PricingSettingsRepository,
+        email_config_repository::EmailConfigRepository,
+        email_template_repository::EmailTemplateRepository,
+        notification_settings_repository::NotificationSettingsRepository,
+        payment_settings_repository::PaymentSettingsRepository,
+    },
 };
-use tauri::State;
+use tauri::{Manager, State};
 
 // ============================================================================
 // ROOM MANAGEMENT COMMANDS (PostgreSQL Version)
@@ -587,6 +587,7 @@ pub fn run_pg() {
             get_guest_count_pg,
 
             // Booking Management (PostgreSQL) - WITH OPTIMISTIC LOCKING
+            get_all_bookings_pg,
             update_booking_pg,
 
             // Additional Services
@@ -628,6 +629,9 @@ pub fn run_pg() {
             complete_reminder_pg,
             snooze_reminder_pg,
             delete_reminder_pg,
+
+            // Payment Recipients
+            get_all_payment_recipients_pg,
 
             // Accompanying Guests
             get_all_accompanying_guests_pg,
@@ -699,6 +703,16 @@ pub fn run_pg() {
 }
 
 // ============================================================================
+// BOOKING READ COMMANDS (PostgreSQL)
+// ============================================================================
+
+#[tauri::command]
+async fn get_all_bookings_pg(pool: State<'_, DbPool>) -> Result<Vec<database_pg::Booking>, String> {
+    println!("get_all_bookings_pg called");
+    BookingRepository::get_all(&pool).await.map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // ADDITIONAL SERVICES COMMANDS
 // ============================================================================
 
@@ -736,6 +750,7 @@ async fn create_additional_service_pg(
 async fn update_additional_service_pg(
     pool: State<'_, DbPool>,
     id: i32,
+    booking_id: i32,
     service_name: String,
     service_price: f64,
     template_id: Option<i32>,
@@ -743,7 +758,7 @@ async fn update_additional_service_pg(
     original_value: f64,
     applies_to: String,
 ) -> Result<database_pg::AdditionalService, String> {
-    AdditionalServiceRepository::update(&pool, id, service_name, service_price, template_id, price_type, original_value, applies_to)
+    AdditionalServiceRepository::update(&pool, id, booking_id, service_name, service_price, template_id, price_type, original_value, applies_to)
         .await.map_err(|e| e.to_string())
 }
 
@@ -792,11 +807,12 @@ async fn create_discount_pg(
 async fn update_discount_pg(
     pool: State<'_, DbPool>,
     id: i32,
+    booking_id: i32,
     discount_name: String,
     discount_type: String,
     discount_value: f64,
 ) -> Result<database_pg::Discount, String> {
-    DiscountRepository::update(&pool, id, discount_name, discount_type, discount_value)
+    DiscountRepository::update(&pool, id, booking_id, discount_name, discount_type, discount_value)
         .await.map_err(|e| e.to_string())
 }
 

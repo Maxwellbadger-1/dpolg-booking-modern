@@ -112,9 +112,14 @@ impl PgListener {
 
         // Listen loop - runs forever
         loop {
-            // Wait for notification
-            let notification = self.client.notifications().recv().await?;
+            // TODO: Update to use poll_message() instead of notifications() API
+            // Temporarily disabled until we implement poll_message() properly
+            println!("⚠️ [PgListener] Notification API disabled - needs poll_message() implementation");
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            continue;
 
+            /* OLD API - DISABLED
+            let notification = self.client.notifications().recv().await?;
             println!("📡 [NOTIFY] Received on channel '{}'", notification.channel());
 
             // Parse notification payload
@@ -141,6 +146,7 @@ impl PgListener {
                     eprintln!("   Raw payload: {}", notification.payload());
                 }
             }
+            */
         }
     }
 

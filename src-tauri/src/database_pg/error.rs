@@ -10,9 +10,11 @@ use std::fmt;
 #[derive(Debug)]
 pub enum DbError {
     /// PostgreSQL query error
-    QueryError(tokio_postgres::Error),
+    QueryError(String),
     /// Connection pool error
     PoolError(String),
+    /// Connection error
+    ConnectionError(String),
     /// Record not found
     NotFound(String),
     /// Validation error
@@ -30,6 +32,7 @@ impl fmt::Display for DbError {
         match self {
             DbError::QueryError(e) => write!(f, "Database query error: {}", e),
             DbError::PoolError(e) => write!(f, "Connection pool error: {}", e),
+            DbError::ConnectionError(e) => write!(f, "Connection error: {}", e),
             DbError::NotFound(msg) => write!(f, "Record not found: {}", msg),
             DbError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             DbError::ConstraintViolation(msg) => write!(f, "Constraint violation: {}", msg),
@@ -49,10 +52,10 @@ impl From<tokio_postgres::Error> for DbError {
             match code.code() {
                 "23505" => DbError::ConstraintViolation("Unique constraint violated".to_string()),
                 "23503" => DbError::ConstraintViolation("Foreign key constraint violated".to_string()),
-                _ => DbError::QueryError(err),
+                _ => DbError::QueryError(err.to_string()),
             }
         } else {
-            DbError::QueryError(err)
+            DbError::QueryError(err.to_string())
         }
     }
 }

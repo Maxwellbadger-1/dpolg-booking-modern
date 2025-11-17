@@ -42,7 +42,7 @@ export default function EmailConfigDialog({ isOpen, onClose }: EmailConfigDialog
 
   const loadConfig = async () => {
     try {
-      const config = await invoke<EmailConfig>('get_email_config_command');
+      const config = await invoke<EmailConfig>('get_email_config_pg');
       setSmtpServer(config.smtp_server);
       setSmtpPort(config.smtp_port);
       setSmtpUsername(config.smtp_username);
@@ -62,7 +62,7 @@ export default function EmailConfigDialog({ isOpen, onClose }: EmailConfigDialog
     setError(null);
 
     try {
-      await invoke('save_email_config_command', {
+      await invoke('update_email_config_pg', {
         smtpServer,
         smtpPort,
         smtpUsername,

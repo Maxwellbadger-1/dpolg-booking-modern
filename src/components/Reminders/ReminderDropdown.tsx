@@ -24,7 +24,7 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
   const loadUrgentReminders = async () => {
     setLoading(true);
     try {
-      const reminders = await invoke<Reminder[]>('get_urgent_reminders_command');
+      const reminders = await invoke<Reminder[]>('get_active_reminders_pg');
       // Nur die nächsten 5 anzeigen
       setUrgentReminders(reminders.slice(0, 5));
     } catch (error) {
@@ -37,7 +37,7 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
   const handleMarkCompleted = async (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await invoke('mark_reminder_completed_command', { id, completed: true });
+      await invoke('complete_reminder_pg', { id, completed: true });
       // Reload reminders
       await loadUrgentReminders();
       // Trigger refresh für Badge count

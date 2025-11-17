@@ -180,7 +180,7 @@ export default function DevTools() {
 
   const testAddService = async (bookingId: number) => {
     try {
-      const service = await invoke('add_service_command', {
+      const service = await invoke('create_additional_service_pg', {
         bookingId: bookingId,
         serviceName: 'Frühstück',
         servicePrice: 10.0,
@@ -193,7 +193,7 @@ export default function DevTools() {
 
   const testGetBookingServices = async (bookingId: number) => {
     try {
-      const services = await invoke('get_booking_services_command', { bookingId: bookingId });
+      const services = await invoke('get_additional_services_by_booking_pg', { bookingId: bookingId });
       addResult('Get Services', 'success', `${Array.isArray(services) ? services.length : 0} Services gefunden`, services);
     } catch (error) {
       addResult('Get Services', 'error', String(error));
@@ -272,7 +272,7 @@ export default function DevTools() {
 
   const testGetEmailTemplates = async () => {
     try {
-      const templates = await invoke('get_all_templates_command');
+      const templates = await invoke('get_all_email_templates_pg');
       addResult('Get Email Templates', 'success', `${Array.isArray(templates) ? templates.length : 0} Templates gefunden`, templates);
     } catch (error) {
       addResult('Get Email Templates', 'error', String(error));
@@ -281,7 +281,7 @@ export default function DevTools() {
 
   const testGetEmailConfig = async () => {
     try {
-      const config = await invoke('get_email_config_command');
+      const config = await invoke('get_email_config_pg');
       addResult('Get Email Config', 'success', 'Email-Konfiguration geladen', config);
     } catch (error) {
       addResult('Get Email Config', 'error', 'Keine Konfiguration vorhanden (ist ok beim ersten Start)');
@@ -299,7 +299,7 @@ export default function DevTools() {
 
   const testGetEmailLogs = async (bookingId: number) => {
     try {
-      const logs = await invoke('get_email_logs_for_booking_command', { bookingId });
+      const logs = await invoke('get_email_logs_by_booking_pg', { bookingId });
       addResult('Get Email Logs', 'success', `${Array.isArray(logs) ? logs.length : 0} Email-Logs gefunden`, logs);
     } catch (error) {
       addResult('Get Email Logs', 'error', String(error));

@@ -21,7 +21,7 @@ export default function DiscountTemplateList() {
     setLoading(true);
     setError(null);
     try {
-      const data = await invoke<DiscountTemplate[]>('get_all_discount_templates_command');
+      const data = await invoke<DiscountTemplate[]>('get_all_discount_templates_pg');
       setTemplates(data);
     } catch (err) {
       console.error('Fehler beim Laden der Rabatte:', err);
@@ -49,7 +49,7 @@ export default function DiscountTemplateList() {
     if (!deleteDialog.id) return;
 
     try {
-      await invoke('delete_discount_template_command', { id: deleteDialog.id });
+      await invoke('delete_discount_template_pg', { id: deleteDialog.id });
       setDeleteDialog({ open: false, id: null });
       loadTemplates();
     } catch (err) {

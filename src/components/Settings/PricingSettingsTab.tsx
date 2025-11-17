@@ -36,7 +36,7 @@ export default function PricingSettingsTab() {
   const loadSettings = async () => {
     try {
       setLoading(true);
-      const result = await invoke<PricingSettings>('get_pricing_settings_command');
+      const result = await invoke<PricingSettings>('get_pricing_settings_pg');
       setSettings(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fehler beim Laden der Einstellungen');
@@ -49,7 +49,7 @@ export default function PricingSettingsTab() {
     try {
       setSaving(true);
       setError(null);
-      await invoke('save_pricing_settings_command', { settings });
+      await invoke('update_pricing_settings_pg', { settings });
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {

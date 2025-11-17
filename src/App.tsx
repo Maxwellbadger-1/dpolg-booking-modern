@@ -239,7 +239,7 @@ function AppContent() {
 
   const loadUrgentReminderCount = async () => {
     try {
-      const reminders = await invoke<any[]>('get_urgent_reminders_command');
+      const reminders = await invoke<any[]>('get_active_reminders_pg');
       setUrgentReminderCount(reminders.length);
     } catch (error) {
       console.error('Fehler beim Laden der dringenden Erinnerungen:', error);

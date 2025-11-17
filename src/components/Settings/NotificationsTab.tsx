@@ -59,7 +59,7 @@ export default function NotificationsTab() {
   const loadSettings = async () => {
     try {
       setLoading(true);
-      const data = await invoke<NotificationSettings>('get_notification_settings_command');
+      const data = await invoke<NotificationSettings>('get_notification_settings_pg');
       setSettings(data);
       setError(null);
     } catch (err) {
@@ -87,7 +87,7 @@ export default function NotificationsTab() {
 
     try {
       // Save email notification settings
-      const updated = await invoke<NotificationSettings>('save_notification_settings_command', { settings });
+      const updated = await invoke<NotificationSettings>('update_notification_settings_pg', { settings });
       setSettings(updated);
 
       // Save reminder settings

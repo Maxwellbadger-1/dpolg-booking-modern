@@ -56,7 +56,7 @@ export default function GeneralSettingsTab() {
   const loadSettings = async () => {
     setLoadingData(true);
     try {
-      const data = await invoke<CompanySettings>('get_company_settings_command');
+      const data = await invoke<CompanySettings>('get_company_settings_pg');
       setSettings(data);
 
       // Formular befüllen
@@ -218,7 +218,7 @@ export default function GeneralSettingsTab() {
         updated_at: new Date().toISOString(),
       };
 
-      const result = await invoke<CompanySettings>('save_company_settings_command', {
+      const result = await invoke<CompanySettings>('update_company_settings_pg', {
         settings: updatedSettings,
       });
 

@@ -34,7 +34,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     try {
       setLoading(true);
       // Lade IMMER alle Reminders (inkl. completed), Filter nur für Anzeige
-      const data = await invoke<Reminder[]>('get_all_reminders_command', { includeCompleted: true });
+      const data = await invoke<Reminder[]>('get_all_reminders_pg', { includeCompleted: true });
       setAllReminders(data);
     } catch (error) {
       console.error('Fehler beim Laden der Erinnerungen:', error);
@@ -45,7 +45,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
 
   const handleCreateReminder = async (data: CreateReminderData) => {
     try {
-      await invoke('create_reminder_command', {
+      await invoke('create_reminder_pg', {
         bookingId: data.booking_id,
         reminderType: data.reminder_type,
         title: data.title,
@@ -64,7 +64,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
 
   const handleUpdateReminder = async (id: number, data: UpdateReminderData) => {
     try {
-      await invoke('update_reminder_command', {
+      await invoke('update_reminder_pg', {
         id,
         title: data.title,
         description: data.description || null,
@@ -96,7 +96,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     try {
       // 3. Backend Update
       console.log('📤 [RemindersView] Calling backend mark_reminder_completed_command');
-      await invoke('mark_reminder_completed_command', { id, completed });
+      await invoke('complete_reminder_pg', { id, completed });
       console.log('✅ [RemindersView] Backend update successful');
 
       // 4. Final refresh für Konsistenz
@@ -120,7 +120,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     if (!deleteDialogReminder) return;
 
     try {
-      await invoke('delete_reminder_command', { id: deleteDialogReminder.id });
+      await invoke('delete_reminder_pg', { id: deleteDialogReminder.id });
       await loadReminders();
       setDeleteDialogReminder(null);
       window.dispatchEvent(new CustomEvent('reminder-updated'));

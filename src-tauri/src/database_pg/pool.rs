@@ -8,21 +8,21 @@ pub type DbPool = Pool;
 /// Configuration (2025 Best Practices):
 /// - Connection pooling via deadpool-postgres
 /// - Fast connection recycling
-/// - pgBouncer-aware (transaction pooling mode)
+/// - Direct PostgreSQL connection (no pgBouncer for now)
 /// - Auto-reconnect on connection loss
 pub fn create_pool() -> Result<Pool, Box<dyn std::error::Error>> {
     let mut cfg = Config::new();
 
-    // Production PostgreSQL Server (Oracle Cloud via pgBouncer)
+    // Production PostgreSQL Server (Oracle Cloud - DIRECT connection)
     cfg.host = Some("141.147.3.123".to_string());
-    cfg.port = Some(6432); // pgBouncer port (transaction pooling)
+    cfg.port = Some(5432); // Direct PostgreSQL port (not pgBouncer)
     cfg.dbname = Some("dpolg_booking".to_string());
     cfg.user = Some("dpolg_admin".to_string());
     cfg.password = Some("DPolG2025SecureBooking".to_string());
 
-    // Pool configuration (optimized for pgBouncer)
+    // Pool configuration
     cfg.manager = Some(ManagerConfig {
-        recycling_method: RecyclingMethod::Fast, // Fast recycling for transaction pooling
+        recycling_method: RecyclingMethod::Fast,
     });
 
     // Application name (visible in pg_stat_activity)
@@ -31,13 +31,14 @@ pub fn create_pool() -> Result<Pool, Box<dyn std::error::Error>> {
     // Connection timeout
     cfg.connect_timeout = Some(std::time::Duration::from_secs(10));
 
-    // Create pool (max 20 connections - matches pgBouncer default_pool_size)
+    // Create pool WITHOUT TLS (for testing)
     let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls)?;
 
     println!("✅ PostgreSQL connection pool created");
-    println!("   Host: 141.147.3.123:6432 (pgBouncer)");
+    println!("   Host: 141.147.3.123:5432 (Direct PostgreSQL)");
     println!("   Database: dpolg_booking");
-    println!("   Max connections: 20 (pool) + 100 (pgBouncer)");
+    println!("   Max connections: 20");
+    println!("   TLS: Disabled (testing mode)");
 
     Ok(pool)
 }

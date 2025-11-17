@@ -387,15 +387,15 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       setBooking(bookingData);
 
       // Load accompanying guests
-      const guestsData = await invoke<AccompanyingGuest[]>('get_booking_accompanying_guests_command', { bookingId });
+      const guestsData = await invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', { bookingId });
       setAccompanyingGuests(guestsData);
 
       // Load services
-      const servicesData = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId });
+      const servicesData = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId });
       setServices(servicesData);
 
       // Load discounts
-      const discountsData = await invoke<Discount[]>('get_booking_discounts_command', { bookingId });
+      const discountsData = await invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId });
       setDiscounts(discountsData);
 
       // Load guest credit usage (credit already used for this booking)
@@ -471,9 +471,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       // Load accompanying guests, services, discounts
       if (bookingData.id) {
         const [guestsData, servicesData, discountsData] = await Promise.all([
-          invoke<AccompanyingGuest[]>('get_booking_accompanying_guests_command', { bookingId: bookingData.id }),
-          invoke<AdditionalService[]>('get_booking_services_command', { bookingId: bookingData.id }),
-          invoke<Discount[]>('get_booking_discounts_command', { bookingId: bookingData.id }),
+          invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', { bookingId: bookingData.id }),
+          invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: bookingData.id }),
+          invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId: bookingData.id }),
         ]);
 
         setAccompanyingGuests(guestsData);
@@ -521,8 +521,8 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const loadTemplates = async () => {
     try {
       const [servicesData, discountsData] = await Promise.all([
-        invoke<any[]>('get_active_service_templates_command'),
-        invoke<any[]>('get_active_discount_templates_command'),
+        invoke<any[]>('get_active_service_templates_pg'),
+        invoke<any[]>('get_active_discount_templates_pg'),
       ]);
       setServiceTemplates(servicesData);
       setDiscountTemplates(discountsData);
@@ -772,7 +772,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         // Save accompanying guests
         if (accompanyingGuests.length > 0 && result.id) {
           for (const guest of accompanyingGuests) {
-            await invoke('add_accompanying_guest_command', {
+            await invoke('create_accompanying_guest_pg', {
               bookingId: result.id,
               vorname: guest.vorname,
               nachname: guest.nachname,
@@ -792,7 +792,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
               });
             } else {
               // Manuelle Services sind immer "fixed" (Festbetrag)
-              await invoke('add_service_command', {
+              await invoke('create_additional_service_pg', {
                 bookingId: result.id,
                 serviceName: service.service_name,
                 servicePrice: service.service_price,
@@ -813,7 +813,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 discountTemplateId: discount.template_id,
               });
             } else {
-              await invoke('add_discount_command', {
+              await invoke('create_discount_pg', {
                 bookingId: result.id,
                 discountName: discount.discount_name,
                 discountType: discount.discount_type,
@@ -2172,7 +2172,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             type="button"
                             onClick={async () => {
                               try {
-                                await invoke('create_service_template_command', {
+                                await invoke('create_service_template_pg', {
                                   name: service.service_name,
                                   description: null,
                                   price: service.service_price,
@@ -2197,13 +2197,13 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                               if (service.id && booking?.id) {
                                 try {
                                   // 1. Service vom Backend löschen
-                                  await invoke('delete_service_command', { serviceId: service.id });
+                                  await invoke('delete_additional_service_pg', { serviceId: service.id });
 
                                   // 2. Buchung NEU laden (inkl. aktualisierte Services mit Emojis)
                                   await reloadBooking(booking.id);
 
                                   // 3. Lokalen Sidebar-State aktualisieren
-                                  const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                                  const updatedServices = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: booking.id });
                                   setServices(updatedServices);
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
@@ -2277,7 +2277,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                   await reloadBooking(booking.id);
 
                                   // 3. Lokalen Sidebar-State aktualisieren
-                                  const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                                  const updatedServices = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: booking.id });
                                   setServices(updatedServices);
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
@@ -2354,7 +2354,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       if (booking?.id) {
                         try {
                           // 1. Service zum Backend hinzufügen (manuelle Services sind immer "fixed")
-                          await invoke('add_service_command', {
+                          await invoke('create_additional_service_pg', {
                             bookingId: booking.id,
                             serviceName: newService.service_name,
                             servicePrice: newService.service_price,
@@ -2367,7 +2367,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           await reloadBooking(booking.id);
 
                           // 3. Lokalen Sidebar-State aktualisieren
-                          const updatedServices = await invoke<AdditionalService[]>('get_booking_services_command', { bookingId: booking.id });
+                          const updatedServices = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: booking.id });
                           setServices(updatedServices);
 
                           setNewService({ service_name: '', service_price: 0 });
@@ -2420,7 +2420,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             type="button"
                             onClick={async () => {
                               try {
-                                await invoke('create_discount_template_command', {
+                                await invoke('create_discount_template_pg', {
                                   name: discount.discount_name,
                                   description: null,
                                   discountType: discount.discount_type,
@@ -2441,8 +2441,8 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             type="button"
                             onClick={() => {
                               if (discount.id && booking?.id) {
-                                invoke('delete_discount_command', { discountId: discount.id }).then(() => {
-                                  invoke<Discount[]>('get_booking_discounts_command', { bookingId: booking.id }).then(setDiscounts);
+                                invoke('delete_discount_pg', { discountId: discount.id }).then(() => {
+                                  invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId: booking.id }).then(setDiscounts);
                                 });
                               } else {
                                 setDiscounts(discounts.filter((_, i) => i !== index));
@@ -2534,13 +2534,13 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       }
 
                       if (booking?.id) {
-                        invoke('add_discount_command', {
+                        invoke('create_discount_pg', {
                           bookingId: booking.id,
                           discountName: newDiscount.discount_name,
                           discountType: newDiscount.discount_type,
                           discountValue: newDiscount.discount_value,
                         }).then(() => {
-                          invoke<Discount[]>('get_booking_discounts_command', { bookingId: booking.id! }).then(setDiscounts);
+                          invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId: booking.id! }).then(setDiscounts);
                           setNewDiscount({ discount_name: '', discount_type: 'percent', discount_value: 0 });
                           setError(null);
                         });

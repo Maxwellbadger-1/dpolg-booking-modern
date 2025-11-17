@@ -17,14 +17,26 @@ pub use listener::{DbChangeEvent, EventSender, EventReceiver, start_listener_bac
 
 /// Initialize PostgreSQL connection pool and verify connection
 pub async fn init_database() -> DbResult<DbPool> {
+    println!("🔄 Creating PostgreSQL connection pool...");
     let pool = pool::create_pool()?;
 
+    println!("🔄 Testing connection with query...");
     // Test connection
-    let client = pool.get().await?;
-    let version: String = client
+    let client = pool.get().await.map_err(|e| {
+        eprintln!("❌ Failed to get connection from pool: {}", e);
+        DbError::ConnectionError(format!("Pool get failed: {}", e))
+    })?;
+
+    println!("🔄 Executing SELECT version()...");
+    let row = client
         .query_one("SELECT version()", &[])
-        .await?
-        .get(0);
+        .await
+        .map_err(|e| {
+            eprintln!("❌ Query failed: {}", e);
+            DbError::QueryError(format!("SELECT version() failed: {}", e))
+        })?;
+
+    let version: String = row.get(0);
 
     println!("✅ Connected to PostgreSQL");
     println!("   {}", version);

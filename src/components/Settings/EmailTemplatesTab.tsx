@@ -28,7 +28,7 @@ export default function EmailTemplatesTab() {
 
   const loadTemplates = async () => {
     try {
-      const result = await invoke<EmailTemplate[]>('get_all_templates_command');
+      const result = await invoke<EmailTemplate[]>('get_all_email_templates_pg');
       console.log('═══════════════════════════════════════');
       console.log('📧 Loaded Email Templates:', JSON.stringify(result, null, 2));
       console.log('📊 Count:', result.length);

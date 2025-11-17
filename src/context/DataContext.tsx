@@ -75,7 +75,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   // Refresh Functions
   const refreshRooms = useCallback(async () => {
     try {
-      const data = await invoke<Room[]>('get_all_rooms');
+      const data = await invoke<Room[]>('get_all_rooms_pg');
       setRooms(data);
     } catch (error) {
       console.error('Fehler beim Laden der Zimmer:', error);
@@ -85,7 +85,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refreshGuests = useCallback(async () => {
     try {
-      const data = await invoke<Guest[]>('get_all_guests_command');
+      const data = await invoke<Guest[]>('get_all_guests_pg');
       setGuests(data);
     } catch (error) {
       console.error('Fehler beim Laden der Gäste:', error);
@@ -95,7 +95,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refreshBookings = useCallback(async () => {
     try {
-      const data = await invoke<Booking[]>('get_all_bookings');
+      const data = await invoke<Booking[]>('get_all_bookings_pg');
       setBookings(data);
     } catch (error) {
       console.error('Fehler beim Laden der Buchungen:', error);
@@ -105,7 +105,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refreshPaymentRecipients = useCallback(async () => {
     try {
-      const data = await invoke<PaymentRecipient[]>('get_payment_recipients');
+      const data = await invoke<PaymentRecipient[]>('get_all_payment_recipients_pg');
       setPaymentRecipients(data);
     } catch (error) {
       console.error('Fehler beim Laden der Rechnungsempfänger:', error);

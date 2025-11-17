@@ -60,7 +60,7 @@ export default function CompanionSelector({ guestId, bookingId, roomCapacity, on
   const loadBookingCompanions = async () => {
     if (!bookingId) return;
     try {
-      const result = await invoke<AccompanyingGuest[]>('get_booking_accompanying_guests_command', { bookingId });
+      const result = await invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', { bookingId });
       // Markiere Begleitpersonen, die bereits zur Buchung gehören
       const companionIds = new Set(result.filter(ag => ag.companion_id).map(ag => ag.companion_id!));
       setSelectedCompanionIds(companionIds);
@@ -118,7 +118,7 @@ export default function CompanionSelector({ guestId, bookingId, roomCapacity, on
     if (!confirm('Begleitperson wirklich aus dem Pool löschen?')) return;
 
     try {
-      await invoke('delete_guest_companion_command', { id });
+      await invoke('delete_accompanying_guest_pg', { id });
       setCompanions(companions.filter(c => c.id !== id));
       selectedCompanionIds.delete(id);
       setSelectedCompanionIds(new Set(selectedCompanionIds));

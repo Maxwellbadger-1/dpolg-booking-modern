@@ -88,7 +88,7 @@ export default function DiscountTemplateDialog({
     try {
       if (template?.id) {
         // Update existing template
-        await invoke('update_discount_template_command', {
+        await invoke('update_discount_template_pg', {
           id: template.id,
           name: formData.name,
           description: formData.description || null,
@@ -102,7 +102,7 @@ export default function DiscountTemplateDialog({
         });
       } else {
         // Create new template
-        await invoke('create_discount_template_command', {
+        await invoke('create_discount_template_pg', {
           name: formData.name,
           description: formData.description || null,
           discountType: formData.discount_type,

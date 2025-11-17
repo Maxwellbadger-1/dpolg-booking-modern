@@ -159,19 +159,19 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       setBooking(bookingData);
 
       // Load accompanying guests
-      const guestsData = await invoke<AccompanyingGuest[]>('get_booking_accompanying_guests_command', {
+      const guestsData = await invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', {
         bookingId,
       });
       setAccompanyingGuests(guestsData);
 
       // Load services
-      const servicesData = await invoke<AdditionalService[]>('get_booking_services_command', {
+      const servicesData = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', {
         bookingId,
       });
       setServices(servicesData);
 
       // Load discounts
-      const discountsData = await invoke<Discount[]>('get_booking_discounts_command', {
+      const discountsData = await invoke<Discount[]>('get_discounts_by_booking_pg', {
         bookingId,
       });
       setDiscounts(discountsData);

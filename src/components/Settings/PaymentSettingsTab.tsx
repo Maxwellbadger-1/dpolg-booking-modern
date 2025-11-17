@@ -36,7 +36,7 @@ export default function PaymentSettingsTab() {
   const loadSettings = async () => {
     setLoadingData(true);
     try {
-      const data = await invoke<PaymentSettings>('get_payment_settings_command');
+      const data = await invoke<PaymentSettings>('get_payment_settings_pg');
       setSettings(data);
 
       // Formular befüllen
@@ -75,7 +75,7 @@ export default function PaymentSettingsTab() {
         updated_at: new Date().toISOString(),
       };
 
-      const result = await invoke<PaymentSettings>('save_payment_settings_command', {
+      const result = await invoke<PaymentSettings>('update_payment_settings_pg', {
         settings: updatedSettings,
       });
 

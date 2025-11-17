@@ -157,7 +157,7 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       for (const booking of guestBookings) {
         try {
           const accompanyingGuests = await invoke<AccompanyingGuest[]>(
-            'get_booking_accompanying_guests_command',
+            'get_accompanying_guests_by_booking_pg',
             { bookingId: booking.id }
           );
 
@@ -196,9 +196,9 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       if (!bookingDetails[bookingId]) {
         try {
           const [services, accompanyingGuests, discounts] = await Promise.all([
-            invoke<AdditionalService[]>('get_booking_services_command', { bookingId }),
-            invoke<AccompanyingGuest[]>('get_booking_accompanying_guests_command', { bookingId }),
-            invoke<Discount[]>('get_booking_discounts_command', { bookingId }),
+            invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId }),
+            invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', { bookingId }),
+            invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId }),
           ]);
 
           setBookingDetails(prev => ({

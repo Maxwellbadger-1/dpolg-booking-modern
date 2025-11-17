@@ -20,7 +20,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
   const loadReminders = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await invoke<Reminder[]>('get_reminders_for_booking_command', { bookingId });
+      const data = await invoke<Reminder[]>('get_reminders_by_booking_pg', { bookingId });
       setReminders(data);
     } catch (error) {
       console.error('Fehler beim Laden der Erinnerungen:', error);
@@ -85,7 +85,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
     console.log('🔄 [BookingReminders] Reloading from backend...');
     try {
       setLoading(true);
-      const data = await invoke<Reminder[]>('get_reminders_for_booking_command', { bookingId });
+      const data = await invoke<Reminder[]>('get_reminders_by_booking_pg', { bookingId });
       console.log('✅ [BookingReminders] Backend reload complete - reminders:', data.length);
       setReminders(data);
     } catch (error) {
@@ -97,7 +97,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
   const handleCreateReminder = async (data: CreateReminderData) => {
     try {
-      await invoke('create_reminder_command', {
+      await invoke('create_reminder_pg', {
         bookingId: data.booking_id,
         reminderType: data.reminder_type,
         title: data.title,
@@ -116,7 +116,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
   const handleUpdateReminder = async (id: number, data: UpdateReminderData) => {
     try {
-      await invoke('update_reminder_command', {
+      await invoke('update_reminder_pg', {
         id,
         title: data.title,
         description: data.description || null,
@@ -144,7 +144,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
     try {
       // 3. Backend Update
-      await invoke('mark_reminder_completed_command', { id, completed: true });
+      await invoke('complete_reminder_pg', { id, completed: true });
 
       // 4. Final refresh für Konsistenz
       await loadReminders();
@@ -159,7 +159,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
   const handleMarkUncompleted = async (id: number) => {
     try {
-      await invoke('mark_reminder_completed_command', { id, completed: false });
+      await invoke('complete_reminder_pg', { id, completed: false });
       await loadReminders();
       window.dispatchEvent(new CustomEvent('reminder-updated'));
     } catch (error) {
@@ -171,7 +171,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
     if (!confirm('Erinnerung wirklich löschen?')) return;
 
     try {
-      await invoke('delete_reminder_command', { id });
+      await invoke('delete_reminder_pg', { id });
       await loadReminders();
       window.dispatchEvent(new CustomEvent('reminder-updated'));
     } catch (error) {

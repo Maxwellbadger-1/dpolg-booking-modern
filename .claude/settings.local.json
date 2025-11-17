@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run tauri:*)"
+      "Bash(npm run tauri:*)",
+      "Bash(killall:*)",
+      "Bash(npm run tauri:dev:*)"
     ],
     "deny": [],
     "ask": []

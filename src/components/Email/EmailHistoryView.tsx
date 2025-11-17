@@ -108,7 +108,7 @@ export default function EmailHistoryView() {
     setLoading(true);
     setError(null);
     try {
-      const logs = await invoke<EmailLog[]>('get_all_email_logs_command');
+      const logs = await invoke<EmailLog[]>('get_all_email_logs_pg');
       setEmailLogs(logs);
       setShowingAllEmails(true);
     } catch (err) {
@@ -257,7 +257,7 @@ export default function EmailHistoryView() {
 
     try {
       // Backend sync (fire-and-forget, runs in background)
-      await invoke('delete_email_log_command', { logId: deleteDialog.log.id });
+      await invoke('delete_email_log_pg', { logId: deleteDialog.log.id });
     } catch (err) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();

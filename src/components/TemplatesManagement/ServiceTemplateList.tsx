@@ -21,7 +21,7 @@ export default function ServiceTemplateList() {
     setLoading(true);
     setError(null);
     try {
-      const data = await invoke<ServiceTemplate[]>('get_all_service_templates_command');
+      const data = await invoke<ServiceTemplate[]>('get_all_service_templates_pg');
       setTemplates(data);
     } catch (err) {
       console.error('Fehler beim Laden der Zusatzleistungen:', err);
@@ -49,7 +49,7 @@ export default function ServiceTemplateList() {
     if (!deleteDialog.id) return;
 
     try {
-      await invoke('delete_service_template_command', { id: deleteDialog.id });
+      await invoke('delete_service_template_pg', { id: deleteDialog.id });
       setDeleteDialog({ open: false, id: null });
       loadTemplates();
     } catch (err) {
