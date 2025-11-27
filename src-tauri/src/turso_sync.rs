@@ -83,6 +83,22 @@ pub async fn sync_tasks_to_turso(
 
     println!("📋 Found {} tasks in PostgreSQL", tasks.len());
 
+    // 🔍 DEBUG: Check for duplicate IDs in PostgreSQL result
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut duplicate_count = 0;
+    for task in &tasks {
+        if !seen_ids.insert(task.id) {
+            duplicate_count += 1;
+            println!("⚠️ DUPLICATE ID in PostgreSQL result: {} (room: {:?}, date: {})",
+                task.id, task.room_number, task.task_date);
+        }
+    }
+    if duplicate_count > 0 {
+        println!("🚨 WARNING: {} duplicate IDs found in PostgreSQL query result!", duplicate_count);
+    } else {
+        println!("✅ No duplicate IDs in PostgreSQL result");
+    }
+
     if tasks.is_empty() {
         println!("⚠️ No tasks to sync");
         return Ok(0);
