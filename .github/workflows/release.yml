@@ -1,10 +1,12 @@
 name: Release Build
 
+# DEAKTIVIERT: Automatischer Build bei Tag-Push schlägt fehl wegen headless_chrome
+# Releases werden lokal gebaut mit quick-release.ps1 (Windows) oder quick-release.sh (Mac)
 on:
-  push:
-    tags:
-      - 'v*.*.*'  # Trigger on version tags (v1.6.0, v1.7.0, etc.)
-  workflow_dispatch:  # Manual trigger
+  # push:
+  #   tags:
+  #     - 'v*.*.*'  # Trigger on version tags (v1.6.0, v1.7.0, etc.)
+  workflow_dispatch:  # Manual trigger only
     inputs:
       version:
         description: 'Version to build (e.g., 1.6.0)'
