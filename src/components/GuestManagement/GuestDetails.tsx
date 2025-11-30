@@ -6,6 +6,8 @@ import {
   Users as UsersIcon, ShoppingBag, Tag, CheckCircle, AlertCircle, Search
 } from 'lucide-react';
 import { formatDate } from '../../utils/dateFormatting';
+import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
+import { useData } from '../../context/DataContext';
 
 interface GuestDetailsProps {
   guestId: number;
@@ -83,7 +85,7 @@ interface Booking {
   bezahlt: boolean;
   bezahlt_am?: string;
   zahlungsmethode?: string;
-  room: Room;
+  // NORMALIZED STATE: No nested room object! Use roomMap.get(booking.room_id)
 }
 
 interface AdditionalService {
@@ -114,6 +116,9 @@ interface AccompanyingGuestWithBooking extends AccompanyingGuest {
 }
 
 export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: GuestDetailsProps) {
+  // NORMALIZED STATE: Get roomMap for O(1) lookups
+  const { roomMap } = useData();
+
   const [guest, setGuest] = useState<Guest | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +138,10 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
   const [yearFilter, setYearFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
 
+  // Batch price calculation for all bookings
+  const bookingIds = useMemo(() => bookings.map(b => b.id), [bookings]);
+  const { priceMap } = useBatchPriceCalculation(bookingIds);
+
   useEffect(() => {
     if (isOpen && guestId) {
       loadGuestDetails();
@@ -144,11 +153,11 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
       setLoading(true);
 
       // Load guest
-      const guestData = await invoke<Guest>('get_guest_by_id_command', { id: guestId });
+      const guestData = await invoke<Guest>('get_guest_by_id_pg', { id: guestId });
       setGuest(guestData);
 
       // Load guest's bookings
-      const allBookings = await invoke<Booking[]>('get_all_bookings');
+      const allBookings = await invoke<Booking[]>('get_all_bookings_pg');
       const guestBookings = allBookings.filter(b => b.guest_id === guestId);
       setBookings(guestBookings);
 
@@ -237,7 +246,7 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
   const cancelledBookings = bookings.filter(b => b.status === 'storniert').length;
   const totalRevenue = bookings
     .filter(b => b.status !== 'storniert')
-    .reduce((sum, b) => sum + b.gesamtpreis, 0);
+    .reduce((sum, b) => sum + getBookingPrice(priceMap, b.id).total, 0);
   const lastBooking = bookings.length > 0
     ? bookings.sort((a, b) => new Date(b.checkin_date).getTime() - new Date(a.checkin_date).getTime())[0]
     : null;
@@ -807,13 +816,17 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                         const matchesYear = yearFilter === 'all' || bookingYear === yearFilter;
 
                         // Location Filter
-                        const matchesLocation = locationFilter === 'all' || booking.room?.ort === locationFilter;
+                        // NORMALIZED STATE: Look up room from Map
+                        const room = roomMap.get(booking.room_id);
+                        const matchesLocation = locationFilter === 'all' || room?.ort === locationFilter;
 
                         return matchesSearch && matchesStatus && matchesYear && matchesLocation;
                       })
                       .map((booking) => {
                         const isExpanded = expandedBookings.has(booking.id);
                         const details = bookingDetails[booking.id];
+                        // NORMALIZED STATE: Look up room from Map
+                        const bookingRoom = roomMap.get(booking.room_id);
 
                         return (
                           <div
@@ -837,19 +850,19 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                                   )}
                                 </div>
                                 <div className="flex items-center gap-4 text-sm text-slate-600">
-                                  <span>{booking.room.name}</span>
+                                  <span>{bookingRoom?.name || 'Unbekannt'}</span>
                                   <span>•</span>
                                   <span>
                                     {format(new Date(booking.checkin_date), 'dd.MM.yyyy', { locale: de })} -{' '}
                                     {format(new Date(booking.checkout_date), 'dd.MM.yyyy', { locale: de })}
                                   </span>
                                   <span>•</span>
-                                  <span>{booking.anzahl_naechte} Nächte</span>
+                                  <span>{getBookingPrice(priceMap, booking.id).nights} Nächte</span>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
                                 <div className="text-right">
-                                  <p className="font-bold text-slate-900">{booking.gesamtpreis.toFixed(2)} €</p>
+                                  <p className="font-bold text-slate-900">{getBookingPrice(priceMap, booking.id).total.toFixed(2)} €</p>
                                   <p className="text-xs text-slate-500">{booking.anzahl_gaeste} Gäste</p>
                                 </div>
                                 {isExpanded ? (
@@ -878,23 +891,23 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                                     <div className="space-y-2 text-sm">
                                       <div className="flex justify-between">
                                         <span className="text-slate-600">Grundpreis:</span>
-                                        <span className="font-medium text-slate-900">{booking.grundpreis.toFixed(2)} €</span>
+                                        <span className="font-medium text-slate-900">{getBookingPrice(priceMap, booking.id).basePrice.toFixed(2)} €</span>
                                       </div>
-                                      {booking.services_preis > 0 && (
+                                      {getBookingPrice(priceMap, booking.id).servicesTotal > 0 && (
                                         <div className="flex justify-between">
                                           <span className="text-slate-600">+ Services:</span>
-                                          <span className="font-medium text-emerald-600">{booking.services_preis.toFixed(2)} €</span>
+                                          <span className="font-medium text-emerald-600">{getBookingPrice(priceMap, booking.id).servicesTotal.toFixed(2)} €</span>
                                         </div>
                                       )}
-                                      {booking.rabatt_preis > 0 && (
+                                      {getBookingPrice(priceMap, booking.id).discountsTotal > 0 && (
                                         <div className="flex justify-between">
                                           <span className="text-slate-600">- Rabatte:</span>
-                                          <span className="font-medium text-orange-600">{booking.rabatt_preis.toFixed(2)} €</span>
+                                          <span className="font-medium text-orange-600">{getBookingPrice(priceMap, booking.id).discountsTotal.toFixed(2)} €</span>
                                         </div>
                                       )}
                                       <div className="flex justify-between pt-2 border-t border-slate-200">
                                         <span className="font-semibold text-slate-900">Gesamt:</span>
-                                        <span className="font-bold text-slate-900">{booking.gesamtpreis.toFixed(2)} €</span>
+                                        <span className="font-bold text-slate-900">{getBookingPrice(priceMap, booking.id).total.toFixed(2)} €</span>
                                       </div>
                                     </div>
                                   </div>
@@ -934,7 +947,7 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                                         {details.services.map((service) => (
                                           <div key={service.id} className="flex justify-between text-sm">
                                             <span className="text-slate-600">{service.service_name}</span>
-                                            <span className="font-medium text-slate-900">{service.service_price.toFixed(2)} €</span>
+                                            <span className="font-medium text-slate-900">{(service.service_price ?? service.price ?? service.original_value ?? 0).toFixed(2)} €</span>
                                           </div>
                                         ))}
                                       </div>
@@ -956,7 +969,7 @@ export default function GuestDetails({ guestId, isOpen, onClose, onEdit }: Guest
                                             </span>
                                             <span className="font-medium text-orange-600">
                                               {discount.discount_type === 'percent'
-                                                ? `${((booking.grundpreis + booking.services_preis) * discount.discount_value / 100).toFixed(2)} €`
+                                                ? `${((getBookingPrice(priceMap, booking.id).basePrice + getBookingPrice(priceMap, booking.id).servicesTotal) * discount.discount_value / 100).toFixed(2)} €`
                                                 : `${discount.discount_value.toFixed(2)} €`
                                               }
                                             </span>

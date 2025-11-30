@@ -4,25 +4,25 @@ import { DollarSign, Calendar, Percent, Target } from 'lucide-react';
 
 interface PricingSettings {
   id: number;
-  hauptsaison_aktiv: boolean;
-  hauptsaison_start: string;  // MM-DD Format
-  hauptsaison_ende: string;   // MM-DD Format
-  mitglieder_rabatt_aktiv: boolean;
-  mitglieder_rabatt_prozent: number;
-  rabatt_basis: 'zimmerpreis' | 'gesamtpreis';
-  updated_at: string;
+  hauptsaisonAktiv: boolean | null;
+  hauptsaisonStart: string | null;  // MM-DD Format
+  hauptsaisonEnde: string | null;   // MM-DD Format
+  mitgliederRabattAktiv: boolean | null;
+  mitgliederRabattProzent: number | null;
+  rabattBasis: string | null;
+  updatedAt: string | null;
 }
 
 export default function PricingSettingsTab() {
   const [settings, setSettings] = useState<PricingSettings>({
     id: 1,
-    hauptsaison_aktiv: true,
-    hauptsaison_start: '06-01',
-    hauptsaison_ende: '08-31',
-    mitglieder_rabatt_aktiv: true,
-    mitglieder_rabatt_prozent: 15.0,
-    rabatt_basis: 'zimmerpreis',
-    updated_at: '',
+    hauptsaisonAktiv: true,
+    hauptsaisonStart: '06-01',
+    hauptsaisonEnde: '08-31',
+    mitgliederRabattAktiv: true,
+    mitgliederRabattProzent: 15.0,
+    rabattBasis: 'zimmerpreis',
+    updatedAt: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -119,9 +119,9 @@ export default function PricingSettingsTab() {
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={settings.hauptsaison_aktiv}
+              checked={settings.hauptsaisonAktiv}
               onChange={(e) =>
-                setSettings({ ...settings, hauptsaison_aktiv: e.target.checked })
+                setSettings({ ...settings, hauptsaisonAktiv: e.target.checked })
               }
               className="sr-only peer"
             />
@@ -130,7 +130,7 @@ export default function PricingSettingsTab() {
         </div>
 
         {/* Hauptsaison Zeitraum */}
-        {settings.hauptsaison_aktiv && (
+        {settings.hauptsaisonAktiv && (
           <div className="grid grid-cols-2 gap-4 mt-4">
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -138,9 +138,9 @@ export default function PricingSettingsTab() {
               </label>
               <input
                 type="text"
-                value={settings.hauptsaison_start}
+                value={settings.hauptsaisonStart}
                 onChange={(e) =>
-                  setSettings({ ...settings, hauptsaison_start: e.target.value })
+                  setSettings({ ...settings, hauptsaisonStart: e.target.value })
                 }
                 placeholder="06-01"
                 className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -153,9 +153,9 @@ export default function PricingSettingsTab() {
               </label>
               <input
                 type="text"
-                value={settings.hauptsaison_ende}
+                value={settings.hauptsaisonEnde}
                 onChange={(e) =>
-                  setSettings({ ...settings, hauptsaison_ende: e.target.value })
+                  setSettings({ ...settings, hauptsaisonEnde: e.target.value })
                 }
                 placeholder="08-31"
                 className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -186,9 +186,9 @@ export default function PricingSettingsTab() {
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
-              checked={settings.mitglieder_rabatt_aktiv}
+              checked={settings.mitgliederRabattAktiv}
               onChange={(e) =>
-                setSettings({ ...settings, mitglieder_rabatt_aktiv: e.target.checked })
+                setSettings({ ...settings, mitgliederRabattAktiv: e.target.checked })
               }
               className="sr-only peer"
             />
@@ -197,7 +197,7 @@ export default function PricingSettingsTab() {
         </div>
 
         {/* Rabatt Prozentsatz */}
-        {settings.mitglieder_rabatt_aktiv && (
+        {settings.mitgliederRabattAktiv && (
           <>
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
@@ -206,11 +206,11 @@ export default function PricingSettingsTab() {
               <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  value={settings.mitglieder_rabatt_prozent}
+                  value={settings.mitgliederRabattProzent}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
-                      mitglieder_rabatt_prozent: parseFloat(e.target.value) || 0,
+                      mitgliederRabattProzent: parseFloat(e.target.value) || 0,
                     })
                   }
                   min="0"
@@ -234,13 +234,13 @@ export default function PricingSettingsTab() {
                 <label className="flex items-start gap-3 p-3 bg-slate-600/50 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
                   <input
                     type="radio"
-                    name="rabatt_basis"
+                    name="rabattBasis"
                     value="zimmerpreis"
-                    checked={settings.rabatt_basis === 'zimmerpreis'}
+                    checked={settings.rabattBasis === 'zimmerpreis'}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        rabatt_basis: e.target.value as 'zimmerpreis' | 'gesamtpreis',
+                        rabattBasis: e.target.value as 'zimmerpreis' | 'gesamtpreis',
                       })
                     }
                     className="mt-1 w-4 h-4 text-emerald-500 focus:ring-emerald-500"
@@ -259,13 +259,13 @@ export default function PricingSettingsTab() {
                 <label className="flex items-start gap-3 p-3 bg-slate-600/50 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
                   <input
                     type="radio"
-                    name="rabatt_basis"
+                    name="rabattBasis"
                     value="gesamtpreis"
-                    checked={settings.rabatt_basis === 'gesamtpreis'}
+                    checked={settings.rabattBasis === 'gesamtpreis'}
                     onChange={(e) =>
                       setSettings({
                         ...settings,
-                        rabatt_basis: e.target.value as 'zimmerpreis' | 'gesamtpreis',
+                        rabattBasis: e.target.value as 'zimmerpreis' | 'gesamtpreis',
                       })
                     }
                     className="mt-1 w-4 h-4 text-emerald-500 focus:ring-emerald-500"

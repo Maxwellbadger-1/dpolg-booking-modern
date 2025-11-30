@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Calendar, Search, Edit2, X, CheckCircle, Circle, Clock, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Eye, Euro, AlertCircle, MoreVertical } from 'lucide-react';
 import { format, isWithinInterval, parseISO } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
 import BookingSidebar from './BookingSidebar';
 import ErrorBoundary from '../ErrorBoundary';
 import ConfirmDialog from '../ConfirmDialog';
@@ -57,7 +58,8 @@ type SortField = 'reservierungsnummer' | 'guest' | 'room' | 'checkin' | 'checkou
 type SortDirection = 'asc' | 'desc' | null;
 
 export default function BookingList() {
-  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus, updateBookingPayment, markInvoiceSent } = useData();
+  // NORMALIZED STATE: Get guestMap and roomMap for O(1) lookups
+  const { bookings, rooms, loading: contextLoading, deleteBooking, refreshAll, updateBookingStatus, updateBookingPayment, markInvoiceSent, guestMap, roomMap } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [roomFilter, setRoomFilter] = useState<string>('all');
@@ -82,6 +84,10 @@ export default function BookingList() {
 
   // Ref for virtualization scroll container
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Batch price calculation for all bookings
+  const bookingIds = useMemo(() => bookings.map(b => b.id), [bookings]);
+  const { priceMap } = useBatchPriceCalculation(bookingIds);
 
   // Data is loaded automatically via DataContext - no need for manual loading!
 
@@ -220,10 +226,13 @@ export default function BookingList() {
   const filteredAndSortedBookings = (() => {
     // Filter
     let filtered = bookings.filter(booking => {
+      // NORMALIZED STATE: Look up guest and room from Maps
+      const guest = guestMap.get(booking.guest_id);
+      const room = roomMap.get(booking.room_id);
       const matchesSearch =
         booking.reservierungsnummer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}`.toLowerCase().includes(searchQuery.toLowerCase()) : false) ||
-        (booking.room ? booking.room.name.toLowerCase().includes(searchQuery.toLowerCase()) : false);
+        (guest ? `${guest.vorname} ${guest.nachname}`.toLowerCase().includes(searchQuery.toLowerCase()) : false) ||
+        (room ? room.name.toLowerCase().includes(searchQuery.toLowerCase()) : false);
 
       const matchesStatus = statusFilter === 'all' || booking.status === statusFilter;
       const matchesRoom = roomFilter === 'all' || booking.room_id.toString() === roomFilter;
@@ -270,12 +279,16 @@ export default function BookingList() {
             bValue = b.reservierungsnummer;
             break;
           case 'guest':
-            aValue = `${a.guest.vorname} ${a.guest.nachname}`;
-            bValue = `${b.guest.vorname} ${b.guest.nachname}`;
+            // NORMALIZED STATE: Look up guests from Map
+            const aGuest = guestMap.get(a.guest_id);
+            const bGuest = guestMap.get(b.guest_id);
+            aValue = aGuest ? `${aGuest.vorname} ${aGuest.nachname}` : '';
+            bValue = bGuest ? `${bGuest.vorname} ${bGuest.nachname}` : '';
             break;
           case 'room':
-            aValue = a.room.name;
-            bValue = b.room.name;
+            // NORMALIZED STATE: Look up rooms from Map
+            aValue = roomMap.get(a.room_id)?.name || '';
+            bValue = roomMap.get(b.room_id)?.name || '';
             break;
           case 'checkin':
             aValue = new Date(a.checkin_date).getTime();
@@ -290,8 +303,8 @@ export default function BookingList() {
             bValue = b.status;
             break;
           case 'price':
-            aValue = a.gesamtpreis;
-            bValue = b.gesamtpreis;
+            aValue = getBookingPrice(priceMap, a.id).total;
+            bValue = getBookingPrice(priceMap, b.id).total;
             break;
           default:
             return 0;
@@ -561,6 +574,9 @@ export default function BookingList() {
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const booking = filteredAndSortedBookings[virtualRow.index];
                     const isEven = virtualRow.index % 2 === 0;
+                    // NORMALIZED STATE: Look up guest and room from Maps
+                    const guest = guestMap.get(booking.guest_id);
+                    const room = roomMap.get(booking.room_id);
                     return (
                       <div
                         key={booking.id}
@@ -586,15 +602,15 @@ export default function BookingList() {
                         {/* Gast */}
                         <div className="px-2 text-center">
                           <div className="text-sm font-medium text-slate-900">
-                            {booking.guest ? `${booking.guest.vorname} ${booking.guest.nachname}` : 'Unbekannt'}
+                            {guest ? `${guest.vorname} ${guest.nachname}` : 'Unbekannt'}
                           </div>
-                          <div className="text-xs text-slate-500 truncate">{booking.guest?.email || '-'}</div>
+                          <div className="text-xs text-slate-500 truncate">{guest?.email || '-'}</div>
                         </div>
 
                         {/* Zimmer */}
                         <div className="px-2 text-center">
-                          <div className="text-sm font-medium text-slate-900">{booking.room?.name || 'Unbekannt'}</div>
-                          <div className="text-xs text-slate-500">{booking.room?.ort || '-'}</div>
+                          <div className="text-sm font-medium text-slate-900">{room?.name || 'Unbekannt'}</div>
+                          <div className="text-xs text-slate-500">{room?.ort || '-'}</div>
                         </div>
 
                         {/* Check-in */}
@@ -623,7 +639,7 @@ export default function BookingList() {
                         {/* Preis */}
                         <div className="px-2 text-center">
                           <div className="text-sm font-semibold text-slate-900">
-                            {booking.gesamtpreis.toFixed(2)} €
+                            {getBookingPrice(priceMap, booking.id).total.toFixed(2)} €
                           </div>
                         </div>
 
@@ -649,7 +665,7 @@ export default function BookingList() {
                             invoiceSentAt={booking.rechnung_versendet_am}
                             invoiceSentTo={booking.rechnung_versendet_an}
                             bookingId={booking.id}
-                            guestEmail={booking.guest?.email || ''}
+                            guestEmail={guest?.email || ''}
                             onInvoiceStatusChange={handleInvoiceStatusChange}
                           />
                         </div>

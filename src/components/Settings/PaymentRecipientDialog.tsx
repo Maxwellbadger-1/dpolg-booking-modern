@@ -71,7 +71,7 @@ export default function PaymentRecipientDialog({ isOpen, onClose, recipient }: P
         });
       } else {
         // Create new recipient
-        await invoke<PaymentRecipient>('create_payment_recipient', {
+        await invoke<PaymentRecipient>('create_payment_recipient_pg', {
           name: name.trim(),
           company: company.trim() || null,
           street: street.trim() || null,

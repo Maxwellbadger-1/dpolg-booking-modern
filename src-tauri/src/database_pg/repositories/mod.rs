@@ -18,6 +18,9 @@ pub mod email_config_repository;
 pub mod email_template_repository;
 pub mod notification_settings_repository;
 pub mod payment_settings_repository;
+pub mod guest_credit_repository;
+pub mod cleaning_task_repository;
+pub mod scheduled_email_repository;
 
 pub use room_repository::RoomRepository;
 pub use guest_repository::GuestRepository;
@@ -36,5 +39,8 @@ pub use email_config_repository::EmailConfigRepository;
 pub use email_template_repository::EmailTemplateRepository;
 pub use notification_settings_repository::NotificationSettingsRepository;
 pub use payment_settings_repository::PaymentSettingsRepository;
+pub use guest_credit_repository::GuestCreditRepository;
+pub use cleaning_task_repository::CleaningTaskRepository;
+pub use scheduled_email_repository::ScheduledEmailRepository;
 
 // More repositories will be added as needed

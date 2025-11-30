@@ -9,52 +9,54 @@ impl PricingSettingsRepository {
 
         let row = client
             .query_one(
-                "SELECT id, standard_discount_percent, family_discount_percent,
-                        member_discount_name, non_member_discount_name, vat_rate, updated_at
+                "SELECT id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende,
+                        mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis,
+                        updated_at::text as updated_at
                  FROM pricing_settings
                  LIMIT 1",
                 &[],
             )
             .await
-            .map_err(|_| crate::database_pg::DbError::NotFound("Pricing settings not found".to_string()))?;
+            .map_err(|e| {
+                println!("PricingSettings query error: {:?}", e);
+                crate::database_pg::DbError::NotFound("Pricing settings not found".to_string())
+            })?;
 
         Ok(PricingSettings::from(row))
     }
 
-    /// Update pricing settings
+    /// Update pricing settings (UPSERT)
     pub async fn update(
         pool: &DbPool,
-        standard_discount_percent: f64,
-        family_discount_percent: f64,
-        member_discount_name: String,
-        non_member_discount_name: String,
-        vat_rate: f64,
+        settings: &PricingSettings,
     ) -> DbResult<PricingSettings> {
         let client = pool.get().await?;
 
-        // Update first record (or insert if none exists)
         let row = client
             .query_one(
                 "INSERT INTO pricing_settings (
-                    id, standard_discount_percent, family_discount_percent,
-                    member_discount_name, non_member_discount_name, vat_rate, updated_at
+                    id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende,
+                    mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis, updated_at
                  )
-                 VALUES (1, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                 VALUES (1, $1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO UPDATE SET
-                    standard_discount_percent = EXCLUDED.standard_discount_percent,
-                    family_discount_percent = EXCLUDED.family_discount_percent,
-                    member_discount_name = EXCLUDED.member_discount_name,
-                    non_member_discount_name = EXCLUDED.non_member_discount_name,
-                    vat_rate = EXCLUDED.vat_rate,
+                    hauptsaison_aktiv = EXCLUDED.hauptsaison_aktiv,
+                    hauptsaison_start = EXCLUDED.hauptsaison_start,
+                    hauptsaison_ende = EXCLUDED.hauptsaison_ende,
+                    mitglieder_rabatt_aktiv = EXCLUDED.mitglieder_rabatt_aktiv,
+                    mitglieder_rabatt_prozent = EXCLUDED.mitglieder_rabatt_prozent,
+                    rabatt_basis = EXCLUDED.rabatt_basis,
                     updated_at = CURRENT_TIMESTAMP
-                 RETURNING id, standard_discount_percent, family_discount_percent,
-                           member_discount_name, non_member_discount_name, vat_rate, updated_at",
+                 RETURNING id, hauptsaison_aktiv, hauptsaison_start, hauptsaison_ende,
+                           mitglieder_rabatt_aktiv, mitglieder_rabatt_prozent, rabatt_basis,
+                           updated_at::text as updated_at",
                 &[
-                    &standard_discount_percent,
-                    &family_discount_percent,
-                    &member_discount_name,
-                    &non_member_discount_name,
-                    &vat_rate,
+                    &settings.hauptsaison_aktiv,
+                    &settings.hauptsaison_start,
+                    &settings.hauptsaison_ende,
+                    &settings.mitglieder_rabatt_aktiv,
+                    &settings.mitglieder_rabatt_prozent,
+                    &settings.rabatt_basis,
                 ],
             )
             .await?;

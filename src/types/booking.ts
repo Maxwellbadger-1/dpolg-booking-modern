@@ -80,6 +80,13 @@ export interface Booking {
   // Putzplan: Alternatives Checkout-Datum (optional, falls abweichend)
   putzplan_checkout_date?: string | null;
   created_at?: string;
+  // DPolG Mitglied (für Rabattberechnung)
+  ist_dpolg_mitglied?: boolean;
+  // Gast-Guthaben (für Rechnungen)
+  credit_used?: number | null;
+  // Services und Discounts für TapeChart Emoji-Anzeige
+  services?: AdditionalService[];
+  discounts?: DiscountTemplate[];
 }
 
 // Additional Service (gebuchter Service mit berechneten Werten)
@@ -94,6 +101,8 @@ export interface AdditionalService {
   price_type: 'fixed' | 'percent';
   original_value: number;      // Festbetrag ODER Prozentsatz
   applies_to: 'overnight_price' | 'total_price';
+  // Emoji vom Template
+  emoji?: string;
 }
 
 export interface BookingWithDetails extends Booking {
@@ -118,18 +127,18 @@ export interface ServiceTemplate {
   name: string;
   description?: string;
   price: number;
-  is_active: boolean;
+  isActive: boolean;
   // Preis-Typ: Festbetrag oder Prozent
-  price_type: 'fixed' | 'percent';
-  // Worauf bezieht sich der Prozent-Preis? (nur relevant bei price_type='percent')
-  applies_to: 'overnight_price' | 'total_price';
+  priceType: 'fixed' | 'percent';
+  // Worauf bezieht sich der Prozent-Preis? (nur relevant bei priceType='percent')
+  appliesTo: 'overnight_price' | 'total_price';
   // Emoji
   emoji?: string;
   // Putzplan-Integration
-  show_in_cleaning_plan: boolean;
-  cleaning_plan_position: 'start' | 'end';
-  created_at: string;
-  updated_at: string;
+  showInCleaningPlan: boolean;
+  cleaningPlanPosition: 'start' | 'end';
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DiscountTemplate {

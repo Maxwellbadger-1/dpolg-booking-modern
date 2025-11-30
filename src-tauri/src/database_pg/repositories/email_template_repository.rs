@@ -9,7 +9,7 @@ impl EmailTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, template_name, subject, body, is_active, created_at, updated_at
+                "SELECT id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at
                  FROM email_templates
                  ORDER BY template_name ASC",
                 &[],
@@ -25,7 +25,7 @@ impl EmailTemplateRepository {
 
         let row = client
             .query_one(
-                "SELECT id, template_name, subject, body, is_active, created_at, updated_at
+                "SELECT id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at
                  FROM email_templates
                  WHERE id = $1",
                 &[&id],
@@ -42,7 +42,7 @@ impl EmailTemplateRepository {
 
         let row = client
             .query_one(
-                "SELECT id, template_name, subject, body, is_active, created_at, updated_at
+                "SELECT id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at
                  FROM email_templates
                  WHERE template_name = $1",
                 &[&template_name],
@@ -59,7 +59,7 @@ impl EmailTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, template_name, subject, body, is_active, created_at, updated_at
+                "SELECT id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at
                  FROM email_templates
                  WHERE is_active = TRUE
                  ORDER BY template_name ASC",
@@ -82,9 +82,9 @@ impl EmailTemplateRepository {
         let row = client
             .query_one(
                 "INSERT INTO email_templates (
-                    template_name, subject, body, is_active, created_at, updated_at
+                    template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at
                  ) VALUES ($1, $2, $3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                 RETURNING id, template_name, subject, body, is_active, created_at, updated_at",
+                 RETURNING id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at",
                 &[&template_name, &subject, &body],
             )
             .await?;
@@ -108,7 +108,7 @@ impl EmailTemplateRepository {
                 "UPDATE email_templates SET
                     template_name = $2, subject = $3, body = $4, is_active = $5, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1
-                 RETURNING id, template_name, subject, body, is_active, created_at, updated_at",
+                 RETURNING id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at",
                 &[&id, &template_name, &subject, &body, &is_active],
             )
             .await
@@ -126,7 +126,7 @@ impl EmailTemplateRepository {
                 "UPDATE email_templates SET
                     is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
                  WHERE id = $1
-                 RETURNING id, template_name, subject, body, is_active, created_at, updated_at",
+                 RETURNING id, template_name, subject, body, is_active, created_at::text as created_at, updated_at::text as updated_at",
                 &[&id],
             )
             .await

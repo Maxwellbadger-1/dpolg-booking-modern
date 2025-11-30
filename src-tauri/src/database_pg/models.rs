@@ -167,6 +167,12 @@ pub struct Booking {
     pub payment_recipient_id: Option<i32>,
     pub putzplan_checkout_date: Option<String>,
     pub ist_dpolg_mitglied: Option<bool>,
+    pub credit_used: Option<f64>,
+    // Optional services and discounts for TapeChart emoji display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub services: Option<Vec<ServiceEmoji>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discounts: Option<Vec<DiscountEmoji>>,
 }
 
 impl From<Row> for Booking {
@@ -199,16 +205,62 @@ impl From<Row> for Booking {
             payment_recipient_id: row.get("payment_recipient_id"),
             putzplan_checkout_date: row.get("putzplan_checkout_date"),
             ist_dpolg_mitglied: row.get("ist_dpolg_mitglied"),
+            credit_used: row.try_get("credit_used").ok().flatten(),
+            // Initialize with None - will be populated by get_all_bookings_pg
+            services: None,
+            discounts: None,
         }
     }
 }
 
+/// Booking with Services and Discounts for TapeChart Emoji display
+/// Lighter than BookingWithDetails (no room/guest objects)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BookingWithDetails {
+pub struct BookingWithEmojis {
+    // Flatten Booking fields directly (for TypeScript compatibility)
     #[serde(flatten)]
     pub booking: Booking,
+    // Services and Discounts with emojis for TapeChart
+    pub services: Vec<ServiceEmoji>,
+    pub discounts: Vec<DiscountEmoji>,
+}
+
+/// Lightweight service struct for emoji display in TapeChart
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceEmoji {
+    pub id: i64,
+    pub name: String,
+    pub emoji: Option<String>,
+    pub color_hex: Option<String>,
+    pub cleaning_plan_position: Option<String>,
+}
+
+/// Lightweight discount struct for emoji display in TapeChart
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscountEmoji {
+    pub id: i64,
+    pub name: String,
+    pub emoji: Option<String>,
+    pub color_hex: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BookingWithDetails {
+    // Flatten Booking fields directly (for TypeScript compatibility)
+    #[serde(flatten)]
+    pub booking: Booking,
+    // Nested objects (required by TypeScript interface)
+    pub room: Option<Room>,
+    pub guest: Option<Guest>,
+    // Services and Discounts (required by TypeScript interface)
+    pub services: Vec<AdditionalService>,
+    pub discounts: Vec<Discount>,
+    // Legacy fields (kept for backwards compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub room_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_email: Option<String>,
 }
 
@@ -218,15 +270,15 @@ pub struct BookingWithDetails {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdditionalService {
-    pub id: i32,
-    pub booking_id: i32,
+    pub id: i64,
+    pub booking_id: i64,
     pub service_name: String,
-    pub service_price: f64,
-    pub created_at: Option<String>,
+    pub service_price: f32,
     pub template_id: Option<i32>,
     pub price_type: String,
-    pub original_value: f64,
+    pub original_value: f32,
     pub applies_to: String,
+    pub emoji: Option<String>,
 }
 
 impl From<Row> for AdditionalService {
@@ -236,11 +288,11 @@ impl From<Row> for AdditionalService {
             booking_id: row.get("booking_id"),
             service_name: row.get("service_name"),
             service_price: row.get("service_price"),
-            created_at: row.get("created_at"),
             template_id: row.get("template_id"),
             price_type: row.get("price_type"),
             original_value: row.get("original_value"),
             applies_to: row.get("applies_to"),
+            emoji: row.get("emoji"),
         }
     }
 }
@@ -251,12 +303,12 @@ impl From<Row> for AdditionalService {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Discount {
-    pub id: i32,
-    pub booking_id: i32,
+    pub id: i64,
+    pub booking_id: i64,
     pub discount_name: String,
     pub discount_type: String,
-    pub discount_value: f64,
-    pub created_at: Option<String>,
+    pub discount_value: f32,
+    pub emoji: Option<String>,
 }
 
 impl From<Row> for Discount {
@@ -267,7 +319,7 @@ impl From<Row> for Discount {
             discount_name: row.get("discount_name"),
             discount_type: row.get("discount_type"),
             discount_value: row.get("discount_value"),
-            created_at: row.get("created_at"),
+            emoji: row.get("emoji"),
         }
     }
 }
@@ -340,7 +392,7 @@ impl From<Row> for Reminder {
             priority: row.get("priority"),
             is_completed: row.get("is_completed"),
             completed_at: row.get("completed_at"),
-            is_snoozed: row.get("is_snoozed"),
+            is_snoozed: row.get("is_snoozed"),  // Now BOOLEAN in PostgreSQL
             snoozed_until: row.get("snoozed_until"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
@@ -350,13 +402,18 @@ impl From<Row> for Reminder {
 
 // AccompanyingGuest Model
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccompanyingGuest {
-    pub id: i32,
-    pub booking_id: i32,
-    pub first_name: String,
-    pub last_name: String,
-    pub birth_date: Option<String>,
-    pub created_at: Option<String>,
+    pub id: i64,
+    pub booking_id: i64,
+    #[serde(rename = "vorname", alias = "firstName", alias = "first_name")]
+    pub vorname: String,
+    #[serde(rename = "nachname", alias = "lastName", alias = "last_name")]
+    pub nachname: String,
+    #[serde(rename = "geburtsdatum", alias = "birthDate", alias = "birth_date")]
+    pub geburtsdatum: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub companion_id: Option<i64>,
 }
 
 impl From<Row> for AccompanyingGuest {
@@ -364,23 +421,30 @@ impl From<Row> for AccompanyingGuest {
         Self {
             id: row.get("id"),
             booking_id: row.get("booking_id"),
-            first_name: row.get("first_name"),
-            last_name: row.get("last_name"),
-            birth_date: row.get("birth_date"),
-            created_at: row.get("created_at"),
+            vorname: row.get("vorname"),
+            nachname: row.get("nachname"),
+            geburtsdatum: row.get("geburtsdatum"),
+            companion_id: None, // Not stored in accompanying_guests table
         }
     }
 }
 
 // ServiceTemplate Model
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceTemplate {
     pub id: i32,
+    #[serde(rename = "name")]
     pub service_name: String,
+    pub description: Option<String>,
     pub price_type: String,
+    #[serde(rename = "price")]
     pub original_value: f64,
     pub applies_to: String,
     pub is_active: bool,
+    pub emoji: Option<String>,
+    pub show_in_cleaning_plan: bool,
+    pub cleaning_plan_position: String,
     pub created_at: Option<String>,
 }
 
@@ -388,11 +452,15 @@ impl From<Row> for ServiceTemplate {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            service_name: row.get("service_name"),
+            service_name: row.get("name"),
+            description: row.get("description"),
             price_type: row.get("price_type"),
-            original_value: row.get("original_value"),
+            original_value: row.get("price"),
             applies_to: row.get("applies_to"),
             is_active: row.get("is_active"),
+            emoji: row.get("emoji"),
+            show_in_cleaning_plan: row.get::<_, Option<bool>>("show_in_cleaning_plan").unwrap_or(false),
+            cleaning_plan_position: row.get::<_, Option<String>>("cleaning_plan_position").unwrap_or_else(|| "start".to_string()),
             created_at: row.get("created_at"),
         }
     }
@@ -402,10 +470,12 @@ impl From<Row> for ServiceTemplate {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscountTemplate {
     pub id: i32,
+    #[serde(rename = "name")]
     pub discount_name: String,
     pub discount_type: String,
     pub discount_value: f64,
     pub is_active: bool,
+    pub emoji: Option<String>,
     pub created_at: Option<String>,
 }
 
@@ -413,25 +483,31 @@ impl From<Row> for DiscountTemplate {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            discount_name: row.get("discount_name"),
+            discount_name: row.get("name"),
             discount_type: row.get("discount_type"),
             discount_value: row.get("discount_value"),
             is_active: row.get("is_active"),
+            emoji: row.get("emoji"),
             created_at: row.get("created_at"),
         }
     }
 }
 
-// PaymentRecipient Model
+// PaymentRecipient Model (externe Zahlungsempfänger für Rechnung)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaymentRecipient {
     pub id: i32,
     pub name: String,
-    pub bank_name: String,
-    pub iban: String,
-    pub bic: Option<String>,
-    pub is_active: bool,
+    pub company: Option<String>,
+    pub street: Option<String>,
+    pub plz: Option<String>,
+    pub city: Option<String>,
+    pub country: Option<String>,
+    pub contact_person: Option<String>,
+    pub notes: Option<String>,
     pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 impl From<Row> for PaymentRecipient {
@@ -439,24 +515,36 @@ impl From<Row> for PaymentRecipient {
         Self {
             id: row.get("id"),
             name: row.get("name"),
-            bank_name: row.get("bank_name"),
-            iban: row.get("iban"),
-            bic: row.get("bic"),
-            is_active: row.get("is_active"),
+            company: row.get("company"),
+            street: row.get("street"),
+            plz: row.get("plz"),
+            city: row.get("city"),
+            country: row.get("country"),
+            contact_person: row.get("contact_person"),
+            notes: row.get("notes"),
             created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
         }
     }
 }
 
-// CompanySettings Model (Singleton)
+// CompanySettings Model (Singleton) - Matches PostgreSQL table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompanySettings {
     pub id: i32,
     pub company_name: String,
-    pub address: Option<String>,
+    pub street_address: Option<String>,
+    pub plz: Option<String>,
+    pub city: Option<String>,
+    pub country: Option<String>,
     pub phone: Option<String>,
+    pub fax: Option<String>,
     pub email: Option<String>,
+    pub website: Option<String>,
     pub tax_id: Option<String>,
+    pub ceo_name: Option<String>,
+    pub registry_court: Option<String>,
     pub logo_path: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -466,25 +554,34 @@ impl From<Row> for CompanySettings {
         Self {
             id: row.get("id"),
             company_name: row.get("company_name"),
-            address: row.get("address"),
+            street_address: row.get("street_address"),
+            plz: row.get("plz"),
+            city: row.get("city"),
+            country: row.get("country"),
             phone: row.get("phone"),
+            fax: row.get("fax"),
             email: row.get("email"),
+            website: row.get("website"),
             tax_id: row.get("tax_id"),
+            ceo_name: row.get("ceo_name"),
+            registry_court: row.get("registry_court"),
             logo_path: row.get("logo_path"),
             updated_at: row.get("updated_at"),
         }
     }
 }
 
-// PricingSettings Model (Singleton)
+// PricingSettings Model (Singleton) - Matches PostgreSQL table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PricingSettings {
     pub id: i32,
-    pub standard_discount_percent: f64,
-    pub family_discount_percent: f64,
-    pub member_discount_name: String,
-    pub non_member_discount_name: String,
-    pub vat_rate: f64,
+    pub hauptsaison_aktiv: Option<bool>,
+    pub hauptsaison_start: Option<String>,
+    pub hauptsaison_ende: Option<String>,
+    pub mitglieder_rabatt_aktiv: Option<bool>,
+    pub mitglieder_rabatt_prozent: Option<f64>,
+    pub rabatt_basis: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -492,28 +589,30 @@ impl From<Row> for PricingSettings {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            standard_discount_percent: row.get("standard_discount_percent"),
-            family_discount_percent: row.get("family_discount_percent"),
-            member_discount_name: row.get("member_discount_name"),
-            non_member_discount_name: row.get("non_member_discount_name"),
-            vat_rate: row.get("vat_rate"),
+            hauptsaison_aktiv: row.get("hauptsaison_aktiv"),
+            hauptsaison_start: row.get("hauptsaison_start"),
+            hauptsaison_ende: row.get("hauptsaison_ende"),
+            mitglieder_rabatt_aktiv: row.get("mitglieder_rabatt_aktiv"),
+            mitglieder_rabatt_prozent: row.get("mitglieder_rabatt_prozent"),
+            rabatt_basis: row.get("rabatt_basis"),
             updated_at: row.get("updated_at"),
         }
     }
 }
 
-// EmailConfig Model (Singleton)
+// EmailConfig Model (Singleton) - Matches PostgreSQL table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EmailConfig {
     pub id: i32,
-    pub provider: String,
-    pub smtp_host: String,
-    pub smtp_port: i32,
-    pub smtp_user: String,
-    pub smtp_password: String,
-    pub from_email: String,
-    pub from_name: String,
-    pub use_tls: bool,
+    pub smtp_server: Option<String>,
+    pub smtp_port: Option<i32>,
+    pub smtp_username: Option<String>,
+    pub smtp_password: Option<String>,
+    pub from_email: Option<String>,
+    pub from_name: Option<String>,
+    pub use_tls: Option<i32>,
+    pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -521,14 +620,14 @@ impl From<Row> for EmailConfig {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            provider: row.get("provider"),
-            smtp_host: row.get("smtp_host"),
+            smtp_server: row.get("smtp_server"),
             smtp_port: row.get("smtp_port"),
-            smtp_user: row.get("smtp_user"),
+            smtp_username: row.get("smtp_username"),
             smtp_password: row.get("smtp_password"),
             from_email: row.get("from_email"),
             from_name: row.get("from_name"),
             use_tls: row.get("use_tls"),
+            created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         }
     }
@@ -560,13 +659,16 @@ impl From<Row> for EmailTemplate {
     }
 }
 
-// NotificationSettings Model (Singleton)
+// NotificationSettings Model (Singleton) - Matches PostgreSQL table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NotificationSettings {
     pub id: i32,
-    pub enable_email_notifications: bool,
-    pub enable_reminder_notifications: bool,
-    pub reminder_days_before: i32,
+    pub checkin_reminders_enabled: Option<bool>,
+    pub payment_reminders_enabled: Option<bool>,
+    pub payment_reminder_after_days: Option<i32>,
+    pub payment_reminder_repeat_days: Option<i32>,
+    pub scheduler_interval_hours: Option<i32>,
     pub updated_at: Option<String>,
 }
 
@@ -574,32 +676,47 @@ impl From<Row> for NotificationSettings {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            enable_email_notifications: row.get("enable_email_notifications"),
-            enable_reminder_notifications: row.get("enable_reminder_notifications"),
-            reminder_days_before: row.get("reminder_days_before"),
+            checkin_reminders_enabled: row.get("checkin_reminders_enabled"),
+            payment_reminders_enabled: row.get("payment_reminders_enabled"),
+            payment_reminder_after_days: row.get("payment_reminder_after_days"),
+            payment_reminder_repeat_days: row.get("payment_reminder_repeat_days"),
+            scheduler_interval_hours: row.get("scheduler_interval_hours"),
             updated_at: row.get("updated_at"),
         }
     }
 }
 
-// PaymentSettings Model (Singleton)
+// PaymentSettings Model (Singleton) - Matches PostgreSQL table
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaymentSettings {
     pub id: i32,
-    pub default_payment_method: String,
-    pub require_payment_confirmation: bool,
-    pub payment_deadline_days: i32,
+    pub bank_name: Option<String>,
+    pub iban: Option<String>,
+    pub bic: Option<String>,
+    pub account_holder: Option<String>,
+    pub mwst_rate: Option<f64>,
+    pub payment_due_days: Option<i32>,
+    pub reminder_after_days: Option<i32>,
+    pub payment_text: Option<String>,
     pub updated_at: Option<String>,
+    pub dpolg_rabatt: Option<f64>,
 }
 
 impl From<Row> for PaymentSettings {
     fn from(row: Row) -> Self {
         Self {
             id: row.get("id"),
-            default_payment_method: row.get("default_payment_method"),
-            require_payment_confirmation: row.get("require_payment_confirmation"),
-            payment_deadline_days: row.get("payment_deadline_days"),
+            bank_name: row.get("bank_name"),
+            iban: row.get("iban"),
+            bic: row.get("bic"),
+            account_holder: row.get("account_holder"),
+            mwst_rate: row.get("mwst_rate"),
+            payment_due_days: row.get("payment_due_days"),
+            reminder_after_days: row.get("reminder_after_days"),
+            payment_text: row.get("payment_text"),
             updated_at: row.get("updated_at"),
+            dpolg_rabatt: row.get("dpolg_rabatt"),
         }
     }
 }

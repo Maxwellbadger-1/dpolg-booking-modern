@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle, CalendarRange, Heart, Briefcase, Moon } from 'lucide-react';
+import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
 
 interface Room {
   id: number;
@@ -76,6 +77,10 @@ export default function StatisticsView() {
   const [customStartDate, setCustomStartDate] = useState<string>('');
   const [customEndDate, setCustomEndDate] = useState<string>('');
 
+  // Batch price calculation for all bookings
+  const bookingIds = useMemo(() => bookings.map(b => b.id), [bookings]);
+  const { priceMap } = useBatchPriceCalculation(bookingIds);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -84,9 +89,9 @@ export default function StatisticsView() {
     try {
       setLoading(true);
       const [roomsData, bookingsData, guestsData] = await Promise.all([
-        invoke<Room[]>('get_all_rooms'),
-        invoke<BookingWithDetails[]>('get_all_bookings'),
-        invoke<Guest[]>('get_all_guests_command'),
+        invoke<Room[]>('get_all_rooms_pg'),
+        invoke<BookingWithDetails[]>('get_all_bookings_pg'),
+        invoke<Guest[]>('get_all_guests_pg'),
       ]);
 
       console.log('═══════════════════════════════════════');
@@ -274,7 +279,7 @@ export default function StatisticsView() {
     : 0;
 
   // ADR (Average Daily Rate) - Durchschnittlicher Tagespreis
-  const totalRevenue = activeBookings.reduce((sum, b) => sum + b.gesamtpreis, 0);
+  const totalRevenue = activeBookings.reduce((sum, b) => sum + getBookingPrice(priceMap, b.id).total, 0);
   const totalNights = activeBookings.reduce((sum, b) => {
     return sum + calculateNightsInRange(b);
   }, 0);

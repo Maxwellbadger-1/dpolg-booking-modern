@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import toast from 'react-hot-toast';
 import {
@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { formatServicePrice, formatCalculatedServicePrice } from '../../utils/priceFormatting';
 import { usePriceCalculation, ServiceInput as PriceServiceInput, DiscountInput as PriceDiscountInput } from '../../hooks/usePriceCalculation';
+import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
 import { formatDate, formatDateLong } from '../../utils/dateFormatting';
 import { useBookingSync } from '../../hooks/useBookingSync';
 import { format } from 'date-fns';
@@ -151,7 +152,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initialMode = 'view', prefillData }: BookingSidebarProps) {
-  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus } = useData();
+  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus, rooms } = useData();
   const { syncBookingDatesQuiet } = useBookingSync();
 
   // Mode State
@@ -160,7 +161,6 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   // Data State
   const [booking, setBooking] = useState<Booking | null>(null);
   const [guests, setGuests] = useState<Guest[]>([]);
-  const [rooms, setRooms] = useState<Room[]>([]);
   const [accompanyingGuests, setAccompanyingGuests] = useState<AccompanyingGuest[]>([]);
   const [services, setServices] = useState<AdditionalService[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
@@ -212,10 +212,15 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   }>({ checking: false, available: null });
 
   // NEUE ARCHITEKTUR: Single Source of Truth Preisberechnung
+  // Funktioniert jetzt für ALLE Modi: create, edit UND view!
   const guest = guests.find(g => g.id === formData.guest_id);
-  const { priceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(
-    (mode === 'edit' || mode === 'create') && formData.room_id && formData.checkin_date && formData.checkout_date
-      ? {
+
+  // Determine which data source to use based on mode
+  const priceInputData = (() => {
+    if (mode === 'edit' || mode === 'create') {
+      // Edit/Create: Use formData
+      if (formData.room_id && formData.checkin_date && formData.checkout_date) {
+        return {
           roomId: formData.room_id,
           checkin: formData.checkin_date,
           checkout: formData.checkout_date,
@@ -231,9 +236,33 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
             discountType: d.discount_type as 'fixed' | 'percent',
             value: d.discount_value,
           })),
-        }
-      : null
-  );
+        };
+      }
+    } else if (mode === 'view' && booking) {
+      // View: Use booking data
+      const bookingGuest = guests.find(g => g.id === booking.guest_id);
+      return {
+        roomId: booking.room_id,
+        checkin: booking.checkin_date,
+        checkout: booking.checkout_date,
+        isMember: bookingGuest?.dpolg_mitglied || false,
+        services: services.map(s => ({
+          name: s.service_name,
+          priceType: (s.price_type || 'fixed') as 'fixed' | 'percent',
+          originalValue: s.original_value || s.service_price,
+          appliesTo: (s.applies_to || 'overnight_price') as 'overnight_price' | 'total_price',
+        })),
+        discounts: discounts.map(d => ({
+          name: d.discount_name,
+          discountType: d.discount_type as 'fixed' | 'percent',
+          value: d.discount_value,
+        })),
+      };
+    }
+    return null;
+  })();
+
+  const { priceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(priceInputData);
 
   // Dialog State
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -252,6 +281,10 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historyYearFilter, setHistoryYearFilter] = useState('all');
   const [historyLocationFilter, setHistoryLocationFilter] = useState('all');
+
+  // Batch price calculation for guest history bookings
+  const guestBookingIds = useMemo(() => guestBookings.map(b => b.id), [guestBookings]);
+  const { priceMap: historyPriceMap } = useBatchPriceCalculation(guestBookingIds);
 
   // Guest Credit States
   const [creditBalance, setCreditBalance] = useState<number>(0);
@@ -378,7 +411,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     try {
       setLoading(true);
 
-      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_command', { id: bookingId });
+      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_pg', { id: bookingId });
 
       if (!bookingData || !bookingData.guest || !bookingData.room) {
         throw new Error('Buchungsdaten konnten nicht vollständig geladen werden');
@@ -450,7 +483,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       setLoading(true);
 
       // Load booking data
-      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_command', { id: bookingId });
+      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_pg', { id: bookingId });
 
       if (!bookingData) {
         throw new Error('Buchungsdaten konnten nicht geladen werden');
@@ -505,13 +538,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
   const loadGuestsAndRooms = async () => {
     try {
-      const [guestsData, roomsData, recipientsData] = await Promise.all([
-        invoke<Guest[]>('get_all_guests_command'),
-        invoke<Room[]>('get_all_rooms'),
-        invoke<PaymentRecipient[]>('get_payment_recipients'),
+      const [guestsData, recipientsData] = await Promise.all([
+        invoke<Guest[]>('get_all_guests_pg'),
+        invoke<PaymentRecipient[]>('get_all_payment_recipients_pg'),
       ]);
       setGuests(guestsData);
-      setRooms(roomsData);
       setPaymentRecipients(recipientsData);
     } catch (err) {
       console.error('Fehler beim Laden:', err);
@@ -537,7 +568,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     try {
       setAvailabilityStatus({ checking: true, available: null });
 
-      const isAvailable = await invoke<boolean>('check_room_availability_command', {
+      const isAvailable = await invoke<boolean>('check_room_availability_pg', {
         roomId: formData.room_id,
         checkin: formData.checkin_date,
         checkout: formData.checkout_date,
@@ -693,6 +724,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
           putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
           istDpolgMitglied: guests.find(g => g.id === formData.guest_id)?.dpolg_mitglied || false, // ✅ DPolG-Mitglied Status für Rabattberechnung
+          expectedUpdatedAt: booking.updated_at, // ✅ FIX: Optimistic Locking - verwende aktuelles updated_at vom geladenen Booking
         };
 
         console.log('📤 [SIDEBAR updatePayload] Payload being sent to updateBooking:');
@@ -701,9 +733,37 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
         await updateBooking(booking.id, updatePayload);
 
+        // Sync accompanying guests - parallel execution for performance
+        try {
+          const existingGuests = await invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', { bookingId: booking.id });
+
+          // Parallel delete all existing
+          if (existingGuests.length > 0) {
+            await Promise.all(
+              existingGuests.map(g => invoke('delete_accompanying_guest_pg', { id: g.id }))
+            );
+          }
+
+          // Parallel create all new
+          if (accompanyingGuests.length > 0) {
+            await Promise.all(
+              accompanyingGuests.map(guest =>
+                invoke('create_accompanying_guest_pg', {
+                  bookingId: booking.id,
+                  vorname: guest.vorname,
+                  nachname: guest.nachname,
+                  geburtsdatum: guest.geburtsdatum || null,
+                  companionId: guest.companion_id || null,
+                })
+              )
+            );
+          }
+        } catch (err) {
+          console.error('Error syncing accompanying guests:', err);
+        }
+
         // 💰 Apply guest credit if any
         if (creditToApply > 0) {
-          console.log('💰 [Credit] Applying credit:', creditToApply, '€ to booking', booking.id);
           try {
             await invoke('use_guest_credit_for_booking', {
               guestId: formData.guest_id,
@@ -711,31 +771,21 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
               amount: creditToApply,
               notes: `Guthaben verrechnet für Buchung #${booking.id}`,
             });
-            console.log('✅ [Credit] Successfully applied credit');
-
-            // Guthaben-State aktualisieren
-            const newBalance = creditBalance - creditToApply;
-            setCreditBalance(newBalance);
+            setCreditBalance(creditBalance - creditToApply);
             setCreditToApply(0);
           } catch (err) {
-            console.error('❌ [Credit] Fehler beim Verrechnen des Guthabens:', err);
-            // Nicht werfen - Buchung wurde bereits gespeichert
-            // User kann Guthaben später manuell verrechnen
+            console.error('Fehler beim Verrechnen des Guthabens:', err);
           }
         }
 
-        // ✅ DataContext handles Turso sync automatically (no double-sync needed)
-        // DataContext.updateBooking() already calls sync_affected_dates for date changes
-
-        // Switch back to view mode
+        // Switch back to view mode and reload details
         setMode('view');
         await loadBookingDetails();
-
-        // ✅ Close sidebar to reveal updated TapeChart (optimistic update)
-        onClose();
       } else {
         // Create new booking
-        const reservierungsnummer = `RES-${Date.now()}`;
+        // Temporäre Reservierungsnummer - wird nach Erstellung mit JAHR-ID aktualisiert
+        const year = new Date().getFullYear();
+        const tempReservierungsnummer = `${year}-TEMP`;
         const nights = priceBreakdown?.nights || 1;
         const basePrice = priceBreakdown?.basePrice || 0;
         const servicesTotal = priceBreakdown?.servicesTotal || 0;
@@ -745,11 +795,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         const bookingData = {
           roomId: formData.room_id,
           guestId: formData.guest_id,
-          reservierungsnummer,
+          reservierungsnummer: tempReservierungsnummer,
           checkinDate: formData.checkin_date,
           checkoutDate: formData.checkout_date,
           anzahlGaeste: formData.anzahl_gaeste,
-          status: formData.status,
+          status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status, // ✅ FIX: Auto-set status to stiftungsfall if checkbox is checked
           gesamtpreis: totalPrice,
           bemerkungen: formData.bemerkungen || null,
           anzahlBegleitpersonen: accompanyingGuests.length,
@@ -769,17 +819,38 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
         const result = await createBooking(bookingData) as any;
 
-        // Save accompanying guests
+        // Update reservierungsnummer with JAHR-BUCHUNGSID format
+        if (result.id) {
+          const finalReservierungsnummer = `${year}-${result.id}`;
+          await invoke('update_booking_pg', {
+            id: result.id,
+            roomId: formData.room_id,
+            guestId: formData.guest_id,
+            reservierungsnummer: finalReservierungsnummer,
+            checkinDate: formData.checkin_date,
+            checkoutDate: formData.checkout_date,
+            anzahlGaeste: formData.anzahl_gaeste,
+            status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status, // ✅ FIX: Auto-set status to stiftungsfall if checkbox is checked
+            gesamtpreis: totalPrice,
+            bemerkungen: formData.bemerkungen || null,
+            istStiftungsfall: formData.ist_stiftungsfall || false, // ✅ FIX: Pass istStiftungsfall flag
+          });
+          console.log(`✅ Reservierungsnummer aktualisiert: ${finalReservierungsnummer}`);
+        }
+
+        // Save accompanying guests - parallel for performance
         if (accompanyingGuests.length > 0 && result.id) {
-          for (const guest of accompanyingGuests) {
-            await invoke('create_accompanying_guest_pg', {
-              bookingId: result.id,
-              vorname: guest.vorname,
-              nachname: guest.nachname,
-              geburtsdatum: guest.geburtsdatum || null,
-              companionId: guest.companion_id || null,
-            });
-          }
+          await Promise.all(
+            accompanyingGuests.map(guest =>
+              invoke('create_accompanying_guest_pg', {
+                bookingId: result.id,
+                vorname: guest.vorname,
+                nachname: guest.nachname,
+                geburtsdatum: guest.geburtsdatum || null,
+                companionId: guest.companion_id || null,
+              })
+            )
+          );
         }
 
         // Save services
@@ -848,6 +919,21 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
         // Reload booking with services
         await reloadBooking(result.id);
+
+        // AUTO-SYNC zu Turso (Mobile App) - Putzaufgaben synchronisieren
+        if (formData.checkout_date) {
+          console.log('🔄 [BookingSidebar] Buchung erstellt - Auto-Sync zu Turso für', formData.checkout_date);
+          try {
+            await invoke('sync_affected_dates', {
+              oldCheckout: null,
+              newCheckout: formData.checkout_date
+            });
+            console.log('✅ [BookingSidebar] Auto-Sync erfolgreich');
+          } catch (syncError) {
+            console.error('⚠️ [BookingSidebar] Auto-Sync fehlgeschlagen:', syncError);
+            // Nicht werfen - Buchung wurde bereits gespeichert
+          }
+        }
 
         // Open email selection dialog
         if (result.id) {
@@ -938,7 +1024,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      {booking.anzahl_naechte} Nächte
+                      {priceBreakdown?.nights ?? 0} Nächte
                     </div>
                   </div>
                 </div>
@@ -1132,7 +1218,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   </div>
                   <div>
                     <p className="text-sm text-slate-600 mb-1">Anzahl Nächte</p>
-                    <p className="font-semibold text-slate-900">{booking.anzahl_naechte} Nächte</p>
+                    <p className="font-semibold text-slate-900">{priceBreakdown?.nights ?? 0} Nächte</p>
                   </div>
                 </div>
 
@@ -1200,7 +1286,10 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
                         <div className="flex items-center gap-3">
-                          <p className="font-semibold text-slate-900">{service.service_name}</p>
+                          <p className="font-semibold text-slate-900">
+                            {service.emoji && <span className="mr-1">{service.emoji}</span>}
+                            {service.service_name}
+                          </p>
                           {service.price_type === 'percent' && service.original_value && service.applies_to && (
                             <span className="text-sm text-slate-500">
                               ({service.original_value}% {service.applies_to === 'overnight_price' ? 'vom Grundpreis' : 'vom Gesamtpreis'})
@@ -1214,7 +1303,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             <Euro className="w-4 h-4 text-emerald-500" />
                           )}
                           <p className="font-semibold text-emerald-600">
-                            {booking ? formatCalculatedServicePrice(service, booking.grundpreis) : `${service.service_price.toFixed(2)} €`}
+                            {priceBreakdown ? formatCalculatedServicePrice(service, priceBreakdown.basePrice) : `${(service.service_price ?? service.price ?? service.original_value ?? 0).toFixed(2)} €`}
                           </p>
                         </div>
                       </div>
@@ -1236,7 +1325,10 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         key={discount.id}
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
-                        <p className="font-semibold text-slate-900">{discount.discount_name}</p>
+                        <p className="font-semibold text-slate-900">
+                          {discount.emoji && <span className="mr-1">{discount.emoji}</span>}
+                          {discount.discount_name}
+                        </p>
                         <p className="font-semibold text-orange-600">
                           {discount.discount_type === 'percent'
                             ? `${discount.discount_value}%`
@@ -1248,30 +1340,52 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 </div>
               )}
 
-              {/* Price Breakdown */}
+              {/* Price Breakdown - Im View-Modus: Gespeicherte Buchungswerte (wie Rechnung), sonst Hook */}
               <div className="border-2 border-blue-200 rounded-lg p-5 bg-blue-50">
                 <h3 className="flex items-center gap-2 text-lg font-bold text-blue-900 mb-4">
                   <DollarSign className="w-5 h-5" />
                   Preisaufschlüsselung
                 </h3>
                 <div className="space-y-3">
+                  {/* ALLE MODI: Detaillierte Anzeige mit priceBreakdown Hook */}
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-700">Grundpreis ({booking.anzahl_naechte} Nächte)</span>
-                    <span className="font-semibold text-slate-900">{booking.grundpreis.toFixed(2)} €</span>
+                    <span className="text-slate-700">Grundpreis ({priceBreakdown?.nights ?? 0} Nächte)</span>
+                    <span className="font-semibold text-slate-900">{(priceBreakdown?.basePrice ?? 0).toFixed(2)} €</span>
                   </div>
-                  {booking.services_preis > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-emerald-700">+ Zusätzliche Services</span>
-                      <span className="font-semibold text-emerald-700">{booking.services_preis.toFixed(2)} €</span>
-                    </div>
+
+                  {/* Services mit Details */}
+                  {priceBreakdown?.services && priceBreakdown.services.length > 0 && (
+                    <>
+                      {priceBreakdown.services.map((service: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center">
+                          <span className="text-emerald-700">
+                            + {service.name}
+                            {service.priceType === 'percent' && (
+                              <span className="text-xs"> ({service.originalValue}%)</span>
+                            )}
+                          </span>
+                          <span className="font-semibold text-emerald-700">{service.calculatedPrice.toFixed(2)} €</span>
+                        </div>
+                      ))}
+                    </>
                   )}
-                  {booking.rabatt_preis > 0 && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-orange-700">- Rabatte</span>
-                      <span className="font-semibold text-orange-700">{booking.rabatt_preis.toFixed(2)} €</span>
-                    </div>
+
+                  {/* Discounts mit Details */}
+                  {priceBreakdown?.discounts && priceBreakdown.discounts.length > 0 && (
+                    <>
+                      {priceBreakdown.discounts.map((discount: any, index: number) => (
+                        <div key={index} className="flex justify-between items-center">
+                          <span className="text-orange-700">
+                            - {discount.name} {discount.discountType === 'percent' && `(${discount.originalValue}%)`}
+                          </span>
+                          <span className="font-semibold text-orange-700">-{discount.calculatedAmount.toFixed(2)} €</span>
+                        </div>
+                      ))}
+                    </>
                   )}
-                  {creditUsed > 0 && (
+
+                  {/* Gast-Guthaben (nur VIEW Mode) */}
+                  {mode === 'view' && creditUsed > 0 && (
                     <div className="flex justify-between items-center">
                       <span className="text-emerald-700 flex items-center gap-1">
                         <Wallet className="w-4 h-4" />
@@ -1280,9 +1394,10 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       <span className="font-semibold text-emerald-700">-{creditUsed.toFixed(2)} €</span>
                     </div>
                   )}
+
                   <div className="border-t-2 border-blue-300 pt-3 flex justify-between items-center">
                     <span className="text-lg font-bold text-blue-900">Gesamtpreis</span>
-                    <span className="text-2xl font-bold text-blue-900">{booking.gesamtpreis.toFixed(2)} €</span>
+                    <span className="text-2xl font-bold text-blue-900">{((priceBreakdown?.total ?? 0) - (mode === 'view' ? creditUsed : 0)).toFixed(2)} €</span>
                   </div>
                 </div>
               </div>
@@ -1405,7 +1520,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         <button
                           onClick={async () => {
                             try {
-                              await invoke('open_pdf_file_command', { filePath: pdf.path });
+                              await invoke('open_pdf_file_command', { path: pdf.path });
                             } catch (error) {
                               setShowErrorDialog({ show: true, message: `Fehler beim Öffnen der PDF: ${error}` });
                             }
@@ -1597,7 +1712,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                         onClick={() => {
                           if (!showBookingHistory) {
                             // Load guest bookings
-                            invoke<any[]>('get_all_bookings').then(allBookings => {
+                            invoke<any[]>('get_all_bookings_pg').then(allBookings => {
                               const filtered = allBookings
                                 .filter(b => b.guest_id === selectedGuest.id && b.id !== booking?.id)
                                 .sort((a, b) => new Date(b.checkin_date).getTime() - new Date(a.checkin_date).getTime());
@@ -1726,7 +1841,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                                         <div className="text-sm text-slate-600 space-y-0.5">
                                           <div>📅 {formatDate(b.checkin_date)} - {formatDate(b.checkout_date)}</div>
                                           <div>🏠 {b.room?.name} ({b.room?.ort})</div>
-                                          <div className="font-semibold text-slate-700">💰 {b.gesamtpreis.toFixed(2)} €</div>
+                                          <div className="font-semibold text-slate-700">💰 {getBookingPrice(historyPriceMap, b.id).total.toFixed(2)} €</div>
                                         </div>
                                       </div>
                                     </div>
@@ -2156,6 +2271,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-sm font-semibold text-slate-900">
+                            {service.emoji && <span className="mr-1">{service.emoji}</span>}
                             {service.service_name}
                           </span>
                           {service.price_type === 'percent' && service.original_value && service.applies_to && (
@@ -2164,7 +2280,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                             </span>
                           )}
                           <span className="text-sm font-semibold text-emerald-600">
-                            {booking ? formatCalculatedServicePrice(service, booking.grundpreis) : `${service.service_price.toFixed(2)} €`}
+                            {priceBreakdown ? formatCalculatedServicePrice(service, priceBreakdown.basePrice) : `${(service.service_price ?? service.price ?? service.original_value ?? 0).toFixed(2)} €`}
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -2267,32 +2383,43 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                               if (booking?.id) {
                                 // EDIT mode - Service sofort zum Backend hinzufügen
                                 try {
+                                  console.log('🔄 [BookingSidebar] Starting service link for booking:', booking.id);
+
                                   // 1. Service-Template zum Backend linken
                                   await invoke('link_service_template_to_booking_command', {
                                     bookingId: booking.id,
                                     serviceTemplateId: template.id,
                                   });
+                                  console.log('✅ [BookingSidebar] Service linked successfully');
 
                                   // 2. Buchung NEU laden (inkl. Services mit Emojis)
+                                  console.log('🔄 [BookingSidebar] Calling reloadBooking...');
                                   await reloadBooking(booking.id);
+                                  console.log('✅ [BookingSidebar] reloadBooking completed');
 
                                   // 3. Lokalen Sidebar-State aktualisieren
+                                  console.log('🔄 [BookingSidebar] Updating local sidebar services...');
                                   const updatedServices = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: booking.id });
+                                  console.log('📊 [BookingSidebar] Updated services:', updatedServices.map(s => ({ name: s.name, emoji: s.emoji })));
                                   setServices(updatedServices);
+                                  console.log('✅ [BookingSidebar] Local sidebar services updated');
 
                                   // 4. 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   // WICHTIG: Sync BEIDE Dates (checkin + checkout) weil Services auf beiden Tagen erscheinen!
                                   // FIX (2025-10-21): Nutze sync_affected_dates um BEIDE Daten in einem Aufruf zu synchronisieren
                                   // 🔄 SYNC zu Turso (Mobile App) - Service-Emojis aktualisieren
                                   if (booking.checkout_date && booking.checkin_date) {
+                                    console.log('🔄 [BookingSidebar] Syncing to Turso...');
                                     syncBookingDatesQuiet({
                                       bookingId: booking.id,
                                       checkinDate: booking.checkin_date,
                                       checkoutDate: booking.checkout_date
                                     });
                                   }
+
+                                  console.log('✅ [BookingSidebar] ALL OPERATIONS COMPLETE');
                                 } catch (error) {
-                                  console.error('❌ Fehler beim Verknüpfen des Service-Templates:', error);
+                                  console.error('❌ [BookingSidebar] Fehler beim Verknüpfen des Service-Templates:', error);
                                   setError('Fehler beim Verknüpfen des Service-Templates');
                                 }
                               } else {
@@ -2407,6 +2534,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-sm font-semibold text-slate-900">
+                            {discount.emoji && <span className="mr-1">{discount.emoji}</span>}
                             {discount.discount_name}
                           </span>
                           <span className="text-sm font-semibold text-orange-600">
@@ -2724,7 +2852,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
         onSuccess={async () => {
           setShowGuestDialog(false);
           // Gäste-Liste neu laden
-          const allGuests = await invoke<Guest[]>('get_all_guests_command');
+          const allGuests = await invoke<Guest[]>('get_all_guests_pg');
           setGuests(allGuests);
           toast.success('Gast erfolgreich erstellt');
         }}

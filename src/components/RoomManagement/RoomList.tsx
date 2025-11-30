@@ -199,21 +199,21 @@ export default function RoomList() {
                       <span className="text-slate-600">Nebensaison</span>
                       <span className="font-semibold text-blue-600 flex items-center gap-1">
                         <Euro className="w-3.5 h-3.5" />
-                        {room.nebensaison_preis.toFixed(2)}
+                        {(room.nebensaison_preis ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Hauptsaison</span>
                       <span className="font-semibold text-slate-900 flex items-center gap-1">
                         <Euro className="w-3.5 h-3.5" />
-                        {room.hauptsaison_preis.toFixed(2)}
+                        {(room.hauptsaison_preis ?? 0).toFixed(2)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Endreinigung</span>
                       <span className="font-semibold text-purple-600 flex items-center gap-1">
                         <Euro className="w-3.5 h-3.5" />
-                        {room.endreinigung.toFixed(2)}
+                        {(room.endreinigung ?? 0).toFixed(2)}
                       </span>
                     </div>
                   </div>

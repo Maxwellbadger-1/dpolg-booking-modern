@@ -9,14 +9,18 @@ impl NotificationSettingsRepository {
 
         let row = client
             .query_one(
-                "SELECT id, enable_email_notifications, enable_reminder_notifications,
-                        reminder_days_before, updated_at
+                "SELECT id, checkin_reminders_enabled, payment_reminders_enabled,
+                        payment_reminder_after_days, payment_reminder_repeat_days,
+                        scheduler_interval_hours, updated_at::text as updated_at
                  FROM notification_settings
                  LIMIT 1",
                 &[],
             )
             .await
-            .map_err(|_| crate::database_pg::DbError::NotFound("Notification settings not found".to_string()))?;
+            .map_err(|e| {
+                println!("NotificationSettings query error: {:?}", e);
+                crate::database_pg::DbError::NotFound("Notification settings not found".to_string())
+            })?;
 
         Ok(NotificationSettings::from(row))
     }
@@ -24,30 +28,34 @@ impl NotificationSettingsRepository {
     /// Update notification settings (UPSERT)
     pub async fn update(
         pool: &DbPool,
-        enable_email_notifications: bool,
-        enable_reminder_notifications: bool,
-        reminder_days_before: i32,
+        settings: &NotificationSettings,
     ) -> DbResult<NotificationSettings> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "INSERT INTO notification_settings (
-                    id, enable_email_notifications, enable_reminder_notifications,
-                    reminder_days_before, updated_at
+                    id, checkin_reminders_enabled, payment_reminders_enabled,
+                    payment_reminder_after_days, payment_reminder_repeat_days,
+                    scheduler_interval_hours, updated_at
                  )
-                 VALUES (1, $1, $2, $3, CURRENT_TIMESTAMP)
+                 VALUES (1, $1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO UPDATE SET
-                    enable_email_notifications = EXCLUDED.enable_email_notifications,
-                    enable_reminder_notifications = EXCLUDED.enable_reminder_notifications,
-                    reminder_days_before = EXCLUDED.reminder_days_before,
+                    checkin_reminders_enabled = EXCLUDED.checkin_reminders_enabled,
+                    payment_reminders_enabled = EXCLUDED.payment_reminders_enabled,
+                    payment_reminder_after_days = EXCLUDED.payment_reminder_after_days,
+                    payment_reminder_repeat_days = EXCLUDED.payment_reminder_repeat_days,
+                    scheduler_interval_hours = EXCLUDED.scheduler_interval_hours,
                     updated_at = CURRENT_TIMESTAMP
-                 RETURNING id, enable_email_notifications, enable_reminder_notifications,
-                           reminder_days_before, updated_at",
+                 RETURNING id, checkin_reminders_enabled, payment_reminders_enabled,
+                           payment_reminder_after_days, payment_reminder_repeat_days,
+                           scheduler_interval_hours, updated_at::text as updated_at",
                 &[
-                    &enable_email_notifications,
-                    &enable_reminder_notifications,
-                    &reminder_days_before,
+                    &settings.checkin_reminders_enabled,
+                    &settings.payment_reminders_enabled,
+                    &settings.payment_reminder_after_days,
+                    &settings.payment_reminder_repeat_days,
+                    &settings.scheduler_interval_hours,
                 ],
             )
             .await?;

@@ -37,7 +37,7 @@ export default function CleaningSync() {
     console.log('🔍 [CleaningSync] loadStats() aufgerufen');
     try {
       console.log('📡 [CleaningSync] Rufe get_cleaning_stats Command auf...');
-      const stats = await invoke<CleaningStats>('get_cleaning_stats');
+      const stats = await invoke<CleaningStats>('get_cleaning_stats_stub');
       console.log('✅ [CleaningSync] Stats erhalten:', stats);
       setStats(stats);
     } catch (error) {
@@ -209,8 +209,8 @@ export default function CleaningSync() {
             className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 disabled:from-slate-400 disabled:to-slate-500 text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
           >
             <Trash2 className={`w-5 h-5 ${cleaning ? 'animate-pulse' : ''}`} />
-            <span>{cleaning ? 'Bereinige...' : 'Putzplan bereinigen'}</span>
-            <span className="text-sm opacity-90">(Löscht alte Buchungen)</span>
+            <span>{cleaning ? 'Bereinige...' : 'Komplett-Resync'}</span>
+            <span className="text-sm opacity-90">(Löscht alle alten Tasks)</span>
           </button>
         </div>
 

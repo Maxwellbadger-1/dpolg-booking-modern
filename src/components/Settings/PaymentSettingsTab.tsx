@@ -4,15 +4,16 @@ import { Building2, Save } from 'lucide-react';
 
 interface PaymentSettings {
   id: number;
-  bank_name: string;
-  iban: string;
-  bic: string;
-  account_holder: string;
-  mwst_rate: number;
-  payment_due_days: number;
-  reminder_after_days: number;
-  payment_text?: string;
-  updated_at: string;
+  bankName: string | null;
+  iban: string | null;
+  bic: string | null;
+  accountHolder: string | null;
+  mwstRate: number | null;
+  paymentDueDays: number | null;
+  reminderAfterDays: number | null;
+  paymentText: string | null;
+  updatedAt: string | null;
+  dpolgRabatt: number | null;
 }
 
 export default function PaymentSettingsTab() {
@@ -40,14 +41,14 @@ export default function PaymentSettingsTab() {
       setSettings(data);
 
       // Formular befüllen
-      setBankName(data.bank_name);
-      setIban(data.iban);
-      setBic(data.bic);
-      setAccountHolder(data.account_holder);
-      setMwstRate(data.mwst_rate);
-      setPaymentDueDays(data.payment_due_days);
-      setReminderAfterDays(data.reminder_after_days);
-      setPaymentText(data.payment_text || '');
+      setBankName(data.bankName || '');
+      setIban(data.iban || '');
+      setBic(data.bic || '');
+      setAccountHolder(data.accountHolder || '');
+      setMwstRate(data.mwstRate || 7);
+      setPaymentDueDays(data.paymentDueDays || 14);
+      setReminderAfterDays(data.reminderAfterDays || 14);
+      setPaymentText(data.paymentText || '');
     } catch (error) {
       console.error('Fehler beim Laden der Zahlungseinstellungen:', error);
       alert(`Fehler beim Laden: ${error}`);
@@ -64,15 +65,16 @@ export default function PaymentSettingsTab() {
     try {
       const updatedSettings: PaymentSettings = {
         id: settings?.id || 1,
-        bank_name: bankName,
-        iban,
-        bic,
-        account_holder: accountHolder,
-        mwst_rate: mwstRate,
-        payment_due_days: paymentDueDays,
-        reminder_after_days: reminderAfterDays,
-        payment_text: paymentText || undefined,
-        updated_at: new Date().toISOString(),
+        bankName: bankName || null,
+        iban: iban || null,
+        bic: bic || null,
+        accountHolder: accountHolder || null,
+        mwstRate: mwstRate,
+        paymentDueDays: paymentDueDays,
+        reminderAfterDays: reminderAfterDays,
+        paymentText: paymentText || null,
+        updatedAt: null,
+        dpolgRabatt: settings?.dpolgRabatt || null,
       };
 
       const result = await invoke<PaymentSettings>('update_payment_settings_pg', {

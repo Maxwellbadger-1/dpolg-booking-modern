@@ -6,12 +6,12 @@ import type { ReminderSettings } from '../../types/reminder';
 
 interface NotificationSettings {
   id: number;
-  checkin_reminders_enabled: boolean;
-  payment_reminders_enabled: boolean;
-  payment_reminder_after_days: number;
-  payment_reminder_repeat_days: number;
-  scheduler_interval_hours: number;
-  updated_at: string;
+  checkinRemindersEnabled: boolean | null;
+  paymentRemindersEnabled: boolean | null;
+  paymentReminderAfterDays: number | null;
+  paymentReminderRepeatDays: number | null;
+  schedulerIntervalHours: number | null;
+  updatedAt: string | null;
 }
 
 interface ScheduledEmail {
@@ -27,12 +27,12 @@ interface ScheduledEmail {
 export default function NotificationsTab() {
   const [settings, setSettings] = useState<NotificationSettings>({
     id: 1,
-    checkin_reminders_enabled: true,
-    payment_reminders_enabled: true,
-    payment_reminder_after_days: 14,
-    payment_reminder_repeat_days: 14,
-    scheduler_interval_hours: 1,
-    updated_at: '',
+    checkinRemindersEnabled: true,
+    paymentRemindersEnabled: true,
+    paymentReminderAfterDays: 14,
+    paymentReminderRepeatDays: 14,
+    schedulerIntervalHours: 1,
+    updatedAt: null,
   });
   const [reminderSettings, setReminderSettings] = useState<ReminderSettings>({
     id: 1,
@@ -40,7 +40,7 @@ export default function NotificationsTab() {
     auto_reminder_payment: true,
     auto_reminder_checkin: true,
     auto_reminder_invoice: true,
-    updated_at: '',
+    updatedAt: null,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,8 +164,8 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="checkin_reminders"
-              checked={settings.checkin_reminders_enabled}
-              onChange={(e) => setSettings({ ...settings, checkin_reminders_enabled: e.target.checked })}
+              checked={settings.checkinRemindersEnabled}
+              onChange={(e) => setSettings({ ...settings, checkinRemindersEnabled: e.target.checked })}
               className="mt-1 w-4 h-4 text-blue-600 border-slate-600 rounded focus:ring-blue-500"
             />
             <div className="flex-1">
@@ -183,8 +183,8 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="payment_reminders"
-              checked={settings.payment_reminders_enabled}
-              onChange={(e) => setSettings({ ...settings, payment_reminders_enabled: e.target.checked })}
+              checked={settings.paymentRemindersEnabled}
+              onChange={(e) => setSettings({ ...settings, paymentRemindersEnabled: e.target.checked })}
               className="mt-1 w-4 h-4 text-blue-600 border-slate-600 rounded focus:ring-blue-500"
             />
             <div className="flex-1">
@@ -194,7 +194,7 @@ export default function NotificationsTab() {
               <p className="text-xs text-slate-400 mt-1 mb-3">
                 Sendet automatisch Zahlungserinnerungen an Gäste mit unbezahlten Buchungen.
               </p>
-              {settings.payment_reminders_enabled && (
+              {settings.paymentRemindersEnabled && (
                 <div className="grid grid-cols-2 gap-4 mt-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-2">
@@ -202,8 +202,8 @@ export default function NotificationsTab() {
                     </label>
                     <input
                       type="number"
-                      value={settings.payment_reminder_after_days}
-                      onChange={(e) => setSettings({ ...settings, payment_reminder_after_days: parseInt(e.target.value) || 14 })}
+                      value={settings.paymentReminderAfterDays}
+                      onChange={(e) => setSettings({ ...settings, paymentReminderAfterDays: parseInt(e.target.value) || 14 })}
                       min="1"
                       max="90"
                       className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -218,8 +218,8 @@ export default function NotificationsTab() {
                     </label>
                     <input
                       type="number"
-                      value={settings.payment_reminder_repeat_days}
-                      onChange={(e) => setSettings({ ...settings, payment_reminder_repeat_days: parseInt(e.target.value) || 14 })}
+                      value={settings.paymentReminderRepeatDays}
+                      onChange={(e) => setSettings({ ...settings, paymentReminderRepeatDays: parseInt(e.target.value) || 14 })}
                       min="1"
                       max="90"
                       className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -247,8 +247,8 @@ export default function NotificationsTab() {
                 <div className="flex items-center gap-3">
                   <input
                     type="number"
-                    value={settings.scheduler_interval_hours}
-                    onChange={(e) => setSettings({ ...settings, scheduler_interval_hours: parseInt(e.target.value) || 1 })}
+                    value={settings.schedulerIntervalHours}
+                    onChange={(e) => setSettings({ ...settings, schedulerIntervalHours: parseInt(e.target.value) || 1 })}
                     min="1"
                     max="24"
                     className="w-32 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"

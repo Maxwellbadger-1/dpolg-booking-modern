@@ -117,6 +117,13 @@ pub async fn sync_tasks_to_turso(
 
     println!("🗑️ Cleared old tasks from Turso");
 
+    // 🔍 DEBUG: Print all task IDs being synced
+    println!("🔍 Task IDs being synced:");
+    for (idx, task) in tasks.iter().enumerate() {
+        println!("  {}. ID={}, booking_id={}, room={:?}, date={}",
+            idx + 1, task.id, task.booking_id, task.room_number, task.task_date);
+    }
+
     // 4. Insert new tasks
     let mut synced_count = 0;
     let total_tasks = tasks.len();
@@ -182,6 +189,92 @@ pub async fn delete_tasks_from_turso(booking_id: i32) -> Result<(), String> {
 
     println!("✅ Tasks deleted from Turso");
     Ok(())
+}
+
+/// Sync cleaning tasks for a single booking to Turso
+/// Used after create/update booking to immediately reflect changes in mobile app
+pub async fn sync_booking_tasks_to_turso(
+    pg_pool: &DbPool,
+    booking_id: i32,
+) -> Result<usize, String> {
+    println!("🔄 Syncing tasks for booking {} to Turso", booking_id);
+
+    // 1. Load tasks for this booking from PostgreSQL
+    let all_tasks = CleaningTaskRepository::get_all(pg_pool)
+        .await
+        .map_err(|e| format!("Failed to load tasks from PostgreSQL: {}", e))?;
+
+    let tasks: Vec<_> = all_tasks.into_iter()
+        .filter(|t| t.booking_id == booking_id)
+        .collect();
+
+    println!("📋 Found {} tasks for booking {} in PostgreSQL", tasks.len(), booking_id);
+
+    if tasks.is_empty() {
+        println!("⚠️ No tasks to sync for booking {}", booking_id);
+        return Ok(0);
+    }
+
+    // 2. Connect to Turso
+    let conn = get_turso_connection().await?;
+
+    // 3. Delete old tasks for this booking (to avoid duplicates)
+    conn.execute(
+        "DELETE FROM cleaning_tasks WHERE booking_id = ?",
+        libsql::params![booking_id]
+    )
+    .await
+    .map_err(|e| format!("Failed to delete old tasks: {}", e))?;
+
+    println!("🗑️ Cleared old tasks for booking {} from Turso", booking_id);
+
+    // 4. Insert new tasks
+    let mut synced_count = 0;
+
+    for task in tasks {
+        let result = conn.execute(
+            "INSERT OR REPLACE INTO cleaning_tasks (
+                id, booking_id, reservierungsnummer, date,
+                room_name, room_id, room_location, guest_name,
+                checkout_time, checkin_time, priority, notes,
+                status, guest_count, extras,
+                emojis_start, emojis_end,
+                has_dog, change_bedding, completed_at, completed_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            libsql::params![
+                task.id,
+                task.booking_id,
+                task.reservierungsnummer.unwrap_or_default(),
+                task.task_date,
+                task.room_number.unwrap_or_else(|| format!("{}", task.room_id)),
+                task.room_id,
+                task.room_location.unwrap_or_default(),
+                task.guest_name.unwrap_or_default(),
+                task.checkout_time.unwrap_or_default(),
+                task.checkin_time.unwrap_or_default(),
+                task.priority,
+                task.notes.unwrap_or_default(),
+                task.status,
+                task.guest_count.unwrap_or(0),
+                task.extras.unwrap_or_default(),
+                task.emojis_start.unwrap_or_default(),
+                task.emojis_end.unwrap_or_default(),
+                if task.has_dog { 1 } else { 0 },
+                if task.change_bedding { 1 } else { 0 },
+                task.completed_at.unwrap_or_default(),
+                task.completed_by.unwrap_or_default(),
+            ]
+        )
+        .await;
+
+        match result {
+            Ok(_) => synced_count += 1,
+            Err(e) => println!("⚠️ Failed to sync task {}: {}", task.id, e),
+        }
+    }
+
+    println!("✅ Synced {} tasks for booking {} to Turso", synced_count, booking_id);
+    Ok(synced_count)
 }
 
 /// Cleanup old completed tasks from Turso (older than 30 days)

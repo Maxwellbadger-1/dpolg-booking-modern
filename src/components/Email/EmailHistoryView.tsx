@@ -18,12 +18,12 @@ interface EmailLog {
 }
 
 interface ScheduledEmail {
-  booking_id: number;
+  bookingId: number;
   reservierungsnummer: string;
-  guest_name: string;
-  guest_email: string;
-  email_type: string;
-  scheduled_date: string;
+  guestName: string;
+  guestEmail: string;
+  emailType: string;
+  scheduledDate: string;
   reason: string;
 }
 
@@ -119,15 +119,73 @@ export default function EmailHistoryView() {
   };
 
   const loadScheduledEmails = async () => {
+    console.log('╔═══════════════════════════════════════════════════════════');
+    console.log('║ 📧 loadScheduledEmails FRONTEND CALLED');
+    console.log('╚═══════════════════════════════════════════════════════════');
+
+    console.log('🔄 Step 1: Setting loading state...');
     setLoading(true);
     setError(null);
+    console.log('✅ Step 1: Loading state set to true, error cleared');
+
     try {
+      console.log('🔄 Step 2: Invoking backend command: get_scheduled_emails');
+      console.log('   Command name: "get_scheduled_emails"');
+      console.log('   Expected return type: ScheduledEmail[]');
+      console.log('   Parameters: none');
+
       const scheduled = await invoke<ScheduledEmail[]>('get_scheduled_emails');
+
+      console.log('✅ Step 2: Backend command completed successfully');
+      console.log('📊 Received data from backend:');
+      console.log('   Type:', typeof scheduled);
+      console.log('   Is Array:', Array.isArray(scheduled));
+      console.log('   Length:', scheduled ? scheduled.length : 'undefined');
+
+      if (scheduled && scheduled.length > 0) {
+        console.log('📧 First email details:');
+        console.log('   ', JSON.stringify(scheduled[0], null, 2));
+        console.log(`📧 Total emails received: ${scheduled.length}`);
+
+        // Log all emails
+        scheduled.forEach((email, idx) => {
+          console.log(`   Email ${idx + 1}:`, {
+            bookingId: email.bookingId,
+            reservierungsnummer: email.reservierungsnummer,
+            guestName: email.guestName,
+            guestEmail: email.guestEmail,
+            emailType: email.emailType,
+            scheduledDate: email.scheduledDate,
+            reason: email.reason
+          });
+        });
+      } else {
+        console.warn('⚠️  WARNING: Received empty array from backend');
+      }
+
+      console.log('🔄 Step 3: Setting scheduled emails in state...');
       setScheduledEmails(scheduled);
+      console.log('✅ Step 3: State updated with scheduled emails');
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      console.error('╔═══════════════════════════════════════════════════════════');
+      console.error('║ ❌ ERROR IN loadScheduledEmails');
+      console.error('╚═══════════════════════════════════════════════════════════');
+      console.error('🔥 Error type:', typeof err);
+      console.error('🔥 Error constructor:', err?.constructor?.name);
+      console.error('🔥 Error message:', err instanceof Error ? err.message : String(err));
+      console.error('🔥 Full error object:', err);
+      console.error('🔥 Error stack:', err instanceof Error ? err.stack : 'No stack trace');
+
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error('📝 Setting error state with message:', errorMessage);
+      setError(errorMessage);
     } finally {
+      console.log('🔄 Finally block: Setting loading to false');
       setLoading(false);
+      console.log('╔═══════════════════════════════════════════════════════════');
+      console.log('║ ✅ loadScheduledEmails FRONTEND COMPLETE');
+      console.log('╚═══════════════════════════════════════════════════════════');
     }
   };
 
@@ -665,20 +723,20 @@ export default function EmailHistoryView() {
                         {/* Reservierung */}
                         <div className="col-span-2">
                           <div className="text-sm font-semibold text-slate-800">{email.reservierungsnummer}</div>
-                          <div className="text-xs text-slate-500 mt-0.5">ID: {email.booking_id}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">ID: {email.bookingId}</div>
                         </div>
 
                         {/* Gast */}
                         <div className="col-span-3">
-                          <div className="text-sm text-slate-800 font-semibold truncate">{email.guest_name}</div>
-                          <div className="text-xs text-slate-500 mt-0.5 truncate">{email.guest_email}</div>
+                          <div className="text-sm text-slate-800 font-semibold truncate">{email.guestName}</div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">{email.guestEmail}</div>
                         </div>
 
                         {/* Email-Typ */}
                         <div className="col-span-2 flex items-center">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(email.email_type)}`}>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getTemplateColor(email.emailType)}`}>
                             <FileText className="w-3.5 h-3.5" />
-                            <span className="truncate">{getTemplateDisplayName(email.email_type)}</span>
+                            <span className="truncate">{getTemplateDisplayName(email.emailType)}</span>
                           </span>
                         </div>
 
@@ -686,7 +744,7 @@ export default function EmailHistoryView() {
                         <div className="col-span-2 flex items-center">
                           <div className="flex items-center gap-2 text-sm text-slate-600">
                             <CalendarClock className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                            <span className="truncate">{email.scheduled_date}</span>
+                            <span className="truncate">{email.scheduledDate}</span>
                           </div>
                         </div>
 

@@ -9,10 +9,12 @@ impl AdditionalServiceRepository {
 
         let rows = client
             .query(
-                "SELECT id, booking_id, service_name, service_price, created_at,
-                        template_id, price_type, original_value, applies_to
-                 FROM additional_services
-                 ORDER BY created_at DESC",
+                "SELECT a.id, a.booking_id, a.service_name, a.service_price,
+                        a.template_id, a.price_type, a.original_value, a.applies_to,
+                        st.emoji
+                 FROM additional_services a
+                 LEFT JOIN service_templates st ON a.template_id = st.id
+                 ORDER BY a.id DESC",
                 &[],
             )
             .await?;
@@ -21,15 +23,17 @@ impl AdditionalServiceRepository {
     }
 
     /// Get service by ID
-    pub async fn get_by_id(pool: &DbPool, id: i32) -> DbResult<AdditionalService> {
+    pub async fn get_by_id(pool: &DbPool, id: i64) -> DbResult<AdditionalService> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
-                "SELECT id, booking_id, service_name, service_price, created_at,
-                        template_id, price_type, original_value, applies_to
-                 FROM additional_services
-                 WHERE id = $1",
+                "SELECT a.id, a.booking_id, a.service_name, a.service_price,
+                        a.template_id, a.price_type, a.original_value, a.applies_to,
+                        st.emoji
+                 FROM additional_services a
+                 LEFT JOIN service_templates st ON a.template_id = st.id
+                 WHERE a.id = $1",
                 &[&id],
             )
             .await
@@ -39,16 +43,18 @@ impl AdditionalServiceRepository {
     }
 
     /// Get services by booking ID
-    pub async fn get_by_booking(pool: &DbPool, booking_id: i32) -> DbResult<Vec<AdditionalService>> {
+    pub async fn get_by_booking(pool: &DbPool, booking_id: i64) -> DbResult<Vec<AdditionalService>> {
         let client = pool.get().await?;
 
         let rows = client
             .query(
-                "SELECT id, booking_id, service_name, service_price, created_at,
-                        template_id, price_type, original_value, applies_to
-                 FROM additional_services
-                 WHERE booking_id = $1
-                 ORDER BY created_at ASC",
+                "SELECT a.id, a.booking_id, a.service_name, a.service_price,
+                        a.template_id, a.price_type, a.original_value, a.applies_to,
+                        st.emoji
+                 FROM additional_services a
+                 LEFT JOIN service_templates st ON a.template_id = st.id
+                 WHERE a.booking_id = $1
+                 ORDER BY a.id ASC",
                 &[&booking_id],
             )
             .await?;
@@ -59,24 +65,30 @@ impl AdditionalServiceRepository {
     /// Create new service
     pub async fn create(
         pool: &DbPool,
-        booking_id: i32,
+        booking_id: i64,
         service_name: String,
-        service_price: f64,
+        service_price: f32,
         template_id: Option<i32>,
         price_type: String,
-        original_value: f64,
+        original_value: f32,
         applies_to: String,
     ) -> DbResult<AdditionalService> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
-                "INSERT INTO additional_services (
-                    booking_id, service_name, service_price, template_id,
-                    price_type, original_value, applies_to, created_at
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-                 RETURNING id, booking_id, service_name, service_price, created_at,
-                           template_id, price_type, original_value, applies_to",
+                "WITH inserted AS (
+                    INSERT INTO additional_services (
+                        booking_id, service_name, service_price, template_id,
+                        price_type, original_value, applies_to
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    RETURNING *
+                 )
+                 SELECT i.id, i.booking_id, i.service_name, i.service_price,
+                        i.template_id, i.price_type, i.original_value, i.applies_to,
+                        st.emoji
+                 FROM inserted i
+                 LEFT JOIN service_templates st ON i.template_id = st.id",
                 &[
                     &booking_id, &service_name, &service_price, &template_id,
                     &price_type, &original_value, &applies_to,
@@ -90,26 +102,32 @@ impl AdditionalServiceRepository {
     /// Update existing service
     pub async fn update(
         pool: &DbPool,
-        id: i32,
-        booking_id: i32,
+        id: i64,
+        booking_id: i64,
         service_name: String,
-        service_price: f64,
+        service_price: f32,
         template_id: Option<i32>,
         price_type: String,
-        original_value: f64,
+        original_value: f32,
         applies_to: String,
     ) -> DbResult<AdditionalService> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
-                "UPDATE additional_services SET
-                    booking_id = $2, service_name = $3, service_price = $4,
-                    template_id = $5, price_type = $6, original_value = $7,
-                    applies_to = $8
-                 WHERE id = $1
-                 RETURNING id, booking_id, service_name, service_price, created_at,
-                           template_id, price_type, original_value, applies_to",
+                "WITH updated AS (
+                    UPDATE additional_services SET
+                        booking_id = $2, service_name = $3, service_price = $4,
+                        template_id = $5, price_type = $6, original_value = $7,
+                        applies_to = $8
+                    WHERE id = $1
+                    RETURNING *
+                 )
+                 SELECT u.id, u.booking_id, u.service_name, u.service_price,
+                        u.template_id, u.price_type, u.original_value, u.applies_to,
+                        st.emoji
+                 FROM updated u
+                 LEFT JOIN service_templates st ON u.template_id = st.id",
                 &[
                     &id, &booking_id, &service_name, &service_price,
                     &template_id, &price_type, &original_value, &applies_to,
@@ -122,7 +140,7 @@ impl AdditionalServiceRepository {
     }
 
     /// Delete service
-    pub async fn delete(pool: &DbPool, id: i32) -> DbResult<()> {
+    pub async fn delete(pool: &DbPool, id: i64) -> DbResult<()> {
         let client = pool.get().await?;
 
         let rows_affected = client
@@ -140,7 +158,7 @@ impl AdditionalServiceRepository {
     }
 
     /// Calculate total services price for booking
-    pub async fn calculate_total_for_booking(pool: &DbPool, booking_id: i32) -> DbResult<f64> {
+    pub async fn calculate_total_for_booking(pool: &DbPool, booking_id: i64) -> DbResult<f64> {
         let client = pool.get().await?;
 
         let row = client

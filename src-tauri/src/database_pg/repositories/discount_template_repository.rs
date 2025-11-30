@@ -9,9 +9,9 @@ impl DiscountTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, discount_name, discount_type, discount_value, is_active, created_at
+                "SELECT id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at
                  FROM discount_templates
-                 ORDER BY discount_name ASC",
+                 ORDER BY name ASC",
                 &[],
             )
             .await?;
@@ -25,7 +25,7 @@ impl DiscountTemplateRepository {
 
         let row = client
             .query_one(
-                "SELECT id, discount_name, discount_type, discount_value, is_active, created_at
+                "SELECT id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at
                  FROM discount_templates
                  WHERE id = $1",
                 &[&id],
@@ -42,10 +42,10 @@ impl DiscountTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, discount_name, discount_type, discount_value, is_active, created_at
+                "SELECT id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at
                  FROM discount_templates
                  WHERE is_active = TRUE
-                 ORDER BY discount_name ASC",
+                 ORDER BY name ASC",
                 &[],
             )
             .await?;
@@ -59,16 +59,17 @@ impl DiscountTemplateRepository {
         discount_name: String,
         discount_type: String,
         discount_value: f64,
+        emoji: Option<String>,
     ) -> DbResult<DiscountTemplate> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "INSERT INTO discount_templates (
-                    discount_name, discount_type, discount_value, is_active, created_at
-                 ) VALUES ($1, $2, $3, TRUE, CURRENT_TIMESTAMP)
-                 RETURNING id, discount_name, discount_type, discount_value, is_active, created_at",
-                &[&discount_name, &discount_type, &discount_value],
+                    name, discount_type, discount_value, is_active, emoji, created_at::text as created_at
+                 ) VALUES ($1, $2, $3, TRUE, $4, CURRENT_TIMESTAMP)
+                 RETURNING id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at",
+                &[&discount_name, &discount_type, &discount_value, &emoji],
             )
             .await?;
 
@@ -83,16 +84,17 @@ impl DiscountTemplateRepository {
         discount_type: String,
         discount_value: f64,
         is_active: bool,
+        emoji: Option<String>,
     ) -> DbResult<DiscountTemplate> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "UPDATE discount_templates SET
-                    discount_name = $2, discount_type = $3, discount_value = $4, is_active = $5
+                    name = $2, discount_type = $3, discount_value = $4, is_active = $5, emoji = $6
                  WHERE id = $1
-                 RETURNING id, discount_name, discount_type, discount_value, is_active, created_at",
-                &[&id, &discount_name, &discount_type, &discount_value, &is_active],
+                 RETURNING id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at",
+                &[&id, &discount_name, &discount_type, &discount_value, &is_active, &emoji],
             )
             .await
             .map_err(|_| crate::database_pg::DbError::NotFound(format!("Discount template with ID {} not found", id)))?;
@@ -109,7 +111,7 @@ impl DiscountTemplateRepository {
                 "UPDATE discount_templates SET
                     is_active = NOT is_active
                  WHERE id = $1
-                 RETURNING id, discount_name, discount_type, discount_value, is_active, created_at",
+                 RETURNING id, name, discount_type, discount_value, is_active, emoji, created_at::text as created_at",
                 &[&id],
             )
             .await

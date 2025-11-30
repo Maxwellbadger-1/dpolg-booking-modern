@@ -9,20 +9,20 @@ import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info } from 'l
 
 interface CompanySettings {
   id: number;
-  company_name: string;
-  street_address: string;
-  plz: string;
-  city: string;
-  country: string;
-  phone: string;
-  fax?: string;
-  email: string;
-  website: string;
-  tax_id: string;
-  ceo_name: string;
-  registry_court: string;
-  logo_path?: string;
-  updated_at: string;
+  companyName: string;
+  streetAddress: string | null;
+  plz: string | null;
+  city: string | null;
+  country: string | null;
+  phone: string | null;
+  fax: string | null;
+  email: string | null;
+  website: string | null;
+  taxId: string | null;
+  ceoName: string | null;
+  registryCourt: string | null;
+  logoPath: string | null;
+  updatedAt: string | null;
 }
 
 export default function GeneralSettingsTab() {
@@ -60,19 +60,19 @@ export default function GeneralSettingsTab() {
       setSettings(data);
 
       // Formular befüllen
-      setCompanyName(data.company_name);
-      setAddress(data.street_address);
-      setPlz(data.plz);
-      setCity(data.city);
-      setCountry(data.country);
-      setPhone(data.phone);
+      setCompanyName(data.companyName);
+      setAddress(data.streetAddress || '');
+      setPlz(data.plz || '');
+      setCity(data.city || '');
+      setCountry(data.country || 'Deutschland');
+      setPhone(data.phone || '');
       setFax(data.fax || '');
-      setEmail(data.email);
-      setWebsite(data.website);
-      setTaxId(data.tax_id);
-      setCeoName(data.ceo_name);
-      setRegistryCourt(data.registry_court);
-      setLogoPath(data.logo_path || '');
+      setEmail(data.email || '');
+      setWebsite(data.website || '');
+      setTaxId(data.taxId || '');
+      setCeoName(data.ceoName || '');
+      setRegistryCourt(data.registryCourt || '');
+      setLogoPath(data.logoPath || '');
     } catch (error) {
       console.error('Fehler beim Laden der Einstellungen:', error);
       alert(`Fehler beim Laden: ${error}`);
@@ -128,15 +128,32 @@ export default function GeneralSettingsTab() {
   const checkForUpdate = async () => {
     setCheckingUpdate(true);
     setUpdateStatus('checking');
+    setSuccessMessage('🔍 Suche nach Updates...');
 
     try {
       console.log('🔍 Manueller Update-Check gestartet...');
+
+      // Check if we're in development mode
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isDev) {
+        console.log('⚠️ Update-Check im Development-Mode übersprungen');
+        setUpdateStatus('current');
+        setSuccessMessage(`ℹ️ Update-Check ist nur in Production Builds verfügbar (aktuelle Version: ${currentVersion})`);
+        setTimeout(() => {
+          setSuccessMessage(null);
+          setUpdateStatus('idle');
+        }, 6000);
+        setCheckingUpdate(false);
+        return;
+      }
+
       const update = await check();
 
       if (update?.available) {
         console.log(`✅ Update verfügbar: ${update.version}`);
         setUpdateStatus('available');
         setUpdateVersion(update.version);
+        setSuccessMessage(null); // Clear checking message
 
         // Zeige Update-Dialog
         const shouldUpdate = window.confirm(
@@ -144,7 +161,7 @@ export default function GeneralSettingsTab() {
         );
 
         if (shouldUpdate) {
-          setSuccessMessage('Update wird heruntergeladen...');
+          setSuccessMessage('⬇️ Update wird heruntergeladen...');
 
           // Download und Installation
           let downloaded = 0;
@@ -153,15 +170,17 @@ export default function GeneralSettingsTab() {
             switch (event.event) {
               case 'Started':
                 contentLength = event.data.contentLength || 0;
-                console.log(`Download gestartet (${Math.round(contentLength / 1024 / 1024)} MB)`);
+                const sizeMB = Math.round(contentLength / 1024 / 1024);
+                console.log(`Download gestartet (${sizeMB} MB)`);
+                setSuccessMessage(`⬇️ Lade Update herunter (${sizeMB} MB)...`);
                 break;
               case 'Progress':
                 downloaded += event.data.chunkLength;
                 const percent = contentLength > 0 ? Math.round((downloaded / contentLength) * 100) : 0;
-                setSuccessMessage(`Update wird heruntergeladen... ${percent}%`);
+                setSuccessMessage(`⬇️ Lade Update herunter... ${percent}%`);
                 break;
               case 'Finished':
-                setSuccessMessage('Update wurde installiert. App wird neu gestartet...');
+                setSuccessMessage('✅ Update installiert! App wird neu gestartet...');
                 console.log('Update installiert');
                 break;
             }
@@ -171,24 +190,29 @@ export default function GeneralSettingsTab() {
           setTimeout(async () => {
             await relaunch();
           }, 2000);
+        } else {
+          // User hat Update abgelehnt
+          setUpdateStatus('idle');
+          setSuccessMessage(null);
         }
       } else {
         console.log('✅ App ist auf dem neuesten Stand');
         setUpdateStatus('current');
-        setSuccessMessage(`Die App ist bereits auf dem neuesten Stand (v${currentVersion})`);
+        setSuccessMessage(`✅ App ist bereits aktuell (Version ${currentVersion})`);
         setTimeout(() => {
           setSuccessMessage(null);
           setUpdateStatus('idle');
-        }, 3000);
+        }, 5000); // 5 Sekunden statt 3
       }
     } catch (error) {
       console.error('❌ Fehler beim Update-Check:', error);
       setUpdateStatus('error');
-      setSuccessMessage(`Fehler beim Update-Check: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setSuccessMessage(`❌ Fehler beim Update-Check: ${errorMessage}`);
       setTimeout(() => {
         setSuccessMessage(null);
         setUpdateStatus('idle');
-      }, 5000);
+      }, 8000); // 8 Sekunden für Error-Messages
     } finally {
       setCheckingUpdate(false);
     }
@@ -202,20 +226,20 @@ export default function GeneralSettingsTab() {
     try {
       const updatedSettings: CompanySettings = {
         id: settings?.id || 1,
-        company_name: companyName,
-        street_address: address,
-        plz,
-        city,
-        country,
-        phone,
-        fax: fax || undefined,
-        email,
-        website,
-        tax_id: taxId,
-        ceo_name: ceoName,
-        registry_court: registryCourt,
-        logo_path: logoPath || undefined,
-        updated_at: new Date().toISOString(),
+        companyName: companyName,
+        streetAddress: address || null,
+        plz: plz || null,
+        city: city || null,
+        country: country || null,
+        phone: phone || null,
+        fax: fax || null,
+        email: email || null,
+        website: website || null,
+        taxId: taxId || null,
+        ceoName: ceoName || null,
+        registryCourt: registryCourt || null,
+        logoPath: logoPath || null,
+        updatedAt: null,
       };
 
       const result = await invoke<CompanySettings>('update_company_settings_pg', {
@@ -281,17 +305,31 @@ export default function GeneralSettingsTab() {
             </div>
 
             {/* Update Status Messages */}
+            {updateStatus === 'checking' && (
+              <div className="mt-4 flex items-center gap-2 text-blue-400 bg-blue-900/20 p-3 rounded-lg border border-blue-700">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400"></div>
+                <span className="text-sm font-medium">Prüfe auf Updates...</span>
+              </div>
+            )}
+
             {updateStatus === 'current' && (
-              <div className="mt-4 flex items-center gap-2 text-emerald-400">
+              <div className="mt-4 flex items-center gap-2 text-emerald-400 bg-emerald-900/20 p-3 rounded-lg border border-emerald-700">
                 <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">App ist auf dem neuesten Stand</span>
+                <span className="text-sm font-medium">App ist auf dem neuesten Stand (v{currentVersion})</span>
               </div>
             )}
 
             {updateStatus === 'available' && (
-              <div className="mt-4 flex items-center gap-2 text-amber-400">
+              <div className="mt-4 flex items-center gap-2 text-amber-400 bg-amber-900/20 p-3 rounded-lg border border-amber-700">
                 <Info className="w-4 h-4" />
-                <span className="text-sm">Version {updateVersion} verfügbar</span>
+                <span className="text-sm font-medium">Update verfügbar: Version {updateVersion}</span>
+              </div>
+            )}
+
+            {updateStatus === 'error' && (
+              <div className="mt-4 flex items-center gap-2 text-red-400 bg-red-900/20 p-3 rounded-lg border border-red-700">
+                <XCircle className="w-4 h-4" />
+                <span className="text-sm font-medium">Fehler beim Update-Check</span>
               </div>
             )}
           </div>
@@ -496,7 +534,7 @@ export default function GeneralSettingsTab() {
         <h3 className="text-lg font-bold text-white mb-4">Logo (für Rechnungen)</h3>
         <div className="space-y-4">
           {/* Logo-Vorschau */}
-          {logoPath && (
+          {logoPath && !logoPath.startsWith('C:') && !logoPath.includes('\\') && (
             <div className="bg-slate-700 rounded-lg p-4 border border-slate-600">
               <p className="text-sm text-slate-300 mb-2">Aktuelles Logo:</p>
               <div className="bg-white p-4 rounded">
@@ -512,6 +550,13 @@ export default function GeneralSettingsTab() {
                   }}
                 />
               </div>
+            </div>
+          )}
+          {/* Warnung bei Windows-Pfad auf Mac */}
+          {logoPath && (logoPath.startsWith('C:') || logoPath.includes('\\')) && (
+            <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-4">
+              <p className="text-yellow-400 text-sm font-medium">⚠️ Logo wurde auf einem anderen Computer hochgeladen</p>
+              <p className="text-yellow-300/70 text-xs mt-1">Bitte lade das Logo erneut hoch um es auf diesem Mac anzuzeigen.</p>
             </div>
           )}
 

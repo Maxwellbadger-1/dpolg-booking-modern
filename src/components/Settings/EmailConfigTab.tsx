@@ -6,15 +6,15 @@ import ProviderHelpDialog from './ProviderHelpDialog';
 
 interface EmailConfig {
   id: number;
-  smtp_server: string;
-  smtp_port: number;
-  smtp_username: string;
-  smtp_password: string;
-  from_email: string;
-  from_name: string;
-  use_tls: boolean;
-  created_at: string;
-  updated_at: string;
+  smtpServer: string | null;
+  smtpPort: number | null;
+  smtpUsername: string | null;
+  smtpPassword: string | null;
+  fromEmail: string | null;
+  fromName: string | null;
+  useTls: number | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 export default function EmailConfigTab() {
@@ -43,17 +43,17 @@ export default function EmailConfigTab() {
   const loadConfig = async () => {
     try {
       const config = await invoke<EmailConfig>('get_email_config_pg');
-      setSmtpServer(config.smtp_server);
-      setSmtpPort(config.smtp_port);
-      setSmtpUsername(config.smtp_username);
+      setSmtpServer(config.smtpServer || '');
+      setSmtpPort(config.smtpPort || 587);
+      setSmtpUsername(config.smtpUsername || '');
       // Tracke ob ein Passwort existiert, zeige es aber nicht im Feld an
-      if (config.smtp_password && config.smtp_password.length > 0) {
+      if (config.smtpPassword && config.smtpPassword.length > 0) {
         setHasExistingPassword(true);
         setSmtpPassword(''); // Feld bleibt leer
       }
-      setFromEmail(config.from_email);
-      setFromName(config.from_name);
-      setUseTls(config.use_tls);
+      setFromEmail(config.fromEmail || '');
+      setFromName(config.fromName || '');
+      setUseTls(config.useTls === 1);
     } catch (error) {
       console.log('Keine Email-Konfiguration gefunden');
       setHasExistingPassword(false);
@@ -70,14 +70,20 @@ export default function EmailConfigTab() {
       // Backend behandelt leeres Passwort korrekt:
       // - Bei Update: behält altes Passwort
       // - Bei Insert: gibt Fehler zurück
+      const settingsObj: EmailConfig = {
+        id: 1,
+        smtpServer: smtpServer || null,
+        smtpPort: smtpPort,
+        smtpUsername: smtpUsername || null,
+        smtpPassword: smtpPassword || null,
+        fromEmail: fromEmail || null,
+        fromName: fromName || null,
+        useTls: useTls ? 1 : 0,
+        createdAt: null,
+        updatedAt: null,
+      };
       await invoke('update_email_config_pg', {
-        smtpServer,
-        smtpPort,
-        smtpUsername,
-        smtpPassword: smtpPassword, // Sende was im Feld steht (leer oder neu)
-        fromEmail,
-        fromName,
-        useTls,
+        settings: settingsObj,
       });
 
       setSuccessMessage('Email-Konfiguration erfolgreich gespeichert!');
@@ -122,14 +128,12 @@ export default function EmailConfigTab() {
     setError(null);
 
     try {
-      const result = await invoke<string>('test_email_connection_command', {
-        smtpServer,
-        smtpPort,
-        smtpUsername,
-        smtpPassword: smtpPassword, // Backend lädt gespeichertes PW wenn leer
-        fromEmail,
-        fromName,
-        testRecipient,
+      // Erst Verbindung testen
+      await invoke<string>('test_email_connection_command');
+
+      // Dann echte Test-Email senden
+      const result = await invoke<string>('send_test_email_command', {
+        recipientEmail: testRecipient,
       });
 
       setTestResult({ success: true, message: result });

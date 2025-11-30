@@ -1,1 +1,0 @@
-# DPolG Architecture Analysis Report

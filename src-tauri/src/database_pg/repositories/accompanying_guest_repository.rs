@@ -9,9 +9,9 @@ impl AccompanyingGuestRepository {
 
         let rows = client
             .query(
-                "SELECT id, booking_id, first_name, last_name, birth_date, created_at
+                "SELECT id, booking_id, vorname, nachname, geburtsdatum
                  FROM accompanying_guests
-                 ORDER BY created_at DESC",
+                 ORDER BY id DESC",
                 &[],
             )
             .await?;
@@ -20,12 +20,12 @@ impl AccompanyingGuestRepository {
     }
 
     /// Get accompanying guest by ID
-    pub async fn get_by_id(pool: &DbPool, id: i32) -> DbResult<AccompanyingGuest> {
+    pub async fn get_by_id(pool: &DbPool, id: i64) -> DbResult<AccompanyingGuest> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
-                "SELECT id, booking_id, first_name, last_name, birth_date, created_at
+                "SELECT id, booking_id, vorname, nachname, geburtsdatum
                  FROM accompanying_guests
                  WHERE id = $1",
                 &[&id],
@@ -37,15 +37,15 @@ impl AccompanyingGuestRepository {
     }
 
     /// Get accompanying guests by booking ID
-    pub async fn get_by_booking(pool: &DbPool, booking_id: i32) -> DbResult<Vec<AccompanyingGuest>> {
+    pub async fn get_by_booking(pool: &DbPool, booking_id: i64) -> DbResult<Vec<AccompanyingGuest>> {
         let client = pool.get().await?;
 
         let rows = client
             .query(
-                "SELECT id, booking_id, first_name, last_name, birth_date, created_at
+                "SELECT id, booking_id, vorname, nachname, geburtsdatum
                  FROM accompanying_guests
                  WHERE booking_id = $1
-                 ORDER BY last_name, first_name",
+                 ORDER BY nachname, vorname",
                 &[&booking_id],
             )
             .await?;
@@ -56,43 +56,56 @@ impl AccompanyingGuestRepository {
     /// Create new accompanying guest
     pub async fn create(
         pool: &DbPool,
-        booking_id: i32,
-        first_name: String,
-        last_name: String,
-        birth_date: Option<String>,
+        booking_id: i64,
+        vorname: String,
+        nachname: String,
+        geburtsdatum: Option<String>,
     ) -> DbResult<AccompanyingGuest> {
-        let client = pool.get().await?;
+        println!("🔍 [REPO DEBUG] AccompanyingGuestRepository::create called");
+        println!("   booking_id: {}, vorname: {}, nachname: {}", booking_id, vorname, nachname);
+
+        let client = pool.get().await.map_err(|e| {
+            println!("❌ [REPO DEBUG] Pool error: {}", e);
+            e
+        })?;
+        println!("✅ [REPO DEBUG] Got client from pool");
 
         let row = client
             .query_one(
                 "INSERT INTO accompanying_guests (
-                    booking_id, first_name, last_name, birth_date, created_at
-                 ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-                 RETURNING id, booking_id, first_name, last_name, birth_date, created_at",
-                &[&booking_id, &first_name, &last_name, &birth_date],
+                    booking_id, vorname, nachname, geburtsdatum
+                 ) VALUES ($1, $2, $3, $4)
+                 RETURNING id, booking_id, vorname, nachname, geburtsdatum",
+                &[&booking_id, &vorname, &nachname, &geburtsdatum],
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                println!("❌ [REPO DEBUG] Query error: {}", e);
+                e
+            })?;
 
-        Ok(AccompanyingGuest::from(row))
+        let guest = AccompanyingGuest::from(row);
+        println!("✅ [REPO DEBUG] Created guest with id: {}", guest.id);
+        Ok(guest)
     }
 
     /// Update accompanying guest
     pub async fn update(
         pool: &DbPool,
-        id: i32,
-        first_name: String,
-        last_name: String,
-        birth_date: Option<String>,
+        id: i64,
+        vorname: String,
+        nachname: String,
+        geburtsdatum: Option<String>,
     ) -> DbResult<AccompanyingGuest> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "UPDATE accompanying_guests SET
-                    first_name = $2, last_name = $3, birth_date = $4
+                    vorname = $2, nachname = $3, geburtsdatum = $4
                  WHERE id = $1
-                 RETURNING id, booking_id, first_name, last_name, birth_date, created_at",
-                &[&id, &first_name, &last_name, &birth_date],
+                 RETURNING id, booking_id, vorname, nachname, geburtsdatum",
+                &[&id, &vorname, &nachname, &geburtsdatum],
             )
             .await
             .map_err(|_| crate::database_pg::DbError::NotFound(format!("Accompanying guest with ID {} not found", id)))?;
@@ -101,7 +114,7 @@ impl AccompanyingGuestRepository {
     }
 
     /// Delete accompanying guest
-    pub async fn delete(pool: &DbPool, id: i32) -> DbResult<()> {
+    pub async fn delete(pool: &DbPool, id: i64) -> DbResult<()> {
         let client = pool.get().await?;
 
         let rows_affected = client
@@ -130,7 +143,7 @@ impl AccompanyingGuestRepository {
     }
 
     /// Count accompanying guests for a booking
-    pub async fn count_for_booking(pool: &DbPool, booking_id: i32) -> DbResult<i64> {
+    pub async fn count_for_booking(pool: &DbPool, booking_id: i64) -> DbResult<i64> {
         let client = pool.get().await?;
 
         let row = client

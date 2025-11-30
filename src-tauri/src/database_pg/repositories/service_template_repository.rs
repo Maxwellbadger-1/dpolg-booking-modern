@@ -9,9 +9,10 @@ impl ServiceTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, service_name, price_type, original_value, applies_to, is_active, created_at
+                "SELECT id, name, description, price_type, price, applies_to, is_active,
+                        emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at
                  FROM service_templates
-                 ORDER BY service_name ASC",
+                 ORDER BY name ASC",
                 &[],
             )
             .await?;
@@ -25,7 +26,8 @@ impl ServiceTemplateRepository {
 
         let row = client
             .query_one(
-                "SELECT id, service_name, price_type, original_value, applies_to, is_active, created_at
+                "SELECT id, name, description, price_type, price, applies_to, is_active,
+                        emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at
                  FROM service_templates
                  WHERE id = $1",
                 &[&id],
@@ -42,10 +44,11 @@ impl ServiceTemplateRepository {
 
         let rows = client
             .query(
-                "SELECT id, service_name, price_type, original_value, applies_to, is_active, created_at
+                "SELECT id, name, description, price_type, price, applies_to, is_active,
+                        emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at
                  FROM service_templates
                  WHERE is_active = TRUE
-                 ORDER BY service_name ASC",
+                 ORDER BY name ASC",
                 &[],
             )
             .await?;
@@ -57,19 +60,26 @@ impl ServiceTemplateRepository {
     pub async fn create(
         pool: &DbPool,
         service_name: String,
+        description: Option<String>,
         price_type: String,
-        original_value: f64,
+        price: f64,
         applies_to: String,
+        emoji: Option<String>,
+        show_in_cleaning_plan: bool,
+        cleaning_plan_position: String,
     ) -> DbResult<ServiceTemplate> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "INSERT INTO service_templates (
-                    service_name, price_type, original_value, applies_to, is_active, created_at
-                 ) VALUES ($1, $2, $3, $4, TRUE, CURRENT_TIMESTAMP)
-                 RETURNING id, service_name, price_type, original_value, applies_to, is_active, created_at",
-                &[&service_name, &price_type, &original_value, &applies_to],
+                    name, description, price_type, price, applies_to, is_active,
+                    emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at
+                 ) VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, CURRENT_TIMESTAMP)
+                 RETURNING id, name, description, price_type, price, applies_to, is_active,
+                           emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at",
+                &[&service_name, &description, &price_type, &price, &applies_to,
+                  &emoji, &show_in_cleaning_plan, &cleaning_plan_position],
             )
             .await?;
 
@@ -81,21 +91,28 @@ impl ServiceTemplateRepository {
         pool: &DbPool,
         id: i32,
         service_name: String,
+        description: Option<String>,
         price_type: String,
-        original_value: f64,
+        price: f64,
         applies_to: String,
         is_active: bool,
+        emoji: Option<String>,
+        show_in_cleaning_plan: bool,
+        cleaning_plan_position: String,
     ) -> DbResult<ServiceTemplate> {
         let client = pool.get().await?;
 
         let row = client
             .query_one(
                 "UPDATE service_templates SET
-                    service_name = $2, price_type = $3, original_value = $4,
-                    applies_to = $5, is_active = $6
+                    name = $2, description = $3, price_type = $4, price = $5,
+                    applies_to = $6, is_active = $7, emoji = $8,
+                    show_in_cleaning_plan = $9, cleaning_plan_position = $10
                  WHERE id = $1
-                 RETURNING id, service_name, price_type, original_value, applies_to, is_active, created_at",
-                &[&id, &service_name, &price_type, &original_value, &applies_to, &is_active],
+                 RETURNING id, name, description, price_type, price, applies_to, is_active,
+                           emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at",
+                &[&id, &service_name, &description, &price_type, &price, &applies_to,
+                  &is_active, &emoji, &show_in_cleaning_plan, &cleaning_plan_position],
             )
             .await
             .map_err(|_| crate::database_pg::DbError::NotFound(format!("Service template with ID {} not found", id)))?;
@@ -112,7 +129,8 @@ impl ServiceTemplateRepository {
                 "UPDATE service_templates SET
                     is_active = NOT is_active
                  WHERE id = $1
-                 RETURNING id, service_name, price_type, original_value, applies_to, is_active, created_at",
+                 RETURNING id, name, description, price_type, price, applies_to, is_active,
+                           emoji, show_in_cleaning_plan, cleaning_plan_position, created_at::text as created_at",
                 &[&id],
             )
             .await

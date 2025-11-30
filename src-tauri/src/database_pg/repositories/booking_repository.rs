@@ -10,12 +10,12 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied
+                        ist_dpolg_mitglied, NULL::double precision as credit_used
                  FROM bookings
                  ORDER BY checkin_date DESC",
                 &[],
@@ -32,12 +32,12 @@ impl BookingRepository {
         let row = client
             .query_one(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied
+                        ist_dpolg_mitglied, NULL::double precision as credit_used
                  FROM bookings
                  WHERE id = $1",
                 &[&id],
@@ -46,6 +46,41 @@ impl BookingRepository {
             .map_err(|_| crate::database_pg::DbError::NotFound(format!("Booking with ID {} not found", id)))?;
 
         Ok(Booking::from(row))
+    }
+
+    /// Get a booking with full room and guest details
+    pub async fn get_with_details(pool: &DbPool, id: i32) -> DbResult<crate::database_pg::BookingWithDetails> {
+        use crate::database_pg::repositories::{RoomRepository, GuestRepository, AdditionalServiceRepository, DiscountRepository};
+
+        // Get booking
+        let booking = Self::get_by_id(pool, id).await?;
+
+        // Get room details
+        let room = RoomRepository::get_by_id(pool, booking.room_id).await.ok();
+
+        // Get guest details
+        let guest = GuestRepository::get_by_id(pool, booking.guest_id).await.ok();
+
+        // Get services for this booking
+        let services = AdditionalServiceRepository::get_by_booking(pool, booking.id as i64)
+            .await
+            .unwrap_or_else(|_| Vec::new());
+
+        // Get discounts for this booking
+        let discounts = DiscountRepository::get_by_booking(pool, booking.id as i64)
+            .await
+            .unwrap_or_else(|_| Vec::new());
+
+        Ok(crate::database_pg::BookingWithDetails {
+            booking,
+            room,
+            guest,
+            services,
+            discounts,
+            room_name: None,
+            guest_name: None,
+            guest_email: None,
+        })
     }
 
     /// Create a new booking
@@ -94,9 +129,9 @@ impl BookingRepository {
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                     $21, $22, $23, $24, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                  ) RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                             anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                             anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                              anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                             anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                             anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                              mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                              ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                              ist_dpolg_mitglied",
@@ -207,9 +242,9 @@ impl BookingRepository {
                         updated_at = CURRENT_TIMESTAMP
                      WHERE id = $1
                      RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                               anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                               anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                                anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                               anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                               anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                                mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                                ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                                ist_dpolg_mitglied",
@@ -255,9 +290,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied
@@ -278,9 +313,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied
@@ -301,9 +336,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied
@@ -328,9 +363,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied
@@ -351,9 +386,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied
@@ -376,9 +411,9 @@ impl BookingRepository {
         let rows = client
             .query(
                 "SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
-                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at,
+                        anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                         anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
-                        anzahl_naechte, updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                        anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
                         ist_dpolg_mitglied

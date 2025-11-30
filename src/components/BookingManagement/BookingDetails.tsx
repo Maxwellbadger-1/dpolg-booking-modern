@@ -1,5 +1,6 @@
-// DEBUG LOGS ADDED - Version 1.0
-import { useState, useEffect } from 'react';
+// DEBUG LOGS ADDED - Version 3.0 - PRICE FIX
+console.log('🚀🚀🚀 BookingDetails.tsx LOADED - VERSION 3.0 🚀🚀🚀');
+import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   X, Calendar, Users, MapPin, Mail, Phone, DollarSign, Tag,
@@ -14,6 +15,7 @@ import { useData } from '../../context/DataContext';
 import BookingReminders from '../Reminders/BookingReminders';
 import { formatCalculatedServicePrice, getServicePriceIcon } from '../../utils/priceFormatting';
 import { syncBooking } from '../../hooks/useBookingSync';
+import { usePriceCalculation, ServiceInput, DiscountInput } from '../../hooks/usePriceCalculation';
 
 interface BookingDetailsProps {
   bookingId: number;
@@ -133,6 +135,58 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   const [showSuccessDialog, setShowSuccessDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
   const [showErrorDialog, setShowErrorDialog] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
 
+  // Calculate prices dynamically using the hook with useMemo for stability
+  const priceInput = useMemo(() => {
+    if (!booking) return null;
+
+    const input = {
+      roomId: booking.room_id,
+      checkin: booking.checkin_date,
+      checkout: booking.checkout_date,
+      isMember: booking.guest?.dpolg_mitglied || false,
+      services: services.map(s => ({
+        name: s.service_name,
+        priceType: (s.price_type || 'fixed') as 'fixed' | 'percent',
+        originalValue: s.original_value || s.service_price,
+        appliesTo: (s.applies_to || 'overnight_price') as 'overnight_price' | 'total_price',
+      })),
+      discounts: discounts.map(d => ({
+        name: d.discount_name,
+        discountType: (d.discount_type || 'fixed') as 'fixed' | 'percent',
+        value: d.discount_value,
+      })),
+    };
+
+    // DEBUG: Log when priceInput is recalculated
+    console.log('🔍 [BookingDetails] priceInput recalculated:', {
+      roomId: input.roomId,
+      checkin: input.checkin,
+      isMember: input.isMember,
+      servicesCount: input.services.length,
+      discountsCount: input.discounts.length,
+      services: input.services,
+      discounts: input.discounts,
+    });
+
+    return input;
+  }, [booking, services, discounts]);
+
+  const { priceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(priceInput);
+
+  // DEBUG: Log price breakdown changes in useEffect
+  useEffect(() => {
+    console.log('💰 [BookingDetails] priceBreakdown updated:', priceBreakdown ? {
+      nights: priceBreakdown.nights,
+      basePrice: priceBreakdown.basePrice,
+      servicesTotal: priceBreakdown.servicesTotal,
+      discountsTotal: priceBreakdown.discountsTotal,
+      total: priceBreakdown.total,
+    } : 'null');
+    if (priceError) {
+      console.error('❌ [BookingDetails] priceError:', priceError);
+    }
+  }, [priceBreakdown, priceError]);
+
   useEffect(() => {
     if (isOpen && bookingId) {
       loadBookingDetails();
@@ -140,11 +194,23 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
   }, [isOpen, bookingId]);
 
   const loadBookingDetails = async () => {
+    console.log('═══════════════════════════════════════════════════════════════');
+    console.log('🔄 [BookingDetails] loadBookingDetails START - bookingId:', bookingId);
+    console.log('═══════════════════════════════════════════════════════════════');
+
     try {
       setLoading(true);
 
       // Load booking WITH nested guest and room details
-      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_command', { id: bookingId });
+      const bookingData = await invoke<Booking>('get_booking_with_details_by_id_pg', { id: bookingId });
+
+      console.log('📦 [BookingDetails] bookingData received:', {
+        id: bookingData?.id,
+        room_id: bookingData?.room_id,
+        checkin_date: bookingData?.checkin_date,
+        checkout_date: bookingData?.checkout_date,
+        guest_dpolg_mitglied: bookingData?.guest?.dpolg_mitglied,
+      });
 
       if (!bookingData) {
         throw new Error('Buchungsdaten konnten nicht geladen werden');
@@ -157,6 +223,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       }
 
       setBooking(bookingData);
+      console.log('✅ [BookingDetails] setBooking called');
 
       // Load accompanying guests
       const guestsData = await invoke<AccompanyingGuest[]>('get_accompanying_guests_by_booking_pg', {
@@ -168,13 +235,23 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
       const servicesData = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', {
         bookingId,
       });
+      console.log('📦 [BookingDetails] servicesData received:', servicesData.length, 'items');
+      servicesData.forEach((s, i) => {
+        console.log(`   [${i}] service_name='${s.service_name}', price_type='${s.price_type}', original_value=${s.original_value}, service_price=${s.service_price}, applies_to='${s.applies_to}'`);
+      });
       setServices(servicesData);
+      console.log('✅ [BookingDetails] setServices called');
 
       // Load discounts
       const discountsData = await invoke<Discount[]>('get_discounts_by_booking_pg', {
         bookingId,
       });
+      console.log('📦 [BookingDetails] discountsData received:', discountsData.length, 'items');
+      discountsData.forEach((d, i) => {
+        console.log(`   [${i}] discount_name='${d.discount_name}', discount_type='${d.discount_type}', discount_value=${d.discount_value}`);
+      });
       setDiscounts(discountsData);
+      console.log('✅ [BookingDetails] setDiscounts called');
 
       // Load guest credit usage
       try {
@@ -211,9 +288,12 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
         setPaymentRecipient(null);
       }
     } catch (error) {
-      console.error('Fehler beim Laden der Buchungsdetails:', error);
+      console.error('❌ [BookingDetails] Fehler beim Laden der Buchungsdetails:', error);
     } finally {
       setLoading(false);
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('✅ [BookingDetails] loadBookingDetails END - loading set to false');
+      console.log('═══════════════════════════════════════════════════════════════');
     }
   };
 
@@ -465,7 +545,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
 
   const handleOpenPdf = async (pdfPath: string) => {
     try {
-      await invoke('open_pdf_file_command', { filePath: pdfPath });
+      await invoke('open_pdf_file_command', { path: pdfPath });
     } catch (error) {
       setShowErrorDialog({ show: true, message: `Fehler beim Öffnen der PDF: ${error}` });
     }
@@ -576,7 +656,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock className="w-4 h-4" />
-                      {booking.anzahl_naechte} Nächte
+                      {priceBreakdown?.nights ?? 0} Nächte
                     </div>
                   </div>
                 </div>
@@ -791,7 +871,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   </div>
                   <div>
                     <p className="text-sm text-slate-600 mb-1">Anzahl Nächte</p>
-                    <p className="font-semibold text-slate-900">{booking.anzahl_naechte} Nächte</p>
+                    <p className="font-semibold text-slate-900">{priceBreakdown?.nights ?? 0} Nächte</p>
                   </div>
                 </div>
               </div>
@@ -839,7 +919,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
                         <div className="flex items-center gap-3">
-                          <p className="font-semibold text-slate-900">{service.service_name}</p>
+                          <p className="font-semibold text-slate-900">
+                            {service.emoji && <span className="mr-1">{service.emoji}</span>}
+                            {service.service_name}
+                          </p>
                           {service.price_type === 'percent' && (
                             <span className="text-sm text-slate-500">
                               ({service.original_value}% {service.applies_to === 'overnight_price' ? 'vom Grundpreis' : 'vom Gesamtpreis'})
@@ -849,7 +932,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         <div className="flex items-center gap-2">
                           <Euro className="w-4 h-4 text-emerald-500" />
                           <p className="font-semibold text-emerald-600">
-                            {service.service_price.toFixed(2)} €
+                            {(service.service_price ?? service.price ?? service.original_value ?? 0).toFixed(2)} €
                           </p>
                         </div>
                       </div>
@@ -871,7 +954,10 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                         key={discount.id}
                         className="flex items-center justify-between bg-slate-50 px-4 py-3 rounded-lg"
                       >
-                        <p className="font-semibold text-slate-900">{discount.discount_name}</p>
+                        <p className="font-semibold text-slate-900">
+                          {discount.emoji && <span className="mr-1">{discount.emoji}</span>}
+                          {discount.discount_name}
+                        </p>
                         <p className="font-semibold text-orange-600">
                           {discount.discount_type === 'percent'
                             ? `${discount.discount_value}%`
@@ -891,19 +977,19 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                 </h3>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-700">Grundpreis ({booking.anzahl_naechte} Nächte)</span>
-                    <span className="font-semibold text-slate-900">{booking.grundpreis.toFixed(2)} €</span>
+                    <span className="text-slate-700">Grundpreis ({priceBreakdown?.nights ?? 0} Nächte)</span>
+                    <span className="font-semibold text-slate-900">{(priceBreakdown?.basePrice ?? 0).toFixed(2)} €</span>
                   </div>
-                  {booking.services_preis > 0 && (
+                  {(priceBreakdown?.servicesTotal ?? 0) > 0 && (
                     <div className="flex justify-between items-center">
                       <span className="text-emerald-700">+ Zusätzliche Services</span>
-                      <span className="font-semibold text-emerald-700">{booking.services_preis.toFixed(2)} €</span>
+                      <span className="font-semibold text-emerald-700">{(priceBreakdown?.servicesTotal ?? 0).toFixed(2)} €</span>
                     </div>
                   )}
-                  {booking.rabatt_preis > 0 && (
+                  {(priceBreakdown?.discountsTotal ?? 0) > 0 && (
                     <div className="flex justify-between items-center">
                       <span className="text-orange-700">- Rabatte</span>
-                      <span className="font-semibold text-orange-700">{booking.rabatt_preis.toFixed(2)} €</span>
+                      <span className="font-semibold text-orange-700">{(priceBreakdown?.discountsTotal ?? 0).toFixed(2)} €</span>
                     </div>
                   )}
                   {creditUsed > 0 && (
@@ -917,7 +1003,7 @@ export default function BookingDetails({ bookingId, isOpen, onClose, onEdit }: B
                   )}
                   <div className="border-t-2 border-blue-300 pt-3 flex justify-between items-center">
                     <span className="text-lg font-bold text-blue-900">Gesamtpreis</span>
-                    <span className="text-2xl font-bold text-blue-900">{booking.gesamtpreis.toFixed(2)} €</span>
+                    <span className="text-2xl font-bold text-blue-900">{(priceBreakdown?.total ?? 0).toFixed(2)} €</span>
                   </div>
                 </div>
               </div>

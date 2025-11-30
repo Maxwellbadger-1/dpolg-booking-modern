@@ -9,13 +9,15 @@ impl CompanySettingsRepository {
 
         let row = client
             .query_one(
-                "SELECT id, company_name, address, phone, email, tax_id, logo_path, updated_at
+                "SELECT id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at::text as updated_at
                  FROM company_settings
                  LIMIT 1",
                 &[],
             )
             .await
-            .map_err(|_| crate::database_pg::DbError::NotFound("Company settings not found".to_string()))?;
+            .map_err(|e| {
+                crate::database_pg::DbError::NotFound(format!("Company settings not found: {:?}", e))
+            })?;
 
         Ok(CompanySettings::from(row))
     }
@@ -23,30 +25,45 @@ impl CompanySettingsRepository {
     /// Update company settings
     pub async fn update(
         pool: &DbPool,
-        company_name: String,
-        address: Option<String>,
-        phone: Option<String>,
-        email: Option<String>,
-        tax_id: Option<String>,
-        logo_path: Option<String>,
+        settings: &CompanySettings,
     ) -> DbResult<CompanySettings> {
         let client = pool.get().await?;
 
-        // Update first record (or insert if none exists)
         let row = client
             .query_one(
-                "INSERT INTO company_settings (id, company_name, address, phone, email, tax_id, logo_path, updated_at)
-                 VALUES (1, $1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                "INSERT INTO company_settings (id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at)
+                 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO UPDATE SET
                     company_name = EXCLUDED.company_name,
-                    address = EXCLUDED.address,
+                    street_address = EXCLUDED.street_address,
+                    plz = EXCLUDED.plz,
+                    city = EXCLUDED.city,
+                    country = EXCLUDED.country,
                     phone = EXCLUDED.phone,
+                    fax = EXCLUDED.fax,
                     email = EXCLUDED.email,
+                    website = EXCLUDED.website,
                     tax_id = EXCLUDED.tax_id,
+                    ceo_name = EXCLUDED.ceo_name,
+                    registry_court = EXCLUDED.registry_court,
                     logo_path = EXCLUDED.logo_path,
                     updated_at = CURRENT_TIMESTAMP
-                 RETURNING id, company_name, address, phone, email, tax_id, logo_path, updated_at",
-                &[&company_name, &address, &phone, &email, &tax_id, &logo_path],
+                 RETURNING id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at::text as updated_at",
+                &[
+                    &settings.company_name,
+                    &settings.street_address,
+                    &settings.plz,
+                    &settings.city,
+                    &settings.country,
+                    &settings.phone,
+                    &settings.fax,
+                    &settings.email,
+                    &settings.website,
+                    &settings.tax_id,
+                    &settings.ceo_name,
+                    &settings.registry_court,
+                    &settings.logo_path,
+                ],
             )
             .await?;
 

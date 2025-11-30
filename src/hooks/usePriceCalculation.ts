@@ -123,9 +123,27 @@ export function usePriceCalculation(input: PriceCalculationInput | null) {
     setError(null);
 
     try {
+      // DEBUG: Log what we're sending to backend
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('🔍 usePriceCalculation - SENDING TO BACKEND');
+      console.log('═══════════════════════════════════════════════════════════════');
+      console.log('📤 roomId:', input.roomId);
+      console.log('📤 checkin:', input.checkin);
+      console.log('📤 checkout:', input.checkout);
+      console.log('📤 isMember:', input.isMember);
+      console.log('📤 services:', input.services.length, 'items');
+      input.services.forEach((s, i) => {
+        console.log(`   [${i}] name='${s.name}', originalValue=${s.originalValue}, priceType='${s.priceType}', appliesTo='${s.appliesTo}'`);
+      });
+      console.log('📤 discounts:', input.discounts.length, 'items');
+      input.discounts.forEach((d, i) => {
+        console.log(`   [${i}] name='${d.name}', value=${d.value}, discountType='${d.discountType}'`);
+      });
+      console.log('═══════════════════════════════════════════════════════════════');
+
       // EINE Stelle für Backend-Call - Single Source of Truth!
       const result = await invoke<FullPriceBreakdown>(
-        'calculate_full_booking_price_command',
+        'calculate_full_booking_price_pg',
         {
           roomId: input.roomId,
           checkin: input.checkin,
@@ -135,6 +153,8 @@ export function usePriceCalculation(input: PriceCalculationInput | null) {
           discounts: input.discounts.length > 0 ? input.discounts : undefined,
         }
       );
+
+      console.log('✅ Backend Result:', result);
 
       // Cache speichern
       if (cacheKey) {

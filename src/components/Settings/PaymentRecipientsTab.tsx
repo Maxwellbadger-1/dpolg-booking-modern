@@ -18,7 +18,7 @@ export default function PaymentRecipientsTab() {
   const loadRecipients = async () => {
     setLoading(true);
     try {
-      const data = await invoke<PaymentRecipient[]>('get_payment_recipients');
+      const data = await invoke<PaymentRecipient[]>('get_all_payment_recipients_pg');
       setRecipients(data);
     } catch (error) {
       console.error('Fehler beim Laden der Rechnungsempfänger:', error);

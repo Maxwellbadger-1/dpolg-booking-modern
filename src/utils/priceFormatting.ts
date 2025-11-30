@@ -7,10 +7,23 @@ import { ServiceTemplate } from '../types/booking';
 
 export interface PriceableService {
   price: number;
-  price_type: 'fixed' | 'percent';
+  // Unterstützt beide Namenskonventionen (camelCase vom Backend, snake_case legacy)
+  price_type?: 'fixed' | 'percent';
+  priceType?: 'fixed' | 'percent';
   original_value?: number;
   applies_to?: 'overnight_price' | 'total_price';
+  appliesTo?: 'overnight_price' | 'total_price';
   service_price?: number;
+}
+
+// Helper um priceType unabhängig von der Namenskonvention zu bekommen
+function getPriceType(service: PriceableService): 'fixed' | 'percent' {
+  return service.priceType || service.price_type || 'fixed';
+}
+
+// Helper um appliesTo unabhängig von der Namenskonvention zu bekommen
+function getAppliesTo(service: PriceableService): 'overnight_price' | 'total_price' {
+  return service.appliesTo || service.applies_to || 'overnight_price';
 }
 
 /**
@@ -18,10 +31,11 @@ export interface PriceableService {
  * @returns "19.0 %" oder "15.00 €"
  */
 export function formatServicePrice(service: PriceableService): string {
-  if (service.price_type === 'percent') {
-    return `${service.price.toFixed(1)} %`;
+  const priceValue = service.price ?? service.original_value ?? 0;
+  if (getPriceType(service) === 'percent') {
+    return `${priceValue.toFixed(1)} %`;
   }
-  return `${service.price.toFixed(2)} €`;
+  return `${priceValue.toFixed(2)} €`;
 }
 
 /**
@@ -29,16 +43,17 @@ export function formatServicePrice(service: PriceableService): string {
  * @returns "% 19.0" oder "€ 15.00"
  */
 export function formatServicePriceWithSymbol(service: PriceableService): { symbol: string; value: string; suffix: string } {
-  if (service.price_type === 'percent') {
+  const priceValue = service.price ?? service.original_value ?? 0;
+  if (getPriceType(service) === 'percent') {
     return {
       symbol: '%',
-      value: service.price.toFixed(1),
+      value: priceValue.toFixed(1),
       suffix: '%',
     };
   }
   return {
     symbol: '€',
-    value: service.price.toFixed(2),
+    value: priceValue.toFixed(2),
     suffix: '€',
   };
 }
@@ -53,10 +68,10 @@ export function calculateServicePrice(
   grundpreis: number,
   currentServicesTotal: number = 0
 ): number {
-  if (service.price_type === 'percent') {
-    const percentValue = service.original_value || service.price;
+  if (getPriceType(service) === 'percent') {
+    const percentValue = service.price ?? service.original_value ?? 0;
 
-    if (service.applies_to === 'overnight_price') {
+    if (getAppliesTo(service) === 'overnight_price') {
       // Prozent vom Grundpreis
       return grundpreis * (percentValue / 100);
     } else {
@@ -66,7 +81,7 @@ export function calculateServicePrice(
   }
 
   // Festbetrag
-  return service.service_price || service.price;
+  return service.service_price ?? service.price ?? service.original_value ?? 0;
 }
 
 /**
@@ -78,8 +93,8 @@ export function formatCalculatedServicePrice(
   grundpreis: number,
   currentServicesTotal: number = 0
 ): string {
-  if (service.price_type === 'percent') {
-    if (service.applies_to === 'overnight_price') {
+  if (getPriceType(service) === 'percent') {
+    if (getAppliesTo(service) === 'overnight_price') {
       const price = calculateServicePrice(service, grundpreis, currentServicesTotal);
       return `${price.toFixed(2)} €`;
     } else {
@@ -88,7 +103,8 @@ export function formatCalculatedServicePrice(
     }
   }
 
-  return `${(service.service_price || service.price).toFixed(2)} €`;
+  const priceValue = service.service_price ?? service.price ?? service.original_value ?? 0;
+  return `${priceValue.toFixed(2)} €`;
 }
 
 /**
@@ -96,22 +112,23 @@ export function formatCalculatedServicePrice(
  * @returns "19.0% vom Grundpreis" oder "15.00 €"
  */
 export function getServicePriceDescription(service: PriceableService): string {
-  if (service.price_type === 'percent') {
-    const percentValue = (service.original_value || service.price).toFixed(1);
-    const basis = service.applies_to === 'overnight_price'
+  if (getPriceType(service) === 'percent') {
+    const percentValue = (service.price ?? service.original_value ?? 0).toFixed(1);
+    const basis = getAppliesTo(service) === 'overnight_price'
       ? 'vom Grundpreis'
       : 'vom Gesamtpreis';
     return `${percentValue}% ${basis}`;
   }
 
-  return `${(service.service_price || service.price).toFixed(2)} €`;
+  const priceValue = service.service_price ?? service.price ?? service.original_value ?? 0;
+  return `${priceValue.toFixed(2)} €`;
 }
 
 /**
  * Prüft ob ein Service prozentual ist
  */
 export function isPercentageService(service: PriceableService): boolean {
-  return service.price_type === 'percent';
+  return getPriceType(service) === 'percent';
 }
 
 /**
@@ -119,7 +136,7 @@ export function isPercentageService(service: PriceableService): boolean {
  * @returns 'Euro' oder 'Percent' (Lucide React Icon namen)
  */
 export function getServicePriceIcon(service: PriceableService): 'Euro' | 'Percent' {
-  return service.price_type === 'percent' ? 'Percent' : 'Euro';
+  return getPriceType(service) === 'percent' ? 'Percent' : 'Euro';
 }
 
 /**

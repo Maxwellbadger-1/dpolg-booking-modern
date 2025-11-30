@@ -11,7 +11,7 @@ impl GuestRepository {
             .query(
                 "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied,
                         strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                        bundesland, dienststelle, created_at, anrede, geschlecht,
+                        bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                         land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,
@@ -34,7 +34,7 @@ impl GuestRepository {
             .query_one(
                 "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied,
                         strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                        bundesland, dienststelle, created_at, anrede, geschlecht,
+                        bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                         land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,
@@ -109,7 +109,7 @@ impl GuestRepository {
                     $31, $32, $33, $34, CURRENT_TIMESTAMP
                  ) RETURNING id, vorname, nachname, email, telefon, dpolg_mitglied,
                              strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                             bundesland, dienststelle, created_at, anrede, geschlecht,
+                             bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                              land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                              fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                              identifikationsnummer, debitorenkonto, kennzeichen,
@@ -191,7 +191,7 @@ impl GuestRepository {
                  WHERE id = $1
                  RETURNING id, vorname, nachname, email, telefon, dpolg_mitglied,
                            strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                           bundesland, dienststelle, created_at, anrede, geschlecht,
+                           bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                            land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                            fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                            identifikationsnummer, debitorenkonto, kennzeichen,
@@ -242,7 +242,7 @@ impl GuestRepository {
             .query(
                 "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied,
                         strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                        bundesland, dienststelle, created_at, anrede, geschlecht,
+                        bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                         land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,
@@ -268,7 +268,7 @@ impl GuestRepository {
             .query(
                 "SELECT id, vorname, nachname, email, telefon, dpolg_mitglied,
                         strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-                        bundesland, dienststelle, created_at, anrede, geschlecht,
+                        bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
                         land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,

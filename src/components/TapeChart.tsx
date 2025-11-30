@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { format, addDays, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, startOfDay, isSameDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { invoke } from '@tauri-apps/api/core';
@@ -7,6 +7,7 @@ import { cn } from '../lib/utils';
 import { useData } from '../context/DataContext';
 import { commandManager, UpdateBookingDatesCommand } from '../lib/commandManager';
 import { invokeWithRetry } from '../lib/retry';
+import { useBatchPriceCalculation, getBookingPrice } from '../hooks/useBatchPriceCalculation';
 import {
   DndContext,
   DragEndEvent,
@@ -58,6 +59,7 @@ interface DiscountTemplate {
 interface Booking {
   id: number;
   room_id: number;
+  guest_id: number;
   reservierungsnummer: string;
   checkin_date: string;
   checkout_date: string;
@@ -66,8 +68,8 @@ interface Booking {
   bezahlt: boolean;
   rechnung_versendet_am?: string | null;
   ist_stiftungsfall: boolean;
-  room: Room;
-  guest: Guest;
+  // NORMALIZED STATE: No nested room/guest objects!
+  // Use guestMap.get(booking.guest_id) and roomMap.get(booking.room_id) for lookups
   services: ServiceTemplate[];
   discounts: DiscountTemplate[];
 }
@@ -167,9 +169,11 @@ interface DraggableBookingProps {
   continuesNextMonth?: boolean; // Booking continues into next month
   originalCheckin?: string; // Original check-in date (for tooltip)
   originalCheckout?: string; // Original check-out date (for tooltip)
+  // NORMALIZED STATE: Guest name passed as prop for O(1) lookup
+  guestName?: string;
 }
 
-function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false, isPending = false, onManualSave, onManualDiscard, continuesFromPreviousMonth = false, continuesNextMonth = false, originalCheckin, originalCheckout }: DraggableBookingProps) {
+function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cellWidth, onResize, onClick, onContextMenu, hasOverlap = false, isPending = false, onManualSave, onManualDiscard, continuesFromPreviousMonth = false, continuesNextMonth = false, originalCheckin, originalCheckout, guestName = 'Unbekannt' }: DraggableBookingProps) {
   const [isResizing, setIsResizing] = useState(false);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [cursor, setCursor] = useState<string>('move');
@@ -386,21 +390,21 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
         backfaceVisibility: 'hidden',
         willChange: 'transform',
       }}
-      title={`${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}\n${booking.reservierungsnummer}\n${originalCheckin || booking.checkin_date} - ${originalCheckout || booking.checkout_date}${continuesFromPreviousMonth || continuesNextMonth ? '\n⚠️ Monatsübergreifende Buchung' : ''}`}
+      title={`${booking.reservierungsnummer}\n${originalCheckin || booking.checkin_date} - ${originalCheckout || booking.checkout_date}${continuesFromPreviousMonth || continuesNextMonth ? '\n⚠️ Monatsübergreifende Buchung' : ''}`}
     >
       {/* LEFT ARROW - Continues from previous month */}
       {continuesFromPreviousMonth && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-8 flex items-center justify-center bg-purple-600/95 border-r-2 border-purple-400 shadow-xl pointer-events-none"
-          title="Fortsetzung von vorigem Monat - Linke Kante kann nicht geändert werden"
+          className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center bg-black/30 rounded-l-lg pointer-events-none"
+          title="Fortsetzung von vorigem Monat"
         >
-          <span className="text-white text-lg font-bold drop-shadow-lg">◀</span>
+          <span className="text-white/80 text-xs">◀</span>
         </div>
       )}
 
       <div className="flex-1 overflow-hidden">
         <div className="text-sm font-bold truncate drop-shadow-sm">
-          {booking.guest?.vorname || 'Unbekannt'} {booking.guest?.nachname || ''}
+          {guestName}
         </div>
         <div className="text-xs truncate opacity-90 font-medium flex items-center gap-1">
           {booking.reservierungsnummer}
@@ -437,10 +441,10 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       {/* RIGHT ARROW - Continues to next month */}
       {continuesNextMonth && (
         <div
-          className="absolute right-0 top-0 bottom-0 w-8 flex items-center justify-center bg-purple-600/95 border-l-2 border-purple-400 shadow-xl pointer-events-none"
-          title="Fortsetzung in nächsten Monat - Rechte Kante kann nicht geändert werden"
+          className="absolute right-0 top-0 bottom-0 w-5 flex items-center justify-center bg-black/30 rounded-r-lg pointer-events-none"
+          title="Fortsetzung in nächsten Monat"
         >
-          <span className="text-white text-lg font-bold drop-shadow-lg">▶</span>
+          <span className="text-white/80 text-xs">▶</span>
         </div>
       )}
 
@@ -543,7 +547,8 @@ function DroppableCell({ roomId, dayIndex, isWeekend, isToday, isEvenRow, cellWi
 
 export default function TapeChart({ startDate, endDate, onBookingClick, onCreateBooking, onBookingEdit, onBookingCancel, onSendEmail }: TapeChartProps) {
   // Get data from global context
-  const { rooms, bookings, updateBooking, refreshBookings } = useData();
+  // NORMALIZED STATE: Use guestMap/roomMap for O(1) lookups instead of nested objects
+  const { rooms, bookings, updateBooking, refreshBookings, guestMap, roomMap } = useData();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
@@ -575,10 +580,17 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   const [pendingChange, setPendingChange] = useState<any | null>(null);
   const [showChangeConfirmation, setShowChangeConfirmation] = useState(false);
 
+  // Batch price calculation for all bookings
+  const bookingIds = useMemo(() => bookings.map(b => b.id), [bookings]);
+  const { priceMap } = useBatchPriceCalculation(bookingIds);
+
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
     console.log('🔄 [TapeChart] Syncing localBookings from context, count:', bookings.length);
+    console.log('📊 [TapeChart] Bookings with services:', bookings.filter(b => b.services && b.services.length > 0).length);
+    console.log('📊 [TapeChart] Sample booking services:', bookings.find(b => b.services && b.services.length > 0)?.services?.map(s => ({ name: s.name, emoji: s.emoji })));
     setLocalBookings(bookings);
+    console.log('✅ [TapeChart] localBookings state updated');
   }, [bookings]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
@@ -606,7 +618,15 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   const days = eachDayOfInterval({ start: defaultStart, end: defaultEnd });
 
   // Filter bookings
-  const filteredBookings = filterBookings(localBookings, searchQuery, statusFilter, roomTypeFilter);
+  // NORMALIZED STATE: Pass guestMap and roomMap for O(1) lookups
+  const filteredBookings = filterBookings(localBookings, searchQuery, statusFilter, roomTypeFilter, guestMap, roomMap)
+    // NUR Buchungen die den aktuellen Monat überlappen
+    .filter((b) => {
+      const checkin = startOfDay(new Date(b.checkin_date));
+      const checkout = startOfDay(new Date(b.checkout_date));
+      // Buchung muss Monat überlappen: checkin vor Monatsende UND checkout nach Monatsanfang
+      return checkin <= defaultEnd && checkout >= defaultStart;
+    });
 
   // Get unique room types for filter
   const uniqueRoomTypes = getUniqueRoomTypes(rooms);
@@ -815,7 +835,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
       console.log('DROP - Checking overlap:', {
         new: { start: format(newCheckinDate, 'yyyy-MM-dd'), end: format(newCheckoutDate, 'yyyy-MM-dd') },
-        existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd'), booking: b.guest.nachname },
+        existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd'), booking: guestMap.get(b.guest_id)?.nachname || 'Unbekannt' },
         wouldOverlap
       });
 
@@ -863,22 +883,24 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     // Store pending change for manual confirmation
     // FIX: Use ORIGINAL booking from context (bookings) for oldData, NOT from activeBooking (which comes from localBookings)
     const originalBookingForOldData = bookings.find(b => b.id === activeBooking.id) || activeBooking;
+    // NORMALIZED STATE: Look up guest from Map
+    const activeGuest = guestMap.get(activeBooking.guest_id);
     const changeData = {
       bookingId: activeBooking.id,
       reservierungsnummer: activeBooking.reservierungsnummer,
-      guestName: `${activeBooking.guest.vorname} ${activeBooking.guest.nachname}`,
+      guestName: activeGuest ? `${activeGuest.vorname} ${activeGuest.nachname}` : 'Unbekannt',
       roomName: targetRoom.name,
       oldData: pendingChange?.oldData || {
         checkin_date: originalBookingForOldData.checkin_date,
         checkout_date: originalBookingForOldData.checkout_date,
         room_id: originalBookingForOldData.room_id,
-        gesamtpreis: originalBookingForOldData.gesamtpreis,
+        gesamtpreis: getBookingPrice(priceMap, originalBookingForOldData.id).total,
       },
       newData: {
         checkin_date: format(newCheckinDate, 'yyyy-MM-dd'),
         checkout_date: format(newCheckoutDate, 'yyyy-MM-dd'),
         room_id: targetRoomId,
-        gesamtpreis: activeBooking.gesamtpreis, // TODO: Recalculate price
+        gesamtpreis: getBookingPrice(priceMap, activeBooking.id).total, // Price will be recalculated after save
       },
     };
 
@@ -971,22 +993,25 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           // FIX: Use ORIGINAL booking from context (bookings) for oldData, NOT from localBookings
           // This prevents issues when resizing multiple times without saving
           const originalBooking = bookings.find(b => b.id === bookingId) || currentBooking;
+          // NORMALIZED STATE: Look up guest and room from Maps
+          const bookingGuest = guestMap.get(booking.guest_id);
+          const bookingRoom = roomMap.get(booking.room_id);
           const changeData = {
             bookingId: booking.id,
             reservierungsnummer: booking.reservierungsnummer,
-            guestName: `${booking.guest?.vorname || 'Unbekannt'} ${booking.guest?.nachname || ''}`,
-            roomName: booking.room?.name || 'Unbekannt',
+            guestName: bookingGuest ? `${bookingGuest.vorname} ${bookingGuest.nachname}` : 'Unbekannt',
+            roomName: bookingRoom?.name || 'Unbekannt',
             oldData: prevChange?.oldData || {
               checkin_date: originalBooking.checkin_date,
               checkout_date: originalBooking.checkout_date,
               room_id: originalBooking.room_id,
-              gesamtpreis: originalBooking.gesamtpreis,
+              gesamtpreis: getBookingPrice(priceMap, originalBooking.id).total,
             },
             newData: {
               checkin_date: format(newCheckin, 'yyyy-MM-dd'),
               checkout_date: format(newCheckout, 'yyyy-MM-dd'),
               room_id: booking.room_id,
-              gesamtpreis: booking.gesamtpreis, // TODO: Recalculate price
+              gesamtpreis: getBookingPrice(priceMap, booking.id).total, // Price will be recalculated after save
             },
           };
           return changeData;
@@ -1042,7 +1067,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       });
 
       // Persist to database with Retry Logic (max 3 attempts with exponential backoff)
-      await invokeWithRetry('update_booking_dates_and_room_command', {
+      await invokeWithRetry('update_booking_dates_and_room_pg', {
         id: pendingChange.bookingId,
         roomId: pendingChange.newData.room_id,
         checkinDate: pendingChange.newData.checkin_date,
@@ -1585,7 +1610,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
               // Dann innerhalb des Orts nach Name (natürliche Sortierung: 1, 2, 10 statt 1, 10, 2)
               return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
             }).map((room, roomIdx) => {
-              const roomBookings = localBookings.filter((b) => b.room_id === room.id);
+              const roomBookings = filteredBookings.filter((b) => b.room_id === room.id);
 
               return (
               <div key={room.id} className="flex transition-all group" style={{ minWidth: `${SIDEBAR_WIDTH + (days.length * density.cellWidth)}px` }}>
@@ -1652,6 +1677,10 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                       const pos = getBookingPosition(booking);
                       if (!pos.isVisible) return null;
 
+                      // NORMALIZED STATE: Look up guest from Map
+                      const guest = guestMap.get(booking.guest_id);
+                      const guestName = guest ? `${guest.vorname} ${guest.nachname}` : 'Unbekannt';
+
                       return (
                         <DraggableBooking
                           key={booking.id}
@@ -1669,6 +1698,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                           continuesNextMonth={pos.continuesNextMonth}
                           originalCheckin={pos.originalCheckin}
                           originalCheckout={pos.originalCheckout}
+                          guestName={guestName}
                         />
                       );
                     })}
@@ -1744,6 +1774,9 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           {activeBooking ? (
             (() => {
               const pos = getBookingPosition(activeBooking);
+              // NORMALIZED STATE: Look up guest from Map
+              const guest = guestMap.get(activeBooking.guest_id);
+              const guestName = guest ? `${guest.vorname} ${guest.nachname}` : 'Unbekannt';
               return (
                 <DraggableBooking
                   booking={activeBooking}
@@ -1755,6 +1788,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
                   continuesNextMonth={pos.continuesNextMonth}
                   originalCheckin={pos.originalCheckin}
                   originalCheckout={pos.originalCheckout}
+                  guestName={guestName}
                 />
               );
             })()

@@ -20,17 +20,22 @@ export interface BookingChangeData {
 }
 
 // Filter bookings based on search query, status, and room type
+// NORMALIZED STATE: Now accepts guestMap and roomMap for O(1) lookups
 export function filterBookings(
   bookings: any[],
   searchQuery: string,
   statusFilter: string,
-  roomTypeFilter: string
+  roomTypeFilter: string,
+  guestMap?: Map<number, any>,
+  roomMap?: Map<number, any>
 ): any[] {
   return bookings.filter((booking) => {
     // Search filter (guest name or reservation number)
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      const guestName = `${booking.guest.vorname} ${booking.guest.nachname}`.toLowerCase();
+      // NORMALIZED STATE: Look up guest from Map
+      const guest = guestMap?.get(booking.guest_id);
+      const guestName = guest ? `${guest.vorname} ${guest.nachname}`.toLowerCase() : '';
       const reservierung = booking.reservierungsnummer.toLowerCase();
 
       if (!guestName.includes(query) && !reservierung.includes(query)) {
@@ -58,8 +63,12 @@ export function filterBookings(
     }
 
     // Room type filter
-    if (roomTypeFilter !== 'all' && booking.room.gebaeude_typ !== roomTypeFilter) {
-      return false;
+    // NORMALIZED STATE: Look up room from Map
+    if (roomTypeFilter !== 'all') {
+      const room = roomMap?.get(booking.room_id);
+      if (room?.gebaeude_typ !== roomTypeFilter) {
+        return false;
+      }
     }
 
     return true;

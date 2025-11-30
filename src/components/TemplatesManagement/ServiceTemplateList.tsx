@@ -117,7 +117,11 @@ export default function ServiceTemplateList() {
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-emerald-500/20 rounded-lg">
-                    <Briefcase className="w-5 h-5 text-emerald-400" />
+                    {template.emoji ? (
+                      <span className="text-xl">{template.emoji}</span>
+                    ) : (
+                      <Briefcase className="w-5 h-5 text-emerald-400" />
+                    )}
                   </div>
                   <div>
                     <h3 className="font-semibold text-white">{template.name}</h3>
@@ -127,7 +131,7 @@ export default function ServiceTemplateList() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {template.is_active ? (
+                  {template.isActive ? (
                     <CheckCircle className="w-5 h-5 text-emerald-400" title="Aktiv" />
                   ) : (
                     <XCircle className="w-5 h-5 text-slate-500" title="Inaktiv" />
@@ -148,7 +152,7 @@ export default function ServiceTemplateList() {
               </div>
 
               {/* Applies To (nur bei Prozent) */}
-              {template.price_type === 'percent' && (
+              {template.priceType === 'percent' && (
                 <div className="text-xs text-slate-400 mb-4">
                   📊 {getServicePriceDescription(template)}
                 </div>

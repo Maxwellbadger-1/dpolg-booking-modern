@@ -316,9 +316,7 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
       await invoke('add_guest_credit', {
         guestId: guest.id,
         amount,
-        transactionType: creditType,
-        notes: creditNotes.trim(),
-        createdBy: 'System',
+        description: creditNotes.trim(),
       });
 
       // Reload credit data

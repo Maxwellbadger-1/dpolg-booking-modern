@@ -1,173 +1,100 @@
 use serde::{Deserialize, Serialize};
-use reqwest::Client;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 use headless_chrome::{Browser, LaunchOptions};
 use headless_chrome::types::PrintToPdfOptions;
 use std::collections::HashMap;
 use chrono::Datelike;
+use crate::database_pg::{pool::DbPool, repositories::cleaning_task_repository::CleaningTaskRepository};
 
-// Turso Config
-const TURSO_URL: &str = "https://dpolg-cleaning-maxwellbadger-1.aws-eu-west-1.turso.io";
-const TURSO_TOKEN: &str = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3NTk4NDI1MzcsImlkIjoiZjY1ZWY2YzMtYWNhMS00NjZiLWExYjgtODU0MTlmYjlmNDNiIiwicmlkIjoiMTRjNDc4YjAtYTAwMy00ZmZmLThiYTUtYTZhOWIwYjZiODdmIn0.JSyu72rlp3pQ_vFxozglKoV-XMHW12j_hVfhTKjbEGwSyWnWBq2kziJNx2WwvvwD09NU-TMoLLszq2Mm9OlLDw";
-
-#[derive(Debug, Serialize)]
-struct TursoStmt {
-    sql: String,
+// PDF-kompatibles CleaningTask Struct (mapped von PostgreSQL Model)
+#[derive(Debug, Serialize, Clone)]
+struct PDFCleaningTask {
+    id: i64,
+    booking_id: i64,
+    reservierungsnummer: String,
+    date: String,
+    room_name: String,
+    room_id: i64,
+    room_location: Option<String>,
+    guest_name: String,
+    checkout_time: String,
+    checkin_time: Option<String>,
+    priority: String,
+    notes: Option<String>,
+    status: String,
+    guest_count: i64,
+    extras: String,  // JSON mit task_type, checkin_date, checkout_date
+    emojis_start: String,
+    emojis_end: String,
 }
 
-#[derive(Debug, Serialize)]
-struct TursoRequestItem {
-    #[serde(rename = "type")]
-    request_type: String,
-    stmt: TursoStmt,
-}
+/// Hole CleaningTasks von PostgreSQL für einen bestimmten Monat (nicht Turso!)
+async fn get_cleaning_tasks_for_month(pool: &DbPool, year: i32, month: u32) -> Result<Vec<PDFCleaningTask>, String> {
+    println!("📅 [get_cleaning_tasks_for_month] Jahr: {}, Monat: {} (von PostgreSQL)", year, month);
 
-#[derive(Debug, Serialize)]
-struct TursoRequest {
-    requests: Vec<TursoRequestItem>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CleaningTask {
-    pub id: i64,
-    pub booking_id: i64,
-    pub reservierungsnummer: String,
-    pub date: String,
-    pub room_name: String,
-    pub room_id: i64,
-    pub room_location: Option<String>,
-    pub guest_name: String,
-    pub checkout_time: String,
-    pub checkin_time: Option<String>,
-    pub priority: String,
-    pub notes: Option<String>,
-    pub status: String,
-    pub guest_count: i64,
-    pub extras: String,
-    pub emojis_start: String,
-    pub emojis_end: String,
-}
-
-/// Hole CleaningTasks von Turso für einen bestimmten Monat
-async fn get_cleaning_tasks_for_month(year: i32, month: u32) -> Result<Vec<CleaningTask>, String> {
-    println!("📅 [get_cleaning_tasks_for_month] Jahr: {}, Monat: {}", year, month);
-
-    let start_date = format!("{}-{:02}-01", year, month);
-    let days_in_month = match month {
-        2 => if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 29 } else { 28 },
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    };
-    let end_date = format!("{}-{:02}-{:02}", year, month, days_in_month);
-
-    println!("📆 [get_cleaning_tasks_for_month] Zeitraum: {} bis {}", start_date, end_date);
-
-    let client = Client::new();
-    let sql = format!(
-        "SELECT id, booking_id, reservierungsnummer, date, room_name, room_id, room_location, \
-         guest_name, checkout_time, checkin_time, priority, notes, status, guest_count, extras, \
-         emojis_start, emojis_end \
-         FROM cleaning_tasks \
-         WHERE date >= '{}' AND date <= '{}' \
-         ORDER BY room_name, date",
-        start_date, end_date
-    );
-
-    let request_body = TursoRequest {
-        requests: vec![
-            TursoRequestItem {
-                request_type: "execute".to_string(),
-                stmt: TursoStmt { sql },
-            },
-            TursoRequestItem {
-                request_type: "close".to_string(),
-                stmt: TursoStmt { sql: String::new() },
-            },
-        ],
-    };
-
-    let response = client
-        .post(format!("{}/v2/pipeline", TURSO_URL))
-        .header("Authorization", format!("Bearer {}", TURSO_TOKEN))
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
+    // Verwende die repository function die den kompletten Monat holt (01.11-30.11)
+    let pg_tasks = CleaningTaskRepository::get_for_month(pool, year, month as i32)
         .await
-        .map_err(|e| format!("HTTP Request fehlgeschlagen: {}", e))?;
+        .map_err(|e| {
+            eprintln!("❌ Fehler beim Laden von PostgreSQL: {}", e);
+            format!("PostgreSQL Fehler: {}", e)
+        })?;
 
-    if !response.status().is_success() {
-        return Err(format!("Turso Fehler: {}", response.status()));
-    }
+    println!("✅ [get_cleaning_tasks_for_month] {} Tasks von PostgreSQL geladen", pg_tasks.len());
 
-    let text = response.text().await
-        .map_err(|e| format!("Text Parse Error: {}", e))?;
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("JSON Parse Error: {}", e))?;
+    // Mappe PostgreSQL Tasks auf PDF-kompatibles Format
+    let pdf_tasks: Vec<PDFCleaningTask> = pg_tasks.into_iter().map(|task| {
+        // Parse das extras JSON aus PostgreSQL um checkin_date/checkout_date zu holen
+        let pg_extras: serde_json::Value = task.extras
+            .as_ref()
+            .and_then(|e| serde_json::from_str(e).ok())
+            .unwrap_or(serde_json::json!({}));
+        let checkin_date = pg_extras.get("original_checkin")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let checkout_date = pg_extras.get("original_checkout")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
-    let mut tasks = Vec::new();
+        // Erstelle extras JSON im Format das der PDF Generator erwartet
+        let task_type = if task.checkin_time.is_some() { "checkin" } else { "checkout" };
+        let extras = serde_json::json!({
+            "task_type": task_type,
+            "checkin_date": checkin_date,
+            "checkout_date": checkout_date,
+        }).to_string();
 
-    if let Some(results) = json.get("results") {
-        if let Some(first_result) = results.get(0) {
-            if let Some(response_obj) = first_result.get("response") {
-                if let Some(result) = response_obj.get("result") {
-                    if let Some(rows) = result.get("rows") {
-                        if let Some(rows_array) = rows.as_array() {
-                            for row in rows_array {
-                                if let Some(row_array) = row.as_array() {
-                                    let get_value = |idx: usize| -> Option<String> {
-                                        row_array.get(idx)
-                                            .and_then(|v| v.get("value"))
-                                            .and_then(|v| {
-                                                if v.is_null() {
-                                                    None
-                                                } else {
-                                                    v.as_str().map(|s| s.to_string())
-                                                }
-                                            })
-                                    };
+        println!("🔍 [PDF Mapping] Task {}: checkin='{}', checkout='{}'", task.id, checkin_date, checkout_date);
 
-                                    let get_i64 = |idx: usize| -> i64 {
-                                        get_value(idx)
-                                            .and_then(|s| s.parse::<i64>().ok())
-                                            .unwrap_or(0)
-                                    };
-
-                                    let task = CleaningTask {
-                                        id: get_i64(0),
-                                        booking_id: get_i64(1),
-                                        reservierungsnummer: get_value(2).unwrap_or_default(),
-                                        date: get_value(3).unwrap_or_default(),
-                                        room_name: get_value(4).unwrap_or_default(),
-                                        room_id: get_i64(5),
-                                        room_location: get_value(6),
-                                        guest_name: get_value(7).unwrap_or_default(),
-                                        checkout_time: get_value(8).unwrap_or_default(),
-                                        checkin_time: get_value(9),
-                                        priority: get_value(10).unwrap_or_default(),
-                                        notes: get_value(11),
-                                        status: get_value(12).unwrap_or_default(),
-                                        guest_count: get_i64(13),
-                                        extras: get_value(14).unwrap_or_default(),
-                                        emojis_start: get_value(15).unwrap_or_default(),
-                                        emojis_end: get_value(16).unwrap_or_default(),
-                                    };
-
-                                    tasks.push(task);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        PDFCleaningTask {
+            id: task.id as i64,
+            booking_id: task.booking_id as i64,
+            reservierungsnummer: task.reservierungsnummer.unwrap_or_default(),
+            date: task.task_date,
+            room_name: task.room_number.unwrap_or_else(|| format!("Zimmer {}", task.room_id)),
+            room_id: task.room_id as i64,
+            room_location: task.room_location,
+            guest_name: task.guest_name.unwrap_or_default(),
+            checkout_time: task.checkout_time.unwrap_or_default(),
+            checkin_time: task.checkin_time,
+            priority: task.priority,
+            notes: task.notes,
+            status: task.status,
+            guest_count: task.guest_count.unwrap_or(1) as i64,
+            extras,
+            emojis_start: task.emojis_start.unwrap_or_default(),
+            emojis_end: task.emojis_end.unwrap_or_default(),
         }
-    }
+    }).collect();
 
-    println!("✅ [get_cleaning_tasks_for_month] {} Tasks gefunden", tasks.len());
-    Ok(tasks)
+    println!("✅ [get_cleaning_tasks_for_month] {} PDF Tasks erstellt", pdf_tasks.len());
+    Ok(pdf_tasks)
 }
 
 /// Generiert HTML für Timeline-PDF mit modernem Design (A4 Querformat, 2 Tabellen)
-fn generate_timeline_html(tasks: Vec<CleaningTask>, year: i32, month: u32) -> String {
+fn generate_timeline_html(tasks: Vec<PDFCleaningTask>, year: i32, month: u32) -> String {
     let month_names = [
         "JANUAR", "FEBRUAR", "MÄRZ", "APRIL", "MAI", "JUNI",
         "JULI", "AUGUST", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DEZEMBER"
@@ -181,7 +108,7 @@ fn generate_timeline_html(tasks: Vec<CleaningTask>, year: i32, month: u32) -> St
     };
 
     // Gruppiere Tasks nach Zimmer
-    let mut room_tasks: HashMap<String, Vec<CleaningTask>> = HashMap::new();
+    let mut room_tasks: HashMap<String, Vec<PDFCleaningTask>> = HashMap::new();
     for task in tasks.clone() {
         room_tasks.entry(task.room_name.clone())
             .or_insert_with(Vec::new)
@@ -584,7 +511,7 @@ struct DayInfo {
 /// Generiert eine einzelne Tabelle für einen Tag-Bereich
 fn generate_table_html(
     rooms: &[String],
-    room_tasks: &HashMap<String, Vec<CleaningTask>>,
+    room_tasks: &HashMap<String, Vec<PDFCleaningTask>>,
     year: i32,
     month: u32,
     start_day: u32,
@@ -663,6 +590,22 @@ fn generate_table_html(
         for task in tasks {
             println!("  🔍 Task: booking_id={}, date={}, checkin_time={:?}, checkout_time='{}', emojis_start='{}', emojis_end='{}', guest_count={}",
                      task.booking_id, task.date, task.checkin_time, task.checkout_time, task.emojis_start, task.emojis_end, task.guest_count);
+            println!("  🔍 EXTRAS JSON: {}", task.extras);
+
+            // Parse extras JSON um checkin_date und checkout_date zu holen
+            let extras_json: serde_json::Value = serde_json::from_str(&task.extras)
+                .unwrap_or(serde_json::json!({}));
+
+            let checkin_date = extras_json.get("checkin_date")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let checkout_date = extras_json.get("checkout_date")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            println!("  📅 PARSED DATES: checkin_date='{}', checkout_date='{}'", checkin_date, checkout_date);
 
             let entry = booking_ranges.entry(task.booking_id).or_insert((
                 String::new(),
@@ -673,18 +616,16 @@ fn generate_table_html(
                 task.guest_count, // guest_count
             ));
 
-            // Update checkin_time wenn verfügbar (vom Check-IN Task)
-            if let Some(ref checkin) = task.checkin_time {
-                if !checkin.is_empty() {
-                    println!("    ✅ Update checkin: {}", checkin);
-                    entry.0 = checkin.clone();
-                }
+            // Update checkin_date wenn verfügbar (aus extras JSON!)
+            if !checkin_date.is_empty() {
+                println!("    ✅ Update checkin_date: {}", checkin_date);
+                entry.0 = checkin_date;
             }
 
-            // Update checkout_time wenn verfügbar (vom Check-OUT Task)
-            if !task.checkout_time.is_empty() {
-                println!("    ✅ Update checkout: {}", task.checkout_time);
-                entry.1 = task.checkout_time.clone();
+            // Update checkout_date wenn verfügbar (aus extras JSON!)
+            if !checkout_date.is_empty() {
+                println!("    ✅ Update checkout_date: {}", checkout_date);
+                entry.1 = checkout_date;
             }
 
             // Sammle emojis_start (vom Check-in Task)
@@ -707,7 +648,7 @@ fn generate_table_html(
         // Erstelle vollständige Timeline mit allen Tagen zwischen Check-in und Check-out
         let mut day_info_map: HashMap<String, DayInfo> = HashMap::new();
 
-        for (_booking_id, (checkin_date, checkout_date, guest_name, emojis_start, emojis_end, guest_count)) in booking_ranges {
+        for (booking_id, (checkin_date, checkout_date, guest_name, emojis_start, emojis_end, guest_count)) in booking_ranges {
             // FIX (2025-10-21): Verwende ORIGINAL Daten - KEINE Monatsgrenzen als Fallback!
             // Dies verhindert, dass der gesamte Monat gefüllt wird
 
@@ -716,8 +657,11 @@ fn generate_table_html(
 
             // Skip wenn Daten fehlen (keine Monatsgrenzen mehr!)
             if checkin_date.is_empty() || checkout_date.is_empty() {
+                println!("⚠️  SKIPPING Booking {}: checkin='{}', checkout='{}' (LEER!)", booking_id, checkin_date, checkout_date);
                 continue; // Skip diese Buchung komplett
             }
+
+            println!("✅ PROCESSING Booking {}: checkin='{}', checkout='{}'", booking_id, checkin_date, checkout_date);
 
             let start = chrono::NaiveDate::parse_from_str(effective_start, "%Y-%m-%d").ok();
             let end = chrono::NaiveDate::parse_from_str(effective_end, "%Y-%m-%d").ok();
@@ -725,20 +669,35 @@ fn generate_table_html(
             if let (Some(start_date), Some(end_date)) = (start, end) {
                 let mut current = start_date;
 
-                while current <= end_date {
-                    let date_str = current.format("%Y-%m-%d").to_string();
-                    // FIX: is_checkin IMMER true am ersten Tag, egal ob Emojis vorhanden oder nicht!
-                    let is_checkin = current == start_date;
-                    let is_checkout = current == end_date; // IMMER rot bei Check-out, egal ob Emojis oder nicht
+                // Berechne Monatsgrenzen für Filter
+                let month_start = chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+                let month_end = if month == 12 {
+                    chrono::NaiveDate::from_ymd_opt(year + 1, 1, 1).unwrap().pred_opt().unwrap()
+                } else {
+                    chrono::NaiveDate::from_ymd_opt(year, month + 1, 1).unwrap().pred_opt().unwrap()
+                };
 
-                    day_info_map.insert(date_str, DayInfo {
-                        guest_name: guest_name.clone(),
-                        is_checkin,
-                        is_checkout,
-                        emojis_start: if is_checkin { emojis_start.clone() } else { String::new() },
-                        emojis_end: if is_checkout { emojis_end.clone() } else { String::new() },
-                        guest_count,
-                    });
+                while current <= end_date {
+                    // NUR Tage im gewählten Monat einfügen!
+                    if current >= month_start && current <= month_end {
+                        let date_str = current.format("%Y-%m-%d").to_string();
+                        // FIX: is_checkin IMMER true am ersten Tag, egal ob Emojis vorhanden oder nicht!
+                        let is_checkin = current == start_date;
+                        let is_checkout = current == end_date; // IMMER rot bei Check-out, egal ob Emojis oder nicht
+
+                        println!("  ✅ Added day {} to map (in month range)", date_str);
+
+                        day_info_map.insert(date_str, DayInfo {
+                            guest_name: guest_name.clone(),
+                            is_checkin,
+                            is_checkout,
+                            emojis_start: if is_checkin { emojis_start.clone() } else { String::new() },
+                            emojis_end: if is_checkout { emojis_end.clone() } else { String::new() },
+                            guest_count,
+                        });
+                    } else {
+                        println!("  ⏭️  Skipped day {} (outside month range)", current.format("%Y-%m-%d"));
+                    }
 
                     current = current.succ_opt().unwrap();
                 }
@@ -803,6 +762,7 @@ fn generate_table_html(
 /// Exportiert Timeline als PDF mit headless_chrome
 #[tauri::command]
 pub async fn export_cleaning_timeline_pdf(
+    pool: State<'_, DbPool>,
     _app: AppHandle,
     year: i32,
     month: u32,
@@ -812,9 +772,9 @@ pub async fn export_cleaning_timeline_pdf(
     println!("│  Monat: {}/{:02}                                      │", year, month);
     println!("└─────────────────────────────────────────────────────┘");
 
-    // 1. Hole Cleaning Tasks von Turso
-    println!("📥 Loading cleaning tasks from Turso...");
-    let tasks = get_cleaning_tasks_for_month(year, month).await?;
+    // 1. Hole Cleaning Tasks von PostgreSQL (nicht Turso!)
+    println!("📥 Loading cleaning tasks from PostgreSQL...");
+    let tasks = get_cleaning_tasks_for_month(&pool, year, month).await?;
 
     if tasks.is_empty() {
         return Err(format!("Keine Aufgaben für {}/{:02} gefunden", month, year));

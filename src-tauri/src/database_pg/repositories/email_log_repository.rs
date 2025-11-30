@@ -10,7 +10,7 @@ impl EmailLogRepository {
         let rows = client
             .query(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  ORDER BY sent_at DESC",
                 &[],
@@ -27,7 +27,7 @@ impl EmailLogRepository {
         let row = client
             .query_one(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  WHERE id = $1",
                 &[&id],
@@ -45,7 +45,7 @@ impl EmailLogRepository {
         let rows = client
             .query(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  WHERE booking_id = $1
                  ORDER BY sent_at DESC",
@@ -63,7 +63,7 @@ impl EmailLogRepository {
         let rows = client
             .query(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  WHERE guest_id = $1
                  ORDER BY sent_at DESC",
@@ -81,7 +81,7 @@ impl EmailLogRepository {
         let rows = client
             .query(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  WHERE status = $1
                  ORDER BY sent_at DESC",
@@ -109,10 +109,10 @@ impl EmailLogRepository {
             .query_one(
                 "INSERT INTO email_logs (
                     booking_id, guest_id, template_name, recipient_email,
-                    subject, status, error_message, sent_at
+                    subject, status, error_message, sent_at::text as sent_at
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                  RETURNING id, booking_id, guest_id, template_name, recipient_email,
-                           subject, status, error_message, sent_at",
+                           subject, status, error_message, sent_at::text as sent_at",
                 &[
                     &booking_id, &guest_id, &template_name, &recipient_email,
                     &subject, &status, &error_message,
@@ -138,7 +138,7 @@ impl EmailLogRepository {
                     status = $2, error_message = $3
                  WHERE id = $1
                  RETURNING id, booking_id, guest_id, template_name, recipient_email,
-                           subject, status, error_message, sent_at",
+                           subject, status, error_message, sent_at::text as sent_at",
                 &[&id, &status, &error_message],
             )
             .await
@@ -183,7 +183,7 @@ impl EmailLogRepository {
         let rows = client
             .query(
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
-                        subject, status, error_message, sent_at
+                        subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
                  WHERE status = 'failed'
                  ORDER BY sent_at DESC",

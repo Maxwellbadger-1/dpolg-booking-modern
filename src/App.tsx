@@ -6,6 +6,8 @@ import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
 import Lottie from 'lottie-react';
 import { DataProvider, useData } from './context/DataContext';
+import { OnlineProvider } from './context/OnlineContext';
+import OfflineBanner from './components/OfflineBanner';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
 import GuestList from './components/GuestManagement/GuestList';
@@ -24,10 +26,12 @@ import CleaningSync from './components/CleaningSync';
 import ErrorBoundary from './components/ErrorBoundary';
 import ReminderDropdown from './components/Reminders/ReminderDropdown';
 import RemindersView from './components/Reminders/RemindersView';
+import DevTools from './components/DevTools/ComprehensiveDevTools';
 import { Calendar, Hotel, UserPlus, LayoutDashboard, CalendarCheck, Users, Settings, Mail, Briefcase, TrendingUp, Cloud, Bell } from 'lucide-react';
 import loadingAnimation from './loading-animation.json';
 import appIcon from './assets/app-icon.png';
 import { formatDateShort } from './utils/dateFormatting';
+import { runMigrationsIfNeeded } from './auto_migrate';
 
 interface Room {
   id: number;
@@ -67,7 +71,8 @@ interface BookingWithDetails {
 type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics' | 'cleaning' | 'reminders';
 
 function AppContent() {
-  const { rooms, bookings, loading, refreshAll, updateBookingStatus } = useData(); // Use Context directly!
+  // NORMALIZED STATE: Get guestMap for O(1) lookups
+  const { rooms, bookings, loading, refreshAll, updateBookingStatus, guestMap } = useData(); // Use Context directly!
   const [error, setError] = useState<string | null>(null);
   const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
@@ -88,6 +93,9 @@ function AppContent() {
   const [showReminderDropdown, setShowReminderDropdown] = useState(false);
 
   useEffect(() => {
+    // Run migrations on app startup (idempotent - safe to run multiple times)
+    runMigrationsIfNeeded().catch(err => console.error('Migration check failed:', err));
+
     updateBookingStatuses(); // Status-Update bei App-Start
   }, []);
 
@@ -249,7 +257,7 @@ function AppContent() {
   const updateBookingStatuses = async () => {
     try {
       console.log('🔄 Updating booking statuses...');
-      const changedCount = await invoke<number>('update_booking_statuses_command');
+      const changedCount = await invoke<number>('update_booking_statuses_pg');
       if (changedCount > 0) {
         console.log(`✅ ${changedCount} Buchungs-Status aktualisiert`);
         // Daten neu laden wenn sich etwas geändert hat
@@ -625,10 +633,12 @@ function AppContent() {
       {/* Email Selection Dialog */}
       {emailBookingId && (() => {
         const booking = bookings.find(b => b.id === emailBookingId);
+        // NORMALIZED STATE: Look up guest from Map
+        const guest = booking ? guestMap.get(booking.guest_id) : undefined;
         return booking ? (
           <EmailSelectionDialog
             bookingId={emailBookingId}
-            guestEmail={booking.guest.email}
+            guestEmail={guest?.email || ''}
             isOpen={showEmailDialog}
             onClose={() => {
               setShowEmailDialog(false);
@@ -668,21 +678,14 @@ function AppContent() {
 // Wrapper component with DataProvider
 function App() {
   return (
-    <DataProvider>
-      <AppContent />
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#1e293b',
-            color: '#fff',
-            borderRadius: '0.75rem',
-            padding: '1rem',
-            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-          },
-          loading: {
-            duration: Infinity, // Loading-Toast bleibt sichtbar bis explizit ersetzt
+    <OnlineProvider>
+      <DataProvider>
+        <OfflineBanner />
+        <AppContent />
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 4000,
             style: {
               background: '#1e293b',
               color: '#fff',
@@ -690,24 +693,37 @@ function App() {
               padding: '1rem',
               boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
             },
-          },
-          success: {
-            duration: 4000,
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
+            loading: {
+              duration: Infinity, // Loading-Toast bleibt sichtbar bis explizit ersetzt
+              style: {
+                background: '#1e293b',
+                color: '#fff',
+                borderRadius: '0.75rem',
+                padding: '1rem',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+              },
             },
-          },
-          error: {
-            duration: 5000, // Errors länger sichtbar
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
+            success: {
+              duration: 4000,
+              iconTheme: {
+                primary: '#10b981',
+                secondary: '#fff',
+              },
             },
-          },
-        }}
-      />
-    </DataProvider>
+            error: {
+              duration: 5000, // Errors länger sichtbar
+              iconTheme: {
+                primary: '#ef4444',
+                secondary: '#fff',
+              },
+            },
+          }}
+        />
+
+        {/* DevTools with Pool Stats Monitoring */}
+        <DevTools />
+      </DataProvider>
+    </OnlineProvider>
   );
 }
 

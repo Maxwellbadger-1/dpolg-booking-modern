@@ -121,12 +121,42 @@ impl CleaningTaskRepository {
             .collect())
     }
 
+    /// Get cleaning tasks for a specific month
+    pub async fn get_for_month(
+        pool: &DbPool,
+        year: i32,
+        month: i32,
+    ) -> DbResult<Vec<CleaningTask>> {
+        println!("🔍 [get_for_month] CALLED with year={}, month={}", year, month);
+
+        // Calculate first and last day of month
+        let start_date = format!("{}-{:02}-01", year, month);
+        let end_date = if month == 12 {
+            format!("{}-01-01", year + 1)
+        } else {
+            format!("{}-{:02}-01", year, month + 1)
+        };
+
+        println!("📅 [get_for_month] Date range: {} to {}", start_date, end_date);
+
+        let result = Self::get_for_period(pool, start_date, end_date).await;
+
+        match &result {
+            Ok(tasks) => println!("✅ [get_for_month] Found {} tasks", tasks.len()),
+            Err(e) => println!("❌ [get_for_month] Error: {:?}", e),
+        }
+
+        result
+    }
+
     /// Get all cleaning tasks for a date range
     pub async fn get_for_period(
         pool: &DbPool,
         start_date: String,
         end_date: String,
     ) -> DbResult<Vec<CleaningTask>> {
+        println!("🔍 [get_for_period] CALLED with start={}, end={}", start_date, end_date);
+
         let client = pool.get().await?;
 
         let rows = client
@@ -157,7 +187,16 @@ impl CleaningTaskRepository {
                  JOIN bookings b ON b.id = ct.booking_id
                  LEFT JOIN additional_services asrv ON asrv.booking_id = b.id
                  LEFT JOIN service_templates st ON st.id = asrv.template_id
-                 WHERE ct.task_date::text BETWEEN $1 AND $2
+                 WHERE (
+                     -- Include if task_date (checkout) is in the period
+                     ct.task_date::text BETWEEN $1 AND $2
+                     OR
+                     -- Include if checkin is in the period (cross-month bookings)
+                     b.checkin_date::text BETWEEN $1 AND $2
+                     OR
+                     -- Include if booking spans the entire period
+                     (b.checkin_date::text < $1 AND b.checkout_date::text > $2)
+                 )
                  GROUP BY ct.id, ct.booking_id, ct.room_id, ct.task_date, ct.checkout_time, ct.checkin_time,
                           ct.priority, ct.has_dog, ct.change_bedding, ct.guest_count, ct.guest_name,
                           ct.status, ct.completed_at, ct.completed_by, ct.notes,
@@ -166,6 +205,8 @@ impl CleaningTaskRepository {
                 &[&start_date, &end_date],
             )
             .await?;
+
+        println!("✅ [get_for_period] Query returned {} rows", rows.len());
 
         Ok(rows
             .into_iter()

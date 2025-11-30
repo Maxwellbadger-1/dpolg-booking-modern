@@ -1,0 +1,9 @@
+./dev-stop.sh && ./dev-start.sh
+
+VOLLSTAENDIGKEITS_ANALYSE.md 
+
+mache jetzt maximal massiven debug code. nichts anderes. damit wir den fehler finden
+
+MOBILE_APP_ARCHITECTURE.md
+
+./cleanup-all.sh && ./dev-start.sh

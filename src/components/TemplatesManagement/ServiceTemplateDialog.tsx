@@ -40,12 +40,12 @@ export default function ServiceTemplateDialog({
         name: template.name,
         description: template.description || '',
         price: template.price,
-        is_active: template.is_active,
-        price_type: template.price_type,
-        applies_to: template.applies_to,
+        is_active: template.isActive,
+        price_type: template.priceType,
+        applies_to: template.appliesTo,
         emoji: template.emoji || '',
-        show_in_cleaning_plan: template.show_in_cleaning_plan,
-        cleaning_plan_position: template.cleaning_plan_position,
+        show_in_cleaning_plan: template.showInCleaningPlan,
+        cleaning_plan_position: template.cleaningPlanPosition,
       });
     } else {
       setFormData({
@@ -274,12 +274,12 @@ export default function ServiceTemplateDialog({
               Emoji (optional)
             </label>
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white hover:bg-slate-600 transition-colors flex items-center justify-between"
-              >
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className="flex-1 px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white hover:bg-slate-600 transition-colors flex items-center gap-2"
+                >
                   <Smile className="w-5 h-5 text-slate-400" />
                   <span className="text-sm">
                     {formData.emoji ? (
@@ -288,27 +288,24 @@ export default function ServiceTemplateDialog({
                       'Emoji auswählen...'
                     )}
                   </span>
-                </div>
+                </button>
                 {formData.emoji && (
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFormData({ ...formData, emoji: '' });
-                    }}
-                    className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/20 transition-colors"
+                    onClick={() => setFormData({ ...formData, emoji: '' })}
+                    className="p-3 bg-slate-700 border border-slate-600 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors"
                     title="Emoji entfernen"
                   >
                     <X className="w-4 h-4" />
                   </button>
                 )}
-              </button>
+              </div>
 
               {/* Emoji Picker Dropdown */}
               {showEmojiPicker && (
                 <div
                   ref={emojiPickerRef}
-                  className="absolute top-full mt-2 z-[100] shadow-2xl rounded-lg overflow-hidden"
+                  className="absolute left-0 top-full mt-2 z-[100] shadow-2xl rounded-lg overflow-hidden"
                 >
                   <Picker
                     data={data}

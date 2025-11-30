@@ -63,3 +63,41 @@ build-signed.*
 .github-token
 dpolg-cleaning-mobile/
 latest.json
+
+# macOS metadata
+._*
+
+# Temporary/Dev files
+*.sql
+*.cjs
+*.sh
+backups/
+test-*.html
+run-*.html
+*_migration.toml
+
+# Session docs (temporary)
+*_SUMMARY.md
+*_STATUS.md
+*_IMPLEMENTATION.md
+*_ANALYSIS.md
+*_FIX*.md
+*_PLAN.md
+*_GUIDE.md
+SCHNELLER_ENTWICKELN.md
+REMAINING_STUBS.md
+VOLLSTAENDIGKEITS_ANALYSE.md
+CACHE_FIX.md
+
+# Backup/Failed code
+*.backup
+*_failed.rs
+*_my_broken_changes.rs
+check-turso-duplicates.js
+run_migrations.rs
+shortcuts.txt
+src-tauri/backup_settings.json
+
+# Test artifacts
+test-results/
+playwright-report/

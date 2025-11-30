@@ -47,15 +47,19 @@ impl std::error::Error for DbError {}
 // Conversions from various error types
 impl From<tokio_postgres::Error> for DbError {
     fn from(err: tokio_postgres::Error) -> Self {
+        // Log the FULL error for debugging
+        eprintln!("🔴 PostgreSQL Error: {:?}", err);
+
         // Check for specific error types
         if let Some(code) = err.code() {
+            eprintln!("   SQL Code: {}", code.code());
             match code.code() {
                 "23505" => DbError::ConstraintViolation("Unique constraint violated".to_string()),
                 "23503" => DbError::ConstraintViolation("Foreign key constraint violated".to_string()),
-                _ => DbError::QueryError(err.to_string()),
+                _ => DbError::QueryError(format!("{:?}", err)),
             }
         } else {
-            DbError::QueryError(err.to_string())
+            DbError::QueryError(format!("{:?}", err))
         }
     }
 }
