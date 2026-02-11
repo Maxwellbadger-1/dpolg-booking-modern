@@ -116,7 +116,7 @@ pub fn export_rooms_to_csv(conn: &Connection) -> Result<String, String> {
     let mut csv = String::new();
 
     // Header
-    csv.push_str("ID,Name,Gebäude/Typ,Kapazität,Preis Mitglieder,Preis Nicht-Mitglieder,");
+    csv.push_str("ID,Name,Gebäude/Typ,Kapazität,Nebensaison Preis,Hauptsaison Preis,");
     csv.push_str("Ort,Schlüsselcode\n");
 
     // Data rows
@@ -129,9 +129,9 @@ pub fn export_rooms_to_csv(conn: &Connection) -> Result<String, String> {
         csv.push(',');
         csv.push_str(&room.capacity.to_string());
         csv.push(',');
-        csv.push_str(&format!("{:.2}", room.price_member));
+        csv.push_str(&format!("{:.2}", room.nebensaison_preis.unwrap_or(0.0)));
         csv.push(',');
-        csv.push_str(&format!("{:.2}", room.price_non_member));
+        csv.push_str(&format!("{:.2}", room.hauptsaison_preis.unwrap_or(0.0)));
         csv.push(',');
         csv.push_str(&escape_csv_field(&room.ort));
         csv.push(',');

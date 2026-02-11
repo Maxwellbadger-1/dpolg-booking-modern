@@ -1,8 +1,8 @@
-# Dependencies
+# Dependencies (323 MB - wird via npm install generiert)
 node_modules/
 # package-lock.json MUSS ins Git für CI/CD!
 
-# Tauri / Rust
+# Tauri / Rust Build Artifacts (11.3 GB - wird via cargo build generiert)
 src-tauri/target/
 src-tauri/Cargo.lock
 
@@ -25,11 +25,18 @@ node_modules/.vite/
 .DS_Store
 Thumbs.db
 
+# Windows temp files
+nul
+
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Debug/Console logs
+console.md
+console.txt
 
 # Environment
 .env

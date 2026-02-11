@@ -146,8 +146,6 @@ async fn create_room_pg(
     name: String,
     gebaeude_typ: String,
     capacity: i32,
-    price_member: f64,
-    price_non_member: f64,
     ort: String,
     nebensaison_preis: Option<f64>,
     hauptsaison_preis: Option<f64>,
@@ -165,8 +163,6 @@ async fn create_room_pg(
         name,
         gebaeude_typ,
         capacity,
-        price_member,
-        price_non_member,
         ort,
         nebensaison_preis,
         hauptsaison_preis,
@@ -195,8 +191,6 @@ async fn update_room_pg(
     name: String,
     gebaeude_typ: String,
     capacity: i32,
-    price_member: f64,
-    price_non_member: f64,
     ort: String,
     nebensaison_preis: Option<f64>,
     hauptsaison_preis: Option<f64>,
@@ -215,8 +209,6 @@ async fn update_room_pg(
         name,
         gebaeude_typ,
         capacity,
-        price_member,
-        price_non_member,
         ort,
         nebensaison_preis,
         hauptsaison_preis,
@@ -697,7 +689,7 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
                         scheduled_email.template_name.clone(),
                         scheduled_email.recipient_email.clone(),
                         scheduled_email.subject.clone(),
-                        "sent".to_string(),
+                        "gesendet".to_string(),
                         None,
                     ).await;
                     Ok(())
@@ -712,7 +704,7 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
                         scheduled_email.template_name.clone(),
                         scheduled_email.recipient_email.clone(),
                         scheduled_email.subject.clone(),
-                        "failed".to_string(),
+                        "fehler".to_string(),
                         Some(e.clone()),
                     ).await;
                     Err(e)
@@ -737,6 +729,7 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
 pub fn run_pg() {
     // Load configuration from environment
     let config = AppConfig::from_env();
+    let db_url_for_listener = config.database_url(); // Clone for LISTEN/NOTIFY listener
 
     println!("🚀 Starting DPolG Booking System (PostgreSQL Edition)");
     println!("   Environment: {:?}", config.environment);
@@ -747,7 +740,7 @@ pub fn run_pg() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(|app| {
+        .setup(move |app| {
             // Create PostgreSQL connection pool in async context
             tauri::async_runtime::block_on(async {
                 match database_pg::init_database().await {
@@ -773,6 +766,44 @@ pub fn run_pg() {
                                 eprintln!("⚠️ Could not run Real-Time migration: {}", e);
                             }
                         }
+
+                        // Run Pricing Precision migration (f32 -> f64, idempotent)
+                        println!("🔧 Running Pricing Precision migration...");
+                        let pricing_migration_sql = include_str!("../../migrations/008_fix_pricing_precision.sql");
+                        match pool.get().await {
+                            Ok(client) => {
+                                if let Err(e) = client.batch_execute(pricing_migration_sql).await {
+                                    eprintln!("⚠️ Pricing Precision migration warning: {}", e);
+                                    eprintln!("   (This is OK if columns already have correct type)");
+                                } else {
+                                    println!("✅ Pricing Precision migration complete");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️ Could not run Pricing Precision migration: {}", e);
+                            }
+                        }
+
+                        // Run Logo Data migration (store logo as Base64 in DB)
+                        println!("🔧 Running Logo Data migration...");
+                        let logo_migration_sql = include_str!("../../migrations/009_logo_data_in_db.sql");
+                        match pool.get().await {
+                            Ok(client) => {
+                                if let Err(e) = client.batch_execute(logo_migration_sql).await {
+                                    eprintln!("⚠️ Logo Data migration warning: {}", e);
+                                } else {
+                                    println!("✅ Logo Data migration complete");
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("⚠️ Could not run Logo Data migration: {}", e);
+                            }
+                        }
+
+                        // Start PostgreSQL LISTEN/NOTIFY listener for real-time updates
+                        let app_handle = app.handle().clone();
+                        database_pg::listener::start_pg_listener(app_handle, db_url_for_listener.clone());
+                        println!("✅ PostgreSQL LISTEN/NOTIFY listener started");
 
                         // Start email scheduler background task
                         start_email_scheduler(pool.clone());
@@ -947,6 +978,7 @@ pub fn run_pg() {
 
             // Email Automation
             run_email_automation_migration,
+            run_discount_calculated_amount_migration,
             backfill_scheduled_emails,
 
             // Real-Time Multi-User
@@ -1155,10 +1187,11 @@ async fn create_booking_pg(
     putzplan_checkout_date: Option<String>,
     ist_dpolg_mitglied: Option<bool>,
 ) -> Result<database_pg::Booking, String> {
-    println!("create_booking_pg called");
+    println!("create_booking_pg called with availability check");
 
-    // 1. Create booking in PostgreSQL (trigger will auto-create cleaning tasks)
-    let booking = BookingRepository::create(
+    // 1. Create booking in PostgreSQL with atomic availability check (prevents double bookings)
+    // Uses transaction with row-level locking to prevent race conditions
+    let booking = BookingRepository::create_with_availability_check(
         &pool,
         room_id,
         guest_id,
@@ -1188,7 +1221,11 @@ async fn create_booking_pg(
     .await
     .map_err(|e| {
         eprintln!("❌ Error creating booking: {}", e);
-        e.to_string()
+        // Special error prefix for double booking - frontend can detect this
+        match e {
+            database_pg::DbError::DoubleBookingError(msg) => format!("DOUBLE_BOOKING:{}", msg),
+            _ => e.to_string()
+        }
     })?;
 
     // 2. Sync cleaning tasks to Turso (mobile app)
@@ -1424,48 +1461,33 @@ async fn update_booking_dates_and_room_pg(
     checkin_date: String,
     checkout_date: String,
 ) -> Result<database_pg::Booking, String> {
-    println!("update_booking_dates_and_room_pg called: id={}, room={}, checkin={}, checkout={}",
+    println!("update_booking_dates_and_room_pg called with availability check: id={}, room={}, checkin={}, checkout={}",
              id, room_id, checkin_date, checkout_date);
 
+    // Get current booking to retrieve expected_updated_at for optimistic locking
     let booking = BookingRepository::get_by_id(&pool, id).await.map_err(|e| {
         eprintln!("❌ Error getting booking: {}", e);
         e.to_string()
     })?;
 
-    // 1. Update booking in PostgreSQL (trigger will auto-update cleaning tasks)
-    let updated_booking = BookingRepository::update(
+    // 1. Update booking with atomic availability check (prevents double bookings)
+    let updated_booking = BookingRepository::update_dates_with_availability_check(
         &pool,
         id,
-        room_id, // ← Room changing
-        booking.guest_id,
-        booking.reservierungsnummer,
-        checkin_date, // ← Dates changing
+        room_id,
+        checkin_date,
         checkout_date,
-        booking.anzahl_gaeste,
-        booking.status,
-        booking.gesamtpreis,
-        booking.bemerkungen,
-        booking.anzahl_begleitpersonen,
-        booking.grundpreis,
-        booking.services_preis,
-        booking.rabatt_preis,
-        booking.anzahl_naechte,
-        booking.bezahlt,
-        booking.bezahlt_am,
-        booking.zahlungsmethode,
-        booking.mahnung_gesendet_am,
-        booking.rechnung_versendet_am,
-        booking.rechnung_versendet_an,
-        booking.ist_stiftungsfall,
-        booking.payment_recipient_id,
-        booking.putzplan_checkout_date,
-        booking.ist_dpolg_mitglied,
-        booking.updated_at,
+        booking.updated_at, // Optimistic locking
     )
     .await
     .map_err(|e| {
         eprintln!("❌ Error updating booking dates and room: {}", e);
-        e.to_string()
+        // Special error prefix for double booking - frontend can detect this
+        match e {
+            database_pg::DbError::DoubleBookingError(msg) => format!("DOUBLE_BOOKING:{}", msg),
+            database_pg::DbError::ConflictError(msg) => format!("CONFLICT:{}", msg),
+            _ => e.to_string()
+        }
     })?;
 
     // 2. Sync updated cleaning tasks to Turso (mobile app)
@@ -1564,7 +1586,7 @@ struct ServiceInput {
     #[serde(alias = "name", alias = "serviceName", default)]
     service_name: String,
     #[serde(alias = "price", alias = "originalValue", default)]
-    original_value: f32,
+    original_value: f64,  // Changed from f32 for precision consistency
     #[serde(alias = "priceType", default = "default_price_type")]
     price_type: String,
     #[serde(alias = "appliesTo", default = "default_applies_to")]
@@ -1585,7 +1607,7 @@ struct DiscountInput {
     #[serde(alias = "name", alias = "discountName", default)]
     discount_name: String,
     #[serde(alias = "value", alias = "originalValue", default)]
-    original_value: f32,
+    original_value: f64,  // Changed from f32 for precision consistency
     #[serde(alias = "priceType", alias = "discountType", default = "default_discount_type")]
     price_type: String,
     #[serde(alias = "appliesTo", default = "default_applies_to")]
@@ -1624,6 +1646,8 @@ struct FullPriceBreakdown {
     nights: i32,
     price_per_night: f64,
     is_hauptsaison: bool,
+    hauptsaison_nights: i32,
+    nebensaison_nights: i32,
     services: Vec<ServiceCalculation>,
     services_total: f64,
     discounts: Vec<DiscountCalculation>,
@@ -1681,62 +1705,77 @@ async fn calculate_full_booking_price_pg(
         return Err("Check-out muss nach Check-in liegen".to_string());
     }
 
-    // Check if booking is in Hauptsaison
-    let is_hauptsaison = if pricing_settings.hauptsaison_aktiv.unwrap_or(false) {
-        let start_str = pricing_settings.hauptsaison_start.unwrap_or("06-01".to_string());
-        let ende_str = pricing_settings.hauptsaison_ende.unwrap_or("08-31".to_string());
+    // Fix 5: Per-night season calculation - check each night individually
+    let nebensaison_price = room.nebensaison_preis.unwrap_or(0.0);
+    let hauptsaison_price = room.hauptsaison_preis.unwrap_or(nebensaison_price);
 
-        // Parse MM-DD format
-        let checkin_mmdd = format!("{:02}-{:02}", checkin_date.month(), checkin_date.day());
+    let (base_price, hauptsaison_nights, nebensaison_nights) = if pricing_settings.hauptsaison_aktiv.unwrap_or(false) {
+        let start_str = pricing_settings.hauptsaison_start.clone().unwrap_or("06-01".to_string());
+        let ende_str = pricing_settings.hauptsaison_ende.clone().unwrap_or("08-31".to_string());
 
-        // Simple string comparison works for MM-DD format
-        checkin_mmdd >= start_str && checkin_mmdd <= ende_str
-    } else {
-        false
-    };
-
-    println!("📊 Hauptsaison aktiv: {}, Check-in in Hauptsaison: {}",
-             pricing_settings.hauptsaison_aktiv.unwrap_or(false), is_hauptsaison);
-
-    // Basic price calculation (use Hauptsaison price if applicable)
-    let price_per_night = if is_member {
-        room.price_member
-    } else {
-        // TODO: Implement Hauptsaison pricing when room has separate prices
-        room.price_non_member
-    };
-
-    let base_price = price_per_night * nights as f64;
-
-    // Calculate services
-    let mut service_calculations: Vec<ServiceCalculation> = services
-        .unwrap_or_default()
-        .iter()
-        .map(|s| {
-            let calculated = if s.price_type == "percent" {
-                base_price * (s.original_value as f64 / 100.0)
+        let mut total = 0.0;
+        let mut hs_nights = 0i32;
+        for offset in 0..nights {
+            let night_date = checkin_date + chrono::Duration::days(offset as i64);
+            let night_mmdd = format!("{:02}-{:02}", night_date.month(), night_date.day());
+            let is_hs = if start_str > ende_str {
+                night_mmdd >= start_str || night_mmdd <= ende_str
             } else {
-                s.original_value as f64
+                night_mmdd >= start_str && night_mmdd <= ende_str
             };
-            ServiceCalculation {
+            if is_hs {
+                total += hauptsaison_price;
+                hs_nights += 1;
+            } else {
+                total += nebensaison_price;
+            }
+        }
+        (total, hs_nights, nights - hs_nights)
+    } else {
+        (nebensaison_price * nights as f64, 0, nights)
+    };
+
+    let is_hauptsaison = hauptsaison_nights > 0;
+    let price_per_night = if nights > 0 { base_price / nights as f64 } else { 0.0 };
+
+    println!("📊 Hauptsaison: {} Nächte HS + {} Nächte NS, Durchschnitt {:.2}€/Nacht",
+             hauptsaison_nights, nebensaison_nights, price_per_night);
+
+    // Bug 6 fix: Two-pass service calculation for correct applies_to handling
+    let services_list = services.unwrap_or_default();
+
+    // Pass 1: Calculate fixed services and percent services that apply to overnight_price
+    let mut service_calculations: Vec<ServiceCalculation> = Vec::new();
+    let mut first_pass_total: f64 = 0.0;
+
+    for s in &services_list {
+        if s.price_type == "fixed" || s.applies_to == "overnight_price" {
+            let calculated = if s.price_type == "percent" {
+                base_price * (s.original_value / 100.0)  // percent of overnight_price
+            } else {
+                s.original_value  // fixed amount
+            };
+            first_pass_total += calculated;
+            service_calculations.push(ServiceCalculation {
                 name: s.service_name.clone(),
                 price_type: s.price_type.clone(),
-                original_value: s.original_value as f64,
+                original_value: s.original_value,
                 applies_to: s.applies_to.clone(),
                 calculated_price: calculated,
                 base_amount: Some(base_price),
-            }
-        })
-        .collect();
+            });
+        }
+    }
 
     // Add Endreinigung (cleaning fee) from room if it exists AND not already in services
     // This prevents double-counting when services already include Endreinigung from DB
-    let has_endreinigung = service_calculations.iter()
-        .any(|s| s.name.to_lowercase().contains("endreinigung") || s.name.to_lowercase().contains("cleaning"));
+    let has_endreinigung = services_list.iter()
+        .any(|s| s.service_name.to_lowercase().contains("endreinigung") || s.service_name.to_lowercase().contains("cleaning"));
 
     if !has_endreinigung {
         if let Some(endreinigung) = room.endreinigung {
             if endreinigung > 0.0 {
+                first_pass_total += endreinigung;
                 service_calculations.push(ServiceCalculation {
                     name: "Endreinigung".to_string(),
                     price_type: "fixed".to_string(),
@@ -1749,6 +1788,22 @@ async fn calculate_full_booking_price_pg(
         }
     }
 
+    // Pass 2: Calculate percent services that apply to total_price
+    let total_price_base = base_price + first_pass_total;
+    for s in &services_list {
+        if s.price_type == "percent" && s.applies_to == "total_price" {
+            let calculated = total_price_base * (s.original_value / 100.0);
+            service_calculations.push(ServiceCalculation {
+                name: s.service_name.clone(),
+                price_type: s.price_type.clone(),
+                original_value: s.original_value,
+                applies_to: s.applies_to.clone(),
+                calculated_price: calculated,
+                base_amount: Some(total_price_base),
+            });
+        }
+    }
+
     let services_total: f64 = service_calculations.iter().map(|s| s.calculated_price).sum();
 
     // Calculate discounts
@@ -1758,14 +1813,14 @@ async fn calculate_full_booking_price_pg(
         .iter()
         .map(|d| {
             let calculated = if d.price_type == "percent" {
-                subtotal_before_discount * (d.original_value as f64 / 100.0)
+                subtotal_before_discount * (d.original_value / 100.0)
             } else {
-                d.original_value as f64
+                d.original_value
             };
             DiscountCalculation {
                 name: d.discount_name.clone(),
                 discount_type: d.price_type.clone(),
-                original_value: d.original_value as f64,
+                original_value: d.original_value,
                 calculated_amount: calculated,
                 base_amount: Some(subtotal_before_discount),
             }
@@ -1822,6 +1877,8 @@ async fn calculate_full_booking_price_pg(
         nights,
         price_per_night,
         is_hauptsaison,
+        hauptsaison_nights,
+        nebensaison_nights,
         services: service_calculations,
         services_total,
         discounts: discount_calculations,
@@ -1853,12 +1910,26 @@ async fn calculate_batch_booking_prices_pg(
     pool: State<'_, DbPool>,
     booking_ids: Vec<i64>,
 ) -> Result<Vec<BookingPriceResult>, String> {
-    use chrono::NaiveDate;
+    use chrono::{NaiveDate, Datelike};
 
     println!("═══════════════════════════════════════════════════════════════");
     println!("🔍 calculate_batch_booking_prices_pg CALLED");
     println!("═══════════════════════════════════════════════════════════════");
     println!("📥 booking_ids: {:?}", booking_ids);
+
+    // Load PricingSettings once for all bookings (Bug 1 fix)
+    let pricing_settings = PricingSettingsRepository::get(&pool)
+        .await
+        .unwrap_or_else(|_| database_pg::PricingSettings {
+            id: 1,
+            hauptsaison_aktiv: Some(false),
+            hauptsaison_start: None,
+            hauptsaison_ende: None,
+            mitglieder_rabatt_aktiv: Some(false),
+            mitglieder_rabatt_prozent: Some(15.0),
+            rabatt_basis: Some("zimmerpreis".to_string()),
+            updated_at: None,
+        });
 
     let mut results = Vec::new();
 
@@ -1872,6 +1943,30 @@ async fn calculate_batch_booking_prices_pg(
             }
         };
 
+        // Fix 3: Use stored snapshot values when available (konsistente Preise)
+        if booking.grundpreis.is_some() {
+            let grundpreis = booking.grundpreis.unwrap_or(0.0);
+            let services_preis = booking.services_preis.unwrap_or(0.0);
+            let rabatt_preis = booking.rabatt_preis.unwrap_or(0.0);
+            let nights = booking.anzahl_naechte.unwrap_or_else(|| {
+                // Fallback: Nächte aus Datum berechnen
+                NaiveDate::parse_from_str(&booking.checkout_date, "%Y-%m-%d")
+                    .and_then(|co| NaiveDate::parse_from_str(&booking.checkin_date, "%Y-%m-%d").map(|ci| (co - ci).num_days() as i32))
+                    .unwrap_or(1)
+            });
+
+            results.push(BookingPriceResult {
+                booking_id,
+                nights,
+                base_price: grundpreis,
+                services_total: services_preis,
+                discounts_total: rabatt_preis,
+                total: booking.gesamtpreis,
+            });
+            continue; // Keine Neuberechnung nötig
+        }
+
+        // Fallback: Neuberechnung für alte Buchungen ohne Snapshots
         // Get room for price calculation
         let room = match RoomRepository::get_by_id(&pool, booking.room_id).await {
             Ok(r) => r,
@@ -1901,46 +1996,96 @@ async fn calculate_batch_booking_prices_pg(
         };
         let nights = (checkout_date - checkin_date).num_days() as i32;
 
-        // Calculate base price
-        let price_per_night = if guest.dpolg_mitglied {
-            room.price_member
+        // Fix 5: Per-night season calculation
+        let ns_price = room.nebensaison_preis.unwrap_or(0.0);
+        let hs_price = room.hauptsaison_preis.unwrap_or(ns_price);
+
+        let base_price = if pricing_settings.hauptsaison_aktiv.unwrap_or(false) {
+            let start_str = pricing_settings.hauptsaison_start.clone().unwrap_or("06-01".to_string());
+            let ende_str = pricing_settings.hauptsaison_ende.clone().unwrap_or("08-31".to_string());
+            let mut total = 0.0;
+            for offset in 0..nights {
+                let night_date = checkin_date + chrono::Duration::days(offset as i64);
+                let night_mmdd = format!("{:02}-{:02}", night_date.month(), night_date.day());
+                let is_hs = if start_str > ende_str {
+                    night_mmdd >= start_str || night_mmdd <= ende_str
+                } else {
+                    night_mmdd >= start_str && night_mmdd <= ende_str
+                };
+                total += if is_hs { hs_price } else { ns_price };
+            }
+            total
         } else {
-            room.price_non_member
+            ns_price * nights as f64
         };
-        let base_price = price_per_night * nights as f64;
 
         // Get services for this booking
         let services = AdditionalServiceRepository::get_by_booking(&pool, booking_id)
             .await
             .unwrap_or_default();
 
-        // Calculate services total
-        let services_total: f64 = services.iter().map(|s| {
-            if s.price_type == "percent" {
-                let base_amount = if s.applies_to == "total_price" {
-                    base_price // For total_price, we use base_price as approximation
+        // Two-pass service calculation for correct applies_to handling
+        let mut first_pass_total: f64 = 0.0;
+        for s in &services {
+            if s.price_type == "fixed" || s.applies_to == "overnight_price" {
+                let calculated = if s.price_type == "percent" {
+                    base_price * (s.original_value / 100.0)
                 } else {
-                    base_price // overnight_price
+                    s.original_value
                 };
-                base_amount * (s.original_value as f64) / 100.0
-            } else {
-                s.original_value as f64
+                first_pass_total += calculated;
             }
-        }).sum();
+        }
+
+        let total_price_base = base_price + first_pass_total;
+        let mut second_pass_total: f64 = 0.0;
+        for s in &services {
+            if s.price_type == "percent" && s.applies_to == "total_price" {
+                second_pass_total += total_price_base * (s.original_value / 100.0);
+            }
+        }
+
+        let services_total = first_pass_total + second_pass_total;
 
         // Get discounts for this booking
         let discounts = DiscountRepository::get_by_booking(&pool, booking_id)
             .await
             .unwrap_or_default();
 
-        // Calculate discounts total
-        let discounts_total: f64 = discounts.iter().map(|d| {
-            if d.discount_type == "percent" {
-                (base_price + services_total) * (d.discount_value as f64) / 100.0
-            } else {
-                d.discount_value as f64
-            }
+        // Calculate manual discounts total
+        let subtotal_before_discount = base_price + services_total;
+        let mut discounts_total: f64 = discounts.iter().map(|d| {
+            // Use stored calculated_amount if available
+            d.calculated_amount.unwrap_or_else(|| {
+                if d.discount_type == "percent" {
+                    subtotal_before_discount * (d.discount_value) / 100.0
+                } else {
+                    d.discount_value
+                }
+            })
         }).sum();
+
+        // Apply automatic DPolG member discount from PricingSettings
+        if guest.dpolg_mitglied && pricing_settings.mitglieder_rabatt_aktiv.unwrap_or(false) {
+            let rabatt_prozent = pricing_settings.mitglieder_rabatt_prozent.unwrap_or(15.0);
+            let rabatt_basis = pricing_settings.rabatt_basis.clone().unwrap_or("zimmerpreis".to_string());
+
+            let rabatt_base = if rabatt_basis == "gesamtpreis" {
+                subtotal_before_discount
+            } else {
+                base_price
+            };
+
+            let auto_rabatt = rabatt_base * (rabatt_prozent / 100.0);
+
+            let has_dpolg_rabatt = discounts.iter()
+                .any(|d| d.discount_name.to_lowercase().contains("dpolg")
+                      || d.discount_name.to_lowercase().contains("mitglieder"));
+
+            if !has_dpolg_rabatt && auto_rabatt > 0.0 {
+                discounts_total += auto_rabatt;
+            }
+        }
 
         let total = base_price + services_total - discounts_total;
 
@@ -2036,10 +2181,10 @@ async fn create_additional_service_pg(
     pool: State<'_, DbPool>,
     booking_id: i64,
     service_name: String,
-    service_price: f32,
+    service_price: f64,  // Changed from f32
     template_id: Option<i32>,
     price_type: String,
-    original_value: f32,
+    original_value: f64,  // Changed from f32
     applies_to: String,
 ) -> Result<database_pg::AdditionalService, String> {
     AdditionalServiceRepository::create(&pool, booking_id, service_name, service_price, template_id, price_type, original_value, applies_to)
@@ -2052,10 +2197,10 @@ async fn update_additional_service_pg(
     id: i64,
     booking_id: i64,
     service_name: String,
-    service_price: f32,
+    service_price: f64,  // Changed from f32
     template_id: Option<i32>,
     price_type: String,
-    original_value: f32,
+    original_value: f64,  // Changed from f32
     applies_to: String,
 ) -> Result<database_pg::AdditionalService, String> {
     AdditionalServiceRepository::update(&pool, id, booking_id, service_name, service_price, template_id, price_type, original_value, applies_to)
@@ -2097,9 +2242,10 @@ async fn create_discount_pg(
     booking_id: i64,
     discount_name: String,
     discount_type: String,
-    discount_value: f32,
+    discount_value: f64,
+    calculated_amount: Option<f64>,
 ) -> Result<database_pg::Discount, String> {
-    DiscountRepository::create(&pool, booking_id, discount_name, discount_type, discount_value)
+    DiscountRepository::create(&pool, booking_id, discount_name, discount_type, discount_value, calculated_amount)
         .await.map_err(|e| e.to_string())
 }
 
@@ -2110,9 +2256,10 @@ async fn update_discount_pg(
     booking_id: i64,
     discount_name: String,
     discount_type: String,
-    discount_value: f32,
+    discount_value: f64,
+    calculated_amount: Option<f64>,
 ) -> Result<database_pg::Discount, String> {
-    DiscountRepository::update(&pool, id, booking_id, discount_name, discount_type, discount_value)
+    DiscountRepository::update(&pool, id, booking_id, discount_name, discount_type, discount_value, calculated_amount)
         .await.map_err(|e| e.to_string())
 }
 
@@ -2592,7 +2739,43 @@ async fn delete_email_template_pg(pool: State<'_, DbPool>, id: i32) -> Result<()
 
 #[tauri::command]
 async fn get_company_settings_pg(pool: State<'_, DbPool>) -> Result<database_pg::CompanySettings, String> {
-    CompanySettingsRepository::get(&pool).await.map_err(|e| e.to_string())
+    let mut settings = CompanySettingsRepository::get(&pool).await.map_err(|e| e.to_string())?;
+
+    // Auto-migrate: If logo_path exists but logo_data is empty, try to read the file locally
+    if settings.logo_data.is_none() || settings.logo_data.as_deref() == Some("") {
+        if let Some(ref logo_path) = settings.logo_path {
+            if !logo_path.is_empty() && std::path::Path::new(logo_path).exists() {
+                println!("🔄 Auto-migrating logo from file path to DB: {}", logo_path);
+                match std::fs::read(logo_path) {
+                    Ok(file_bytes) => {
+                        if file_bytes.len() <= 2 * 1024 * 1024 {
+                            let base64_data = general_purpose::STANDARD.encode(&file_bytes);
+                            let mime_type = if logo_path.to_lowercase().ends_with(".png") {
+                                "image/png"
+                            } else if logo_path.to_lowercase().ends_with(".jpg") || logo_path.to_lowercase().ends_with(".jpeg") {
+                                "image/jpeg"
+                            } else {
+                                "image/png"
+                            };
+                            settings.logo_data = Some(base64_data);
+                            settings.logo_mime_type = Some(mime_type.to_string());
+                            // Save back to DB
+                            if let Err(e) = CompanySettingsRepository::update(&pool, &settings).await {
+                                eprintln!("⚠️ Failed to auto-migrate logo to DB: {}", e);
+                            } else {
+                                println!("✅ Logo auto-migrated to DB ({} bytes)", file_bytes.len());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️ Could not read logo file for auto-migration: {}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(settings)
 }
 
 #[tauri::command]
@@ -2777,6 +2960,18 @@ async fn run_email_automation_migration(pool: State<'_, DbPool>) -> Result<Strin
 }
 
 #[tauri::command]
+async fn run_discount_calculated_amount_migration(pool: State<'_, DbPool>) -> Result<String, String> {
+    println!("🔧 Running discount calculated_amount migration...");
+
+    let result = DiscountRepository::run_migration(&pool)
+        .await
+        .map_err(|e| format!("Migration failed: {}", e))?;
+
+    println!("✅ Discount calculated_amount migration completed successfully");
+    Ok(result)
+}
+
+#[tauri::command]
 async fn run_realtime_notify_migration(pool: State<'_, DbPool>) -> Result<String, String> {
     println!("🔧 Running Real-Time NOTIFY triggers migration...");
 
@@ -2839,49 +3034,13 @@ async fn get_updates_since(
         .map(database_pg::Booking::from)
         .collect();
 
-    // Get all guests updated since timestamp
-    let guests_query = "
-        SELECT id, vorname, nachname, email, telefon, dpolg_mitglied,
-               strasse, plz, ort, mitgliedsnummer, notizen, beruf,
-               bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
-               land, telefon_geschaeftlich, telefon_privat, telefon_mobil,
-               fax, geburtsdatum, geburtsort, sprache, nationalitaet,
-               identifikationsnummer, debitorenkonto, kennzeichen,
-               rechnungs_email, marketing_einwilligung, leitweg_id,
-               kostenstelle, tags, automail, automail_sprache
-        FROM guests
-        WHERE updated_at > $1
-        ORDER BY updated_at DESC
-    ";
+    // Guests table has no updated_at column, so we can't track changes
+    // Return empty vector - guests rarely change and full refresh handles updates
+    let guests: Vec<database_pg::Guest> = Vec::new();
 
-    let guest_rows = client
-        .query(guests_query, &[&since_timestamp])
-        .await
-        .map_err(|e| format!("Error fetching updated guests: {}", e))?;
-
-    let guests: Vec<database_pg::Guest> = guest_rows
-        .into_iter()
-        .map(database_pg::Guest::from)
-        .collect();
-
-    // Get all rooms updated since timestamp (rooms rarely change, but include for completeness)
-    let rooms_query = "
-        SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member,
-               nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-               schluesselcode, street_address, postal_code, city, notizen
-        FROM rooms
-        ORDER BY name
-    ";
-
-    let room_rows = client
-        .query(rooms_query, &[])
-        .await
-        .map_err(|e| format!("Error fetching rooms: {}", e))?;
-
-    let rooms: Vec<database_pg::Room> = room_rows
-        .into_iter()
-        .map(database_pg::Room::from)
-        .collect();
+    // Rooms table has no updated_at column, so we can't track changes
+    // Return empty vector - rooms rarely change and full refresh handles updates
+    let rooms: Vec<database_pg::Room> = Vec::new();
 
     // Current timestamp for next poll
     let current_timestamp = chrono::Utc::now().to_rfc3339();
@@ -3080,10 +3239,10 @@ async fn link_service_template_to_booking_command(
         &pool,
         booking_id,
         template.service_name.clone(),
-        template.original_value as f32, // Initial price = template value
+        template.original_value, // Initial price = template value (now f64)
         Some(service_template_id as i32),
         template.price_type,
-        template.original_value as f32,
+        template.original_value,  // Now f64
         template.applies_to,
     )
     .await
@@ -3113,13 +3272,14 @@ async fn link_discount_template_to_booking_command(
     println!("   Found template: {} (type: {}, value: {})",
              template.discount_name, template.discount_type, template.discount_value);
 
-    // Create discount for this booking
+    // Create discount for this booking (no pre-calculated amount for template-linked discounts)
     let discount = DiscountRepository::create(
         &pool,
         booking_id,
         template.discount_name.clone(),
         template.discount_type,
-        template.discount_value as f32,
+        template.discount_value,
+        None,
     )
     .await
     .map_err(|e| format!("Failed to create discount: {}", e))?;
@@ -3242,11 +3402,12 @@ async fn calculate_nights_command(
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct ReportStats {
     total_bookings: i64,
+    active_bookings: i64,
     total_revenue: f64,
-    average_booking_value: f64,
+    total_nights: i64,
+    average_price_per_night: f64,
     occupancy_rate: f64,
 }
 
@@ -3262,24 +3423,32 @@ async fn get_report_stats_command(
     let client = pool.get().await
         .map_err(|e| format!("Datenbankfehler: {}", e))?;
 
-    // Build date filter
-    let date_filter = match (start_date, end_date) {
-        (Some(start), Some(end)) => format!("WHERE check_in >= '{}' AND check_out <= '{}'", start, end),
-        (Some(start), None) => format!("WHERE check_in >= '{}'", start),
-        (None, Some(end)) => format!("WHERE check_out <= '{}'", end),
+    // Build date filter (using correct column names: checkin_date, checkout_date, gesamtpreis)
+    let date_filter = match (&start_date, &end_date) {
+        (Some(start), Some(end)) =>
+            format!("WHERE checkin_date >= '{}' AND checkout_date <= '{}'", start, end),
+        (Some(start), None) =>
+            format!("WHERE checkin_date >= '{}'", start),
+        (None, Some(end)) =>
+            format!("WHERE checkout_date <= '{}'", end),
         (None, None) => "".to_string(),
     };
 
-    // Get statistics
+    // Get statistics with correct column names
     let query = format!(
         "SELECT
             COUNT(*) as total_bookings,
-            COALESCE(SUM(total_price)::numeric::text, '0') as total_revenue,
-            COALESCE(AVG(total_price)::numeric::text, '0') as average_booking_value
+            COUNT(*) FILTER (WHERE status != 'storniert') as active_bookings,
+            COALESCE(SUM(gesamtpreis) FILTER (WHERE status != 'storniert'), 0)::numeric::text as total_revenue,
+            COALESCE(SUM(
+                CASE
+                    WHEN anzahl_naechte IS NOT NULL THEN anzahl_naechte
+                    ELSE (checkout_date::date - checkin_date::date)
+                END
+            ) FILTER (WHERE status != 'storniert'), 0) as total_nights
          FROM bookings
-         {}
-         AND status NOT IN ('cancelled', 'storniert')",
-        date_filter
+         {}",
+        date_filter,
     );
 
     let row = client
@@ -3288,36 +3457,65 @@ async fn get_report_stats_command(
         .map_err(|e| format!("Fehler beim Laden der Statistiken: {}", e))?;
 
     let total_bookings: i64 = row.get("total_bookings");
+    let active_bookings: i64 = row.get("active_bookings");
     let total_revenue: String = row.get("total_revenue");
-    let average_booking_value: String = row.get("average_booking_value");
-
-    // Calculate occupancy rate (simplified: booked nights / available nights)
-    // This is a basic calculation - can be enhanced later
-    let occupancy_rate = if total_bookings > 0 {
-        // Simple approximation: assume 30% average occupancy for now
-        // TODO: Calculate based on actual room availability
-        30.0
+    let total_nights: i64 = row.get("total_nights");
+    let average_price_per_night = if total_nights > 0 {
+        total_revenue.parse::<f64>().unwrap_or(0.0) / total_nights as f64
     } else {
         0.0
     };
 
-    println!("✅ Stats: {} bookings, {:.2}€ revenue", total_bookings, total_revenue.parse::<f64>().unwrap_or(0.0));
+    // Calculate real occupancy rate (booked nights / available nights * 100)
+    let occupancy_rate = if active_bookings > 0 {
+        // Get number of rooms
+        let room_count: i64 = client
+            .query_one("SELECT COUNT(*) FROM rooms", &[])
+            .await
+            .map(|r| r.get(0))
+            .unwrap_or(10);
+
+        // Calculate available nights (rooms * days in period)
+        let available_nights = match (&start_date, &end_date) {
+            (Some(start), Some(end)) => {
+                let days = chrono::NaiveDate::parse_from_str(end, "%Y-%m-%d")
+                    .and_then(|e| chrono::NaiveDate::parse_from_str(start, "%Y-%m-%d").map(|s| (e - s).num_days()))
+                    .unwrap_or(30);
+                room_count * days.max(1)
+            }
+            _ => room_count * 30,
+        };
+
+        if available_nights > 0 {
+            (total_nights as f64 / available_nights as f64 * 100.0).min(100.0)
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    println!("✅ Stats: {} bookings ({} active), {:.2}€ revenue, {} nights",
+             total_bookings, active_bookings, total_revenue.parse::<f64>().unwrap_or(0.0), total_nights);
 
     Ok(ReportStats {
         total_bookings,
+        active_bookings,
         total_revenue: total_revenue.parse().unwrap_or(0.0),
-        average_booking_value: average_booking_value.parse().unwrap_or(0.0),
+        total_nights,
+        average_price_per_night,
         occupancy_rate,
     })
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct RoomOccupancy {
     room_id: i32,
     room_name: String,
-    occupancy_percentage: f64,
-    total_nights_booked: i32,
+    total_bookings: i32,
+    total_nights: i32,
+    total_revenue: f64,
+    occupancy_rate: f64,
 }
 
 #[tauri::command]
@@ -3346,7 +3544,13 @@ async fn get_room_occupancy_command(
             r.id as room_id,
             r.name as room_name,
             COUNT(b.id) as booking_count,
-            COALESCE(SUM((b.checkout_date::date - b.checkin_date::date)), 0) as total_nights_booked
+            COALESCE(SUM(
+                CASE
+                    WHEN b.anzahl_naechte IS NOT NULL THEN b.anzahl_naechte
+                    ELSE (b.checkout_date::date - b.checkin_date::date)
+                END
+            ), 0) as total_nights_booked,
+            COALESCE(SUM(b.gesamtpreis), 0)::numeric::text as total_revenue
          FROM rooms r
          LEFT JOIN bookings b ON b.room_id = r.id
             AND b.status NOT IN ('cancelled', 'storniert')
@@ -3371,7 +3575,7 @@ async fn get_room_occupancy_command(
                 .map_err(|e| format!("Ungültiges Enddatum: {}", e))?;
             (end_date - start_date).num_days() as i32
         },
-        _ => 365, // Default: 1 year
+        _ => 365,
     };
 
     let occupancies: Vec<RoomOccupancy> = rows
@@ -3379,13 +3583,13 @@ async fn get_room_occupancy_command(
         .map(|row| {
             let room_id: i32 = row.get("room_id");
             let room_name: String = row.get("room_name");
+            let booking_count: i64 = row.get("booking_count");
             let total_nights_booked: i64 = row.get("total_nights_booked");
-            let total_nights_booked_i32 = total_nights_booked as i32;
+            let total_revenue_str: String = row.get("total_revenue");
+            let total_revenue = total_revenue_str.parse::<f64>().unwrap_or(0.0);
 
-            // Calculate occupancy percentage
-            let available_nights = total_days;
-            let occupancy_percentage = if available_nights > 0 {
-                (total_nights_booked_i32 as f64 / available_nights as f64) * 100.0
+            let occupancy_rate = if total_days > 0 {
+                (total_nights_booked as f64 / total_days as f64) * 100.0
             } else {
                 0.0
             };
@@ -3393,8 +3597,10 @@ async fn get_room_occupancy_command(
             RoomOccupancy {
                 room_id,
                 room_name,
-                occupancy_percentage,
-                total_nights_booked: total_nights_booked_i32,
+                total_bookings: booking_count as i32,
+                total_nights: total_nights_booked as i32,
+                total_revenue,
+                occupancy_rate,
             }
         })
         .collect();
@@ -3556,7 +3762,28 @@ async fn send_confirmation_email_command(pool: State<'_, DbPool>, booking_id: i6
         }
     };
 
-    send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await?;
+    let send_result = send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await;
+
+    // Log email send result
+    {
+        use crate::database_pg::repositories::EmailLogRepository;
+        let (status, error_msg) = match &send_result {
+            Ok(_) => ("gesendet".to_string(), None),
+            Err(e) => ("fehler".to_string(), Some(e.clone())),
+        };
+        let _ = EmailLogRepository::create(
+            &pool,
+            Some(booking_id as i32),
+            guest.id,
+            "confirmation".to_string(),
+            guest_email.clone(),
+            subject.clone(),
+            status,
+            error_msg,
+        ).await;
+    }
+
+    send_result?;
 
     println!("✅ Confirmation email sent to {}", guest_email);
     Ok(format!("Buchungsbestätigung an {} gesendet", guest_email))
@@ -3891,6 +4118,20 @@ async fn generate_invoice_pdf_command(
         None
     };
 
+    // 5c. Load pricing settings for discount basis (Bug 2 fix)
+    let pricing_settings = PricingSettingsRepository::get(pool.inner())
+        .await
+        .unwrap_or_else(|_| database_pg::PricingSettings {
+            id: 1,
+            hauptsaison_aktiv: Some(false),
+            hauptsaison_start: None,
+            hauptsaison_ende: None,
+            mitglieder_rabatt_aktiv: Some(false),
+            mitglieder_rabatt_prozent: Some(15.0),
+            rabatt_basis: Some("zimmerpreis".to_string()),
+            updated_at: None,
+        });
+
     // 6. Generate HTML invoice
     let guest = booking.guest.as_ref().ok_or("Kein Gast gefunden")?;
     let room = booking.room.as_ref().ok_or("Kein Zimmer gefunden")?;
@@ -3902,6 +4143,7 @@ async fn generate_invoice_pdf_command(
         &company_settings,
         &payment_settings,
         payment_recipient.as_ref(),
+        &pricing_settings,  // Bug 2 fix: Pass pricing settings
     )?;
 
     // 7. Launch headless Chrome and generate PDF
@@ -4019,6 +4261,7 @@ fn generate_invoice_html_pg(
     company: &crate::database_pg::models::CompanySettings,
     payment: &crate::database_pg::models::PaymentSettings,
     payment_recipient: Option<&crate::database_pg::models::PaymentRecipient>,
+    pricing_settings: &crate::database_pg::models::PricingSettings,  // Bug 2 fix: Added for discount basis
 ) -> Result<String, String> {
     println!("┌─────────────────────────────────────────────────────┐");
     println!("│  INVOICE HTML GENERATOR (PostgreSQL - PORTED)       │");
@@ -4073,22 +4316,29 @@ fn generate_invoice_html_pg(
     html = html.replace("{{TAX_ID}}", company.tax_id.as_deref().unwrap_or(""));
 
     // Logo (als Base64 Data-URL für PDF-Generation mit headless-chrome)
-    let logo_html = if let Some(ref logo_path) = company.logo_path {
+    // Primary: Use logo_data from DB (Base64). Fallback: Read from logo_path file.
+    let logo_html = if let (Some(ref logo_data), Some(ref mime_type)) = (&company.logo_data, &company.logo_mime_type) {
+        if !logo_data.is_empty() {
+            let data_url = format!("data:{};base64,{}", mime_type, logo_data);
+            println!("🖼️ [INVOICE] Logo aus DB geladen ({} bytes Base64)", logo_data.len());
+            format!(r#"<img src="{}" alt="Company Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;" />"#, data_url)
+        } else {
+            format!(r#"<div class="logo-placeholder">[LOGO]<br>{}</div>"#, &company.company_name)
+        }
+    } else if let Some(ref logo_path) = company.logo_path {
         if !logo_path.is_empty() && std::path::Path::new(logo_path).exists() {
-            // Lese Logo-Datei und konvertiere zu Base64
             match std::fs::read(logo_path) {
                 Ok(logo_bytes) => {
                     let base64_logo = general_purpose::STANDARD.encode(&logo_bytes);
-                    // Bestimme MIME-Type basierend auf Extension
                     let mime_type = if logo_path.to_lowercase().ends_with(".png") {
                         "image/png"
                     } else if logo_path.to_lowercase().ends_with(".jpg") || logo_path.to_lowercase().ends_with(".jpeg") {
                         "image/jpeg"
                     } else {
-                        "image/png" // Fallback
+                        "image/png"
                     };
                     let data_url = format!("data:{};base64,{}", mime_type, base64_logo);
-                    println!("🖼️ [INVOICE] Logo geladen: {} ({} bytes)", logo_path, logo_bytes.len());
+                    println!("🖼️ [INVOICE] Logo aus Datei geladen: {} ({} bytes)", logo_path, logo_bytes.len());
                     format!(r#"<img src="{}" alt="Company Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;" />"#, data_url)
                 },
                 Err(e) => {
@@ -4101,7 +4351,7 @@ fn generate_invoice_html_pg(
             format!(r#"<div class="logo-placeholder">[LOGO]<br>{}</div>"#, &company.company_name)
         }
     } else {
-        println!("⚠️ [INVOICE] Kein Logo-Pfad in Company Settings");
+        println!("⚠️ [INVOICE] Kein Logo in Company Settings");
         format!(r#"<div class="logo-placeholder">[LOGO]<br>{}</div>"#, &company.company_name)
     };
     html = html.replace("{{LOGO_HTML}}", &logo_html);
@@ -4240,8 +4490,13 @@ fn generate_invoice_html_pg(
     let mut service_rows = Vec::new();
     let mut pos = 1;
 
-    // 1. Zimmerpreis (Übernachtung) - EXAKT GLEICH
-    let grundpreis = b.grundpreis.unwrap_or(b.gesamtpreis);
+    // 1. Zimmerpreis (Übernachtung)
+    let grundpreis = b.grundpreis.unwrap_or_else(|| {
+        // Fallback für alte Buchungen ohne gespeicherten Grundpreis:
+        // Berechne aus aktuellem Zimmerpreis × Nächte
+        let price = room.nebensaison_preis.unwrap_or(0.0);
+        price * nights as f64
+    });
     let room_price_per_night = grundpreis / nights as f64;
     service_rows.push(format!(
         r#"<tr>
@@ -4264,9 +4519,14 @@ fn generate_invoice_html_pg(
     ));
     pos += 1;
 
-    // 2. Endreinigung (ADAPTED FOR PostgreSQL Option<f64>)
+    // 2. Endreinigung - NUR anzeigen wenn NICHT schon als Service vorhanden
+    // FIX: Verhindert Doppelzählung wenn Endreinigung bereits in Services-Liste ist
+    let has_endreinigung_in_services = booking.services.iter()
+        .any(|s| s.service_name.to_lowercase().contains("endreinigung")
+              || s.service_name.to_lowercase().contains("cleaning"));
+
     let endreinigung = room.endreinigung.unwrap_or(0.0);
-    if endreinigung > 0.0 {
+    if endreinigung > 0.0 && !has_endreinigung_in_services {
         service_rows.push(format!(
             r#"<tr>
                 <td>{:02}</td>
@@ -4321,14 +4581,19 @@ fn generate_invoice_html_pg(
 
     // Services aus booking.services summieren (NICHT aus b.services_preis!)
     let services_from_list: f64 = booking.services.iter()
-        .map(|s| s.service_price as f64)
+        .map(|s| s.service_price)
         .sum();
 
-    // Endreinigung aus Room hinzufügen
-    let endreinigung = room.endreinigung.unwrap_or(0.0);
+    // Endreinigung NUR hinzufügen wenn NICHT schon in Services enthalten
+    // FIX: has_endreinigung_in_services wurde oben bereits ermittelt
+    let endreinigung_to_add = if has_endreinigung_in_services {
+        0.0  // Schon in services_from_list enthalten
+    } else {
+        room.endreinigung.unwrap_or(0.0)
+    };
 
-    // Gesamte Zusatzleistungen = Services + Endreinigung
-    let services_preis = services_from_list + endreinigung;
+    // Gesamte Zusatzleistungen = Services + Endreinigung (wenn nicht bereits enthalten)
+    let services_preis = services_from_list + endreinigung_to_add;
 
     // Subtotal = Übernachtung + Alle Zusatzleistungen
     let subtotal = grundpreis + services_preis; // Brutto (inkl. MwSt.)
@@ -4336,7 +4601,7 @@ fn generate_invoice_html_pg(
     println!("📊 [INVOICE] Price breakdown:");
     println!("   Grundpreis (Übernachtung): {:.2} €", grundpreis);
     println!("   Services aus Liste: {:.2} €", services_from_list);
-    println!("   Endreinigung: {:.2} €", endreinigung);
+    println!("   Endreinigung (hinzugefügt): {:.2} € (in Services: {})", endreinigung_to_add, has_endreinigung_in_services);
     println!("   Services gesamt: {:.2} €", services_preis);
     println!("   Subtotal: {:.2} €", subtotal);
 
@@ -4351,8 +4616,28 @@ fn generate_invoice_html_pg(
     println!("   Davon MwSt. 7%: {:.2} €", tax_7);
     println!("   Davon MwSt. 19%: {:.2} €", tax_19);
 
+    // Rabatt-Basis für Discount-Berechnung (wird vor rabatt_preis benötigt)
+    let rabatt_basis = pricing_settings.rabatt_basis.clone().unwrap_or("zimmerpreis".to_string());
+    let discount_base = if rabatt_basis == "gesamtpreis" {
+        subtotal
+    } else {
+        grundpreis
+    };
+
     // Rabatte + Guthaben (ANGEPASST FÜR PostgreSQL)
-    let rabatt_preis = b.rabatt_preis.unwrap_or(0.0);
+    let rabatt_preis = b.rabatt_preis.unwrap_or_else(|| {
+        // Fallback für Buchungen mit NULL rabatt_preis:
+        // Summe aus Discount-Records berechnen
+        booking.discounts.iter().map(|d| {
+            d.calculated_amount.unwrap_or_else(|| {
+                if d.discount_type == "percent" {
+                    discount_base * (d.discount_value / 100.0)
+                } else {
+                    d.discount_value
+                }
+            })
+        }).sum()
+    });
     let credit_used = b.credit_used.unwrap_or(0.0);
     println!("💰 [INVOICE] Credit used for booking {}: {:.2} €", b.id, credit_used);
 
@@ -4384,43 +4669,19 @@ fn generate_invoice_html_pg(
     }
     html = html.replace("{{TAX_ROWS}}", &tax_rows);
 
-    // Discount Rows (ANGEPASST FÜR PostgreSQL - VEREINFACHT)
+    // Discount Rows - ALLE Rabatte direkt aus der discounts-Tabelle anzeigen
+    // Verwende gespeicherten calculated_amount wenn vorhanden (Fix 2: Konsistente Rabatte)
     let mut discount_rows = String::new();
 
-    // 1. DPolG-Mitgliederrabatt (wenn Gast Mitglied ist)
-    if guest.dpolg_mitglied {
-        // Berechne manuelle Rabatte-Summe
-        let manual_discounts_total: f64 = booking.discounts.iter()
-            .map(|d| {
-                if d.discount_type == "percent" {
-                    subtotal * (d.discount_value as f64 / 100.0)
-                } else {
-                    d.discount_value as f64
-                }
-            })
-            .sum();
-
-        // DPolG-Rabatt = Gesamt-Rabatt - Manuelle Rabatte
-        let dpolg_discount = rabatt_preis - manual_discounts_total;
-
-        if dpolg_discount > 0.01 {
-            discount_rows.push_str(&format!(
-                r#"<div class="total-row" style="color: var(--success); font-size: 13px;">
-                    <span class="total-label">DPolG-Mitgliederrabatt</span>
-                    <span>- {}</span>
-                </div>"#,
-                format_currency(dpolg_discount)
-            ));
-        }
-    }
-
-    // 2. Manuelle Rabatte
     for d in &booking.discounts {
-        let amount = if d.discount_type == "percent" {
-            subtotal * (d.discount_value as f64 / 100.0)
-        } else {
-            d.discount_value as f64
-        };
+        // Gespeicherten Betrag verwenden, Fallback: Neuberechnung für alte Buchungen
+        let amount = d.calculated_amount.unwrap_or_else(|| {
+            if d.discount_type == "percent" {
+                discount_base * (d.discount_value / 100.0)
+            } else {
+                d.discount_value
+            }
+        });
 
         if !discount_rows.is_empty() {
             discount_rows.push_str("\n");
@@ -5502,7 +5763,28 @@ async fn send_cancellation_email_command(pool: State<'_, DbPool>, booking_id: i6
     };
 
     // Send email
-    send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await?;
+    let send_result = send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await;
+
+    // Log email send result
+    {
+        use crate::database_pg::repositories::EmailLogRepository;
+        let (status, error_msg) = match &send_result {
+            Ok(_) => ("gesendet".to_string(), None),
+            Err(e) => ("fehler".to_string(), Some(e.clone())),
+        };
+        let _ = EmailLogRepository::create(
+            &pool,
+            Some(booking_id as i32),
+            guest.id,
+            "cancellation".to_string(),
+            guest_email.clone(),
+            subject.clone(),
+            status,
+            error_msg,
+        ).await;
+    }
+
+    send_result?;
 
     println!("✅ Cancellation email sent to {}", guest_email);
     Ok(format!("Stornierungsbestätigung an {} gesendet", guest_email))
@@ -5561,7 +5843,28 @@ async fn send_invoice_email_command(pool: State<'_, DbPool>, booking_id: i64) ->
     };
 
     // Send email
-    send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await?;
+    let send_result = send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await;
+
+    // Log email send result
+    {
+        use crate::database_pg::repositories::EmailLogRepository;
+        let (status, error_msg) = match &send_result {
+            Ok(_) => ("gesendet".to_string(), None),
+            Err(e) => ("fehler".to_string(), Some(e.clone())),
+        };
+        let _ = EmailLogRepository::create(
+            &pool,
+            Some(booking_id as i32),
+            guest.id,
+            "invoice".to_string(),
+            guest_email.clone(),
+            subject.clone(),
+            status,
+            error_msg,
+        ).await;
+    }
+
+    send_result?;
 
     println!("✅ Invoice email sent to {}", guest_email);
     Ok(format!("Rechnung an {} gesendet", guest_email))
@@ -5618,7 +5921,28 @@ async fn send_reminder_email_command(pool: State<'_, DbPool>, booking_id: i64) -
     };
 
     // Send email
-    send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await?;
+    let send_result = send_email_helper(&pool, &guest_email, &format!("{} {}", guest.vorname, guest.nachname), &subject, &body).await;
+
+    // Log email send result
+    {
+        use crate::database_pg::repositories::EmailLogRepository;
+        let (status, error_msg) = match &send_result {
+            Ok(_) => ("gesendet".to_string(), None),
+            Err(e) => ("fehler".to_string(), Some(e.clone())),
+        };
+        let _ = EmailLogRepository::create(
+            &pool,
+            Some(booking_id as i32),
+            guest.id,
+            "reminder".to_string(),
+            guest_email.clone(),
+            subject.clone(),
+            status,
+            error_msg,
+        ).await;
+    }
+
+    send_result?;
 
     println!("✅ Reminder email sent to {}", guest_email);
     Ok(format!("Erinnerung an {} gesendet", guest_email))
@@ -5865,7 +6189,7 @@ async fn trigger_email_check(pool: State<'_, DbPool>) -> Result<String, String> 
                         scheduled_email.template_name.clone(),
                         scheduled_email.recipient_email.clone(),
                         scheduled_email.subject.clone(),
-                        "sent".to_string(),
+                        "gesendet".to_string(),
                         None,
                     ).await;
 
@@ -5892,7 +6216,7 @@ async fn trigger_email_check(pool: State<'_, DbPool>) -> Result<String, String> 
                         scheduled_email.template_name.clone(),
                         scheduled_email.recipient_email.clone(),
                         scheduled_email.subject.clone(),
-                        "failed".to_string(),
+                        "fehler".to_string(),
                         Some(e.clone()),
                     ).await;
 
@@ -6024,39 +6348,57 @@ async fn update_template_command(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LogoUploadResult {
+    logo_data: String,
+    logo_mime_type: String,
+    file_name: String,
+}
+
 #[tauri::command]
-async fn upload_logo_command(source_path: String) -> Result<String, String> {
+async fn upload_logo_command(source_path: String) -> Result<LogoUploadResult, String> {
     println!("📷 upload_logo_command called with source_path: {}", source_path);
 
-    // Get app data directory for logos
-    let app_data_dir = dirs::data_dir()
-        .ok_or_else(|| "Konnte App-Datenverzeichnis nicht finden".to_string())?;
-
-    let logos_dir = app_data_dir
-        .join("com.maximilianfegg.dpolg-booking-modern")
-        .join("logos");
-
-    // Create logos directory if it doesn't exist
-    std::fs::create_dir_all(&logos_dir)
-        .map_err(|e| format!("Fehler beim Erstellen des Logo-Verzeichnisses: {}", e))?;
-
-    // Extract filename from source path
     let source_path_obj = std::path::Path::new(&source_path);
-    let filename = source_path_obj
+
+    // Validate file size (max 2 MB)
+    let metadata = std::fs::metadata(&source_path)
+        .map_err(|e| format!("Fehler beim Lesen der Datei: {}", e))?;
+    if metadata.len() > 2 * 1024 * 1024 {
+        return Err("Logo-Datei ist zu groß (max. 2 MB)".to_string());
+    }
+
+    // Determine MIME type from extension
+    let extension = source_path_obj
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let mime_type = match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        _ => return Err("Nicht unterstütztes Bildformat. Bitte PNG oder JPG verwenden.".to_string()),
+    };
+
+    // Read file and encode as Base64
+    let file_bytes = std::fs::read(&source_path)
+        .map_err(|e| format!("Fehler beim Lesen der Logo-Datei: {}", e))?;
+    let base64_data = general_purpose::STANDARD.encode(&file_bytes);
+
+    let file_name = source_path_obj
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("logo.png");
+        .unwrap_or("logo.png")
+        .to_string();
 
-    let dest_path = logos_dir.join(filename);
+    println!("✅ Logo erfolgreich als Base64 geladen: {} ({} bytes, {})", file_name, file_bytes.len(), mime_type);
 
-    // Copy the file
-    std::fs::copy(&source_path, &dest_path)
-        .map_err(|e| format!("Fehler beim Kopieren der Logo-Datei: {}", e))?;
-
-    let dest_path_str = dest_path.to_string_lossy().to_string();
-    println!("✅ Logo erfolgreich kopiert nach: {}", dest_path_str);
-
-    Ok(dest_path_str)
+    Ok(LogoUploadResult {
+        logo_data: base64_data,
+        logo_mime_type: mime_type.to_string(),
+        file_name,
+    })
 }
 
 #[tauri::command]

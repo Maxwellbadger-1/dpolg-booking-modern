@@ -4,6 +4,7 @@ import { Bell, Plus, CheckCircle, Clock, AlertTriangle, Calendar, Trash2, Edit2,
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Reminder, CreateReminderData, UpdateReminderData } from '../../types/reminder';
 import { formatDate } from '../../utils/dateFormatting';
+import FilterDatePicker from '../BookingManagement/FilterDatePicker';
 
 interface RemindersViewProps {
   onNavigateToBooking?: (bookingId: number) => void;
@@ -566,12 +567,11 @@ function ReminderDialog({ reminder, onSave, onClose }: ReminderDialogProps) {
             <label className="block text-sm font-medium text-slate-300 mb-2">
               Fälligkeitsdatum *
             </label>
-            <input
-              type="date"
+            <FilterDatePicker
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-              required
+              onChange={setDueDate}
+              placeholder="Datum auswählen"
+              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
             />
           </div>
 

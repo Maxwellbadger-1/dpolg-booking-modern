@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useMemo, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import toast from 'react-hot-toast';
 import {
   commandManager,
@@ -228,34 +229,121 @@ export function DataProvider({ children }: { children: ReactNode }) {
     };
   }, [hasLoadedOnce]);
 
-  // Room CRUD Operations
+  // PostgreSQL LISTEN/NOTIFY - Real-Time Event Listener
+  // Ergänzt das Polling mit sofortigen Updates bei DB-Änderungen
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+
+    interface DbChangeEvent {
+      table: string;    // "bookings" | "guests" | "rooms"
+      action: string;   // "INSERT" | "UPDATE" | "DELETE"
+      id: number;
+      timestamp: string;
+    }
+
+    const setupListener = async () => {
+      try {
+        unlisten = await listen<DbChangeEvent>('db-change', async (event) => {
+          const { table, action, id } = event.payload;
+          console.log(`📡 [Real-Time] ${action} on ${table} (id: ${id})`);
+
+          // Selective Refresh basierend auf Tabelle
+          switch (table) {
+            case 'bookings':
+              if (action === 'DELETE') {
+                // Optimistic Delete - sofort aus State entfernen
+                setBookings(prev => prev.filter(b => b.id !== id));
+              } else {
+                // INSERT oder UPDATE: Einzelne Buchung neu laden
+                try {
+                  const updatedBooking = await invoke<Booking>('get_booking_with_details_by_id_pg', { id });
+                  setBookings(prev => {
+                    const exists = prev.some(b => b.id === id);
+                    if (exists) {
+                      return prev.map(b => b.id === id ? updatedBooking : b);
+                    } else {
+                      return [...prev, updatedBooking];
+                    }
+                  });
+                  console.log(`✅ [Real-Time] Booking ${id} aktualisiert`);
+                } catch (e) {
+                  console.error('❌ [Real-Time] Fehler beim Laden der aktualisierten Buchung:', e);
+                }
+              }
+              break;
+
+            case 'guests':
+              if (action === 'DELETE') {
+                setGuests(prev => prev.filter(g => g.id !== id));
+              } else {
+                try {
+                  const updatedGuest = await invoke<Guest>('get_guest_by_id_pg', { id });
+                  setGuests(prev => {
+                    const exists = prev.some(g => g.id === id);
+                    return exists
+                      ? prev.map(g => g.id === id ? updatedGuest : g)
+                      : [...prev, updatedGuest];
+                  });
+                  console.log(`✅ [Real-Time] Guest ${id} aktualisiert`);
+                } catch (e) {
+                  console.error('❌ [Real-Time] Fehler beim Laden des aktualisierten Gastes:', e);
+                }
+              }
+              break;
+
+            case 'rooms':
+              if (action === 'DELETE') {
+                setRooms(prev => prev.filter(r => r.id !== id));
+              } else {
+                try {
+                  const updatedRoom = await invoke<Room>('get_room_by_id_pg', { id });
+                  setRooms(prev => {
+                    const exists = prev.some(r => r.id === id);
+                    return exists
+                      ? prev.map(r => r.id === id ? updatedRoom : r)
+                      : [...prev, updatedRoom];
+                  });
+                  console.log(`✅ [Real-Time] Room ${id} aktualisiert`);
+                } catch (e) {
+                  console.error('❌ [Real-Time] Fehler beim Laden des aktualisierten Zimmers:', e);
+                }
+              }
+              break;
+
+            default:
+              // Für andere Tabellen (services, discounts): Booking-Refresh triggern
+              console.log(`📡 [Real-Time] Tabelle ${table} geändert, lade Buchungen neu...`);
+              refreshBookings();
+          }
+        });
+
+        console.log('✅ [DataContext] PostgreSQL LISTEN/NOTIFY listener registriert');
+      } catch (e) {
+        console.error('❌ [DataContext] Fehler beim Registrieren des Event-Listeners:', e);
+      }
+    };
+
+    // Nur starten nach Initial Load
+    if (hasLoadedOnce) {
+      setupListener();
+    }
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+        console.log('🔌 [DataContext] LISTEN/NOTIFY listener deregistriert');
+      }
+    };
+  }, [hasLoadedOnce, refreshBookings]);
+
+  // Room CRUD Operations (mit Command Pattern für Undo/Redo)
   const createRoom = useCallback(async (data: any): Promise<Room> => {
-    console.log('🔍 [DataContext.createRoom] START');
-    console.log('  📥 Incoming data:', JSON.stringify(data, null, 2));
-
     try {
-      // 1. Backend Create - EINZELNE PARAMETER übergeben (nicht als Object!)
-      console.log('  📤 Calling create_room_command with individual parameters:');
-      console.log('    - name:', data.name);
-      console.log('    - gebaeudeTyp:', data.gebaeudeTyp);
-      console.log('    - capacity:', data.capacity);
-      console.log('    - priceMember:', data.priceMember);
-      console.log('    - priceNonMember:', data.priceNonMember);
-      console.log('    - nebensaisonPreis:', data.nebensaisonPreis);
-      console.log('    - hauptsaisonPreis:', data.hauptsaisonPreis);
-      console.log('    - endreinigung:', data.endreinigung);
-      console.log('    - ort:', data.ort);
-      console.log('    - schluesselcode:', data.schluesselcode);
-      console.log('    - streetAddress:', data.streetAddress);
-      console.log('    - postalCode:', data.postalCode);
-      console.log('    - city:', data.city);
-
+      // 1. Backend Create
       const room = await invoke<Room>('create_room_pg', {
         name: data.name,
         gebaeudeTyp: data.gebaeudeTyp,
         capacity: data.capacity,
-        priceMember: data.priceMember,
-        priceNonMember: data.priceNonMember,
         nebensaisonPreis: data.nebensaisonPreis,
         hauptsaisonPreis: data.hauptsaisonPreis,
         endreinigung: data.endreinigung,
@@ -267,60 +355,33 @@ export function DataProvider({ children }: { children: ReactNode }) {
         notizen: data.notizen || null,
       });
 
-      console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));
+      // 2. Command Pattern: SOFORT zum State hinzufügen (Instant Undo!)
+      const command = new CreateRoomCommand(room, setRooms);
+      commandManager.executeCommand(command);
 
-      // 2. SOFORT zum State hinzufügen (Optimistic Update)
-      setRooms(prev => [...prev, room]);
-
-      // 3. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
+      toast.success(`✅ Zimmer ${room.name} erstellt (Strg+Z zum Rückgängig)`, {
+        duration: 3000,
+      });
 
       return room;
     } catch (error) {
-      console.error('  ❌ [DataContext.createRoom] Error:', error);
-      // Kein Rollback nötig - Room wurde noch nicht hinzugefügt
+      console.error('❌ [DataContext.createRoom] Error:', error);
       throw error;
     }
   }, []);
 
   const updateRoom = useCallback(async (id: number, data: any): Promise<Room> => {
-    console.log('🔍 [DataContext.updateRoom] START');
-    console.log('  📥 Incoming data:', JSON.stringify(data, null, 2));
-
-    // 1. Backup für Rollback
+    // 1. Backup für Undo
     const oldRoom = rooms.find(r => r.id === id);
-
-    // 2. SOFORT im UI ändern (Optimistic Update)
-    setRooms(prev => prev.map(r =>
-      r.id === id ? { ...r, ...data } : r
-    ));
+    if (!oldRoom) throw new Error('Room not found');
 
     try {
-      // 3. Backend Update - EINZELNE PARAMETER übergeben (nicht als Object!)
-      // Tauri braucht JEDEN Parameter separat, sonst werden sie nicht richtig gemappt!
-      console.log('  📤 Calling update_room_command with individual parameters:');
-      console.log('    - id:', id);
-      console.log('    - name:', data.name);
-      console.log('    - gebaeudeTyp:', data.gebaeudeTyp);
-      console.log('    - capacity:', data.capacity);
-      console.log('    - priceMember:', data.priceMember);
-      console.log('    - priceNonMember:', data.priceNonMember);
-      console.log('    - nebensaisonPreis:', data.nebensaisonPreis);
-      console.log('    - hauptsaisonPreis:', data.hauptsaisonPreis);
-      console.log('    - endreinigung:', data.endreinigung);
-      console.log('    - ort:', data.ort);
-      console.log('    - schluesselcode:', data.schluesselcode);
-      console.log('    - streetAddress:', data.streetAddress);
-      console.log('    - postalCode:', data.postalCode);
-      console.log('    - city:', data.city);
-
-      const room = await invoke<Room>('update_room_pg', {
+      // 2. Backend Update ZUERST (um korrekten State zu bekommen)
+      const newRoom = await invoke<Room>('update_room_pg', {
         id,
         name: data.name,
         gebaeudeTyp: data.gebaeudeTyp,
         capacity: data.capacity,
-        priceMember: data.priceMember,
-        priceNonMember: data.priceNonMember,
         nebensaisonPreis: data.nebensaisonPreis,
         hauptsaisonPreis: data.hauptsaisonPreis,
         endreinigung: data.endreinigung,
@@ -332,62 +393,53 @@ export function DataProvider({ children }: { children: ReactNode }) {
         notizen: data.notizen || null,
       });
 
-      console.log('  ✅ Backend returned:', JSON.stringify(room, null, 2));
+      // 3. Command Pattern: State aktualisieren (Instant Undo!)
+      const command = new UpdateRoomCommand(id, oldRoom, newRoom, setRooms);
+      commandManager.executeCommand(command);
 
-      // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
-      setRooms(prev => prev.map(r =>
-        r.id === id ? room : r
-      ));
-
-      // 5. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
-
-      return room;
+      return newRoom;
     } catch (error) {
-      console.error('  ❌ [DataContext.updateRoom] Error:', error);
-      // 6. Rollback bei Fehler
-      if (oldRoom) {
-        setRooms(prev => prev.map(r =>
-          r.id === id ? oldRoom : r
-        ));
-      }
+      console.error('❌ [DataContext.updateRoom] Error:', error);
       throw error;
     }
   }, [rooms]);
 
   const deleteRoom = useCallback(async (id: number): Promise<void> => {
-    // 1. Backup für Rollback
+    // 1. Backup für Undo
     const deletedRoom = rooms.find(r => r.id === id);
+    if (!deletedRoom) return;
 
-    // 2. SOFORT aus UI entfernen (Optimistic Update)
-    setRooms(prev => prev.filter(r => r.id !== id));
+    // 2. Command Pattern: SOFORT aus UI entfernen (Instant Undo!)
+    const command = new DeleteRoomCommand(deletedRoom, setRooms);
+    commandManager.executeCommand(command);
 
     try {
       // 3. Backend Delete
       await invoke('delete_room_pg', { id });
 
-      // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
+      toast.success(`✅ Zimmer ${deletedRoom.name} gelöscht (Strg+Z zum Rückgängig)`, {
+        duration: 3000,
+      });
     } catch (error) {
-      // 5. Rollback - Room wiederherstellen
-      if (deletedRoom) {
-        setRooms(prev => [...prev, deletedRoom]);
-      }
+      // 4. Bei Fehler: Instant Rollback via Undo
+      commandManager.undo();
       throw error;
     }
   }, [rooms]);
 
-  // Guest CRUD Operations
+  // Guest CRUD Operations (mit Command Pattern für Undo/Redo)
   const createGuest = useCallback(async (data: any): Promise<Guest> => {
     try {
       // 1. Backend Create
       const guest = await invoke<Guest>('create_guest_pg', data);
 
-      // 2. SOFORT zum State hinzufügen (Optimistic Update)
-      setGuests(prev => [...prev, guest]);
+      // 2. Command Pattern: SOFORT zum State hinzufügen (Instant Undo!)
+      const command = new CreateGuestCommand(guest, setGuests);
+      commandManager.executeCommand(command);
 
-      // 3. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
+      toast.success(`✅ Gast ${guest.vorname} ${guest.nachname} erstellt (Strg+Z zum Rückgängig)`, {
+        duration: 3000,
+      });
 
       return guest;
     } catch (error) {
@@ -397,56 +449,43 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateGuest = useCallback(async (id: number, data: any): Promise<Guest> => {
-    // 1. Backup für Rollback
+    // 1. Backup für Undo
     const oldGuest = guests.find(g => g.id === id);
-
-    // 2. SOFORT im UI ändern (Optimistic Update)
-    setGuests(prev => prev.map(g =>
-      g.id === id ? { ...g, ...data } : g
-    ));
+    if (!oldGuest) throw new Error('Guest not found');
 
     try {
-      // 3. Backend Update
-      const guest = await invoke<Guest>('update_guest_pg', { id, ...data });
+      // 2. Backend Update ZUERST (um korrekten State zu bekommen)
+      const newGuest = await invoke<Guest>('update_guest_pg', { id, ...data });
 
-      // 4. State mit Backend-Response aktualisieren (korrekte snake_case Keys!)
-      setGuests(prev => prev.map(g =>
-        g.id === id ? guest : g
-      ));
+      // 3. Command Pattern: State aktualisieren (Instant Undo!)
+      const command = new UpdateGuestCommand(id, oldGuest, newGuest, setGuests);
+      commandManager.executeCommand(command);
 
-      // 5. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
-
-      return guest;
+      return newGuest;
     } catch (error) {
-      // 6. Rollback bei Fehler
-      if (oldGuest) {
-        setGuests(prev => prev.map(g =>
-          g.id === id ? oldGuest : g
-        ));
-      }
       throw error;
     }
   }, [guests]);
 
   const deleteGuest = useCallback(async (id: number): Promise<void> => {
-    // 1. Backup für Rollback
+    // 1. Backup für Undo
     const deletedGuest = guests.find(g => g.id === id);
+    if (!deletedGuest) return;
 
-    // 2. SOFORT aus UI entfernen (Optimistic Update)
-    setGuests(prev => prev.filter(g => g.id !== id));
+    // 2. Command Pattern: SOFORT aus UI entfernen (Instant Undo!)
+    const command = new DeleteGuestCommand(deletedGuest, setGuests);
+    commandManager.executeCommand(command);
 
     try {
       // 3. Backend Delete
       await invoke('delete_guest_pg', { id });
 
-      // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
+      toast.success(`✅ Gast ${deletedGuest.vorname} ${deletedGuest.nachname} gelöscht (Strg+Z zum Rückgängig)`, {
+        duration: 3000,
+      });
     } catch (error) {
-      // 5. Rollback - Guest wiederherstellen
-      if (deletedGuest) {
-        setGuests(prev => [...prev, deletedGuest]);
-      }
+      // 4. Bei Fehler: Instant Rollback via Undo
+      commandManager.undo();
       throw error;
     }
   }, [guests]);
@@ -525,7 +564,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [paymentRecipients]);
 
-  // Booking CRUD Operations
+  // Booking CRUD Operations (mit Command Pattern für Undo/Redo)
   const createBooking = useCallback(async (data: any): Promise<Booking> => {
     console.log('🔍 [DataContext] createBooking aufgerufen mit:', data);
     try {
@@ -534,22 +573,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.log('✅ [DataContext] Buchung erstellt:', booking);
       console.log('📅 [DataContext] checkout_date:', booking.checkout_date);
 
-      // 2. SOFORT zum State hinzufügen (Optimistic Update)
-      setBookings(prev => [...prev, booking]);
+      // 2. Command Pattern: SOFORT zum State hinzufügen (Instant Undo!)
+      const command = new CreateBookingCommand(booking, setBookings);
+      commandManager.executeCommand(command);
 
       // 3. Toast-Benachrichtigung für Auto-Sync
       if (booking.checkout_date) {
-        toast.success('✅ Buchung erstellt – Putzplan automatisch aktualisiert', {
+        toast.success('✅ Buchung erstellt – Putzplan automatisch aktualisiert (Strg+Z zum Rückgängig)', {
           duration: 3000,
         });
       }
 
-      // 4. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
-
       return booking;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ [DataContext] Fehler beim Erstellen der Buchung:', error);
+
+      // Spezielle Behandlung für Doppelbuchung (verhindert Race Conditions)
+      const errorStr = error?.toString() || '';
+      if (errorStr.includes('DOUBLE_BOOKING:')) {
+        const message = errorStr.replace(/.*DOUBLE_BOOKING:/, '');
+        toast.error(`🚫 Doppelbuchung verhindert: ${message}`, {
+          duration: 6000,
+          style: {
+            background: '#dc2626',
+            color: '#fff',
+            borderRadius: '0.75rem',
+            padding: '1rem',
+          }
+        });
+        throw new Error(message);
+      }
+
       // Kein Rollback nötig - Booking wurde noch nicht hinzugefügt
       throw error;
     }
@@ -733,31 +787,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [bookings]);
 
   const deleteBooking = useCallback(async (id: number): Promise<void> => {
-    // 1. Backup für Rollback
+    // 1. Backup für Rollback UND Undo
     const deletedBooking = bookings.find(b => b.id === id);
+    if (!deletedBooking) return;
 
-    // 2. SOFORT aus UI entfernen (Optimistic Update)
-    setBookings(prev => prev.filter(b => b.id !== id));
+    // 2. Command Pattern: SOFORT aus UI entfernen (Instant Undo!)
+    const command = new DeleteBookingCommand(deletedBooking, setBookings);
+    commandManager.executeCommand(command);
 
     try {
       // 3. Backend Delete
       await invoke('delete_booking_pg', { id });
 
       // 4. Toast-Benachrichtigung (Backend hat bereits automatisch Tasks gelöscht)
-      if (deletedBooking) {
-        console.log('🗑️ [DataContext] Buchung #' + deletedBooking.id + ' gelöscht - Backend macht CASCADE DELETE');
-        toast.success('✅ Buchung gelöscht – Putzplan automatisch bereinigt', {
-          duration: 3000,
-        });
-      }
-
-      // 5. Event für Undo-Button
-      window.dispatchEvent(new CustomEvent('refresh-data'));
+      console.log('🗑️ [DataContext] Buchung #' + deletedBooking.id + ' gelöscht - Backend macht CASCADE DELETE');
+      toast.success('✅ Buchung gelöscht – Putzplan automatisch bereinigt (Strg+Z zum Rückgängig)', {
+        duration: 3000,
+      });
     } catch (error) {
-      // 6. Rollback - Booking wiederherstellen
-      if (deletedBooking) {
-        setBookings(prev => [...prev, deletedBooking]);
-      }
+      // 5. Bei Fehler: Instant Rollback via Undo
+      commandManager.undo();
       throw error;
     }
   }, [bookings]);

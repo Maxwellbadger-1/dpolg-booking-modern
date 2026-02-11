@@ -23,6 +23,8 @@ pub enum DbError {
     ConstraintViolation(String),
     /// Optimistic locking conflict - record was modified by another user
     ConflictError(String),
+    /// Double booking conflict - room is already booked for the requested period
+    DoubleBookingError(String),
     /// General database error
     Other(String),
 }
@@ -37,6 +39,7 @@ impl fmt::Display for DbError {
             DbError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             DbError::ConstraintViolation(msg) => write!(f, "Constraint violation: {}", msg),
             DbError::ConflictError(msg) => write!(f, "Conflict: {}", msg),
+            DbError::DoubleBookingError(msg) => write!(f, "Doppelbuchung: {}", msg),
             DbError::Other(msg) => write!(f, "Database error: {}", msg),
         }
     }

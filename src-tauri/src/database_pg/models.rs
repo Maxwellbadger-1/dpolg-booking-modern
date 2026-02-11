@@ -11,8 +11,6 @@ pub struct Room {
     pub name: String,
     pub gebaeude_typ: String,
     pub capacity: i32,
-    pub price_member: f64,
-    pub price_non_member: f64,
     pub nebensaison_preis: Option<f64>,
     pub hauptsaison_preis: Option<f64>,
     pub endreinigung: Option<f64>,
@@ -31,8 +29,6 @@ impl From<Row> for Room {
             name: row.get("name"),
             gebaeude_typ: row.get("gebaeude_typ"),
             capacity: row.get("capacity"),
-            price_member: row.get("price_member"),
-            price_non_member: row.get("price_non_member"),
             nebensaison_preis: row.get("nebensaison_preis"),
             hauptsaison_preis: row.get("hauptsaison_preis"),
             endreinigung: row.get("endreinigung"),
@@ -273,10 +269,10 @@ pub struct AdditionalService {
     pub id: i64,
     pub booking_id: i64,
     pub service_name: String,
-    pub service_price: f32,
+    pub service_price: f64,  // Changed from f32 for precision consistency
     pub template_id: Option<i32>,
     pub price_type: String,
-    pub original_value: f32,
+    pub original_value: f64,  // Changed from f32 for precision consistency
     pub applies_to: String,
     pub emoji: Option<String>,
 }
@@ -307,7 +303,8 @@ pub struct Discount {
     pub booking_id: i64,
     pub discount_name: String,
     pub discount_type: String,
-    pub discount_value: f32,
+    pub discount_value: f64,
+    pub calculated_amount: Option<f64>,
     pub emoji: Option<String>,
 }
 
@@ -319,6 +316,7 @@ impl From<Row> for Discount {
             discount_name: row.get("discount_name"),
             discount_type: row.get("discount_type"),
             discount_value: row.get("discount_value"),
+            calculated_amount: row.try_get("calculated_amount").ok().flatten(),
             emoji: row.get("emoji"),
         }
     }
@@ -546,6 +544,8 @@ pub struct CompanySettings {
     pub ceo_name: Option<String>,
     pub registry_court: Option<String>,
     pub logo_path: Option<String>,
+    pub logo_data: Option<String>,
+    pub logo_mime_type: Option<String>,
     pub updated_at: Option<String>,
 }
 
@@ -566,6 +566,8 @@ impl From<Row> for CompanySettings {
             ceo_name: row.get("ceo_name"),
             registry_court: row.get("registry_court"),
             logo_path: row.get("logo_path"),
+            logo_data: row.get("logo_data"),
+            logo_mime_type: row.get("logo_mime_type"),
             updated_at: row.get("updated_at"),
         }
     }

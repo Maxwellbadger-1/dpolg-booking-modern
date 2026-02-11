@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { BarChart3, TrendingUp, Euro, Calendar, Home, Users, Clock } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { de } from 'date-fns/locale';
+import FilterDatePicker from '../BookingManagement/FilterDatePicker';
 
 interface ReportStats {
   total_bookings: number;
@@ -89,20 +90,20 @@ export default function ReportsView() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-600 font-medium">Von:</label>
-              <input
-                type="date"
+              <FilterDatePicker
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setStartDate}
+                placeholder="Von"
+                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white w-36"
               />
             </div>
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-600 font-medium">Bis:</label>
-              <input
-                type="date"
+              <FilterDatePicker
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setEndDate}
+                placeholder="Bis"
+                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white w-36"
               />
             </div>
             <button

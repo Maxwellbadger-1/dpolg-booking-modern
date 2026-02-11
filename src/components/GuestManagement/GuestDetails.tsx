@@ -5,6 +5,8 @@ import {
   FileText, Edit2, TrendingUp, Clock, Euro, ChevronDown, ChevronUp,
   Users as UsersIcon, ShoppingBag, Tag, CheckCircle, AlertCircle, Search
 } from 'lucide-react';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 import { formatDate } from '../../utils/dateFormatting';
 import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
 import { useData } from '../../context/DataContext';

@@ -9,7 +9,7 @@ impl CompanySettingsRepository {
 
         let row = client
             .query_one(
-                "SELECT id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at::text as updated_at
+                "SELECT id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, logo_data, logo_mime_type, updated_at::text as updated_at
                  FROM company_settings
                  LIMIT 1",
                 &[],
@@ -31,8 +31,8 @@ impl CompanySettingsRepository {
 
         let row = client
             .query_one(
-                "INSERT INTO company_settings (id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at)
-                 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
+                "INSERT INTO company_settings (id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, logo_data, logo_mime_type, updated_at)
+                 VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP)
                  ON CONFLICT (id) DO UPDATE SET
                     company_name = EXCLUDED.company_name,
                     street_address = EXCLUDED.street_address,
@@ -47,8 +47,10 @@ impl CompanySettingsRepository {
                     ceo_name = EXCLUDED.ceo_name,
                     registry_court = EXCLUDED.registry_court,
                     logo_path = EXCLUDED.logo_path,
+                    logo_data = EXCLUDED.logo_data,
+                    logo_mime_type = EXCLUDED.logo_mime_type,
                     updated_at = CURRENT_TIMESTAMP
-                 RETURNING id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, updated_at::text as updated_at",
+                 RETURNING id, company_name, street_address, plz, city, country, phone, fax, email, website, tax_id, ceo_name, registry_court, logo_path, logo_data, logo_mime_type, updated_at::text as updated_at",
                 &[
                     &settings.company_name,
                     &settings.street_address,
@@ -63,6 +65,8 @@ impl CompanySettingsRepository {
                     &settings.ceo_name,
                     &settings.registry_court,
                     &settings.logo_path,
+                    &settings.logo_data,
+                    &settings.logo_mime_type,
                 ],
             )
             .await?;

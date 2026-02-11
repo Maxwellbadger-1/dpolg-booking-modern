@@ -29,5 +29,13 @@ export async function runMigrationsIfNeeded() {
     console.log('⚠️ Email Automation migration skipped or failed:', e);
   }
 
+  try {
+    console.log('📦 Running Discount calculated_amount migration...');
+    await invoke('run_discount_calculated_amount_migration');
+    console.log('✅ Discount calculated_amount migration done');
+  } catch (e) {
+    console.log('⚠️ Discount calculated_amount migration skipped or failed:', e);
+  }
+
   console.log('🎉 Migrations check complete!');
 }

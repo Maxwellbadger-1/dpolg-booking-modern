@@ -67,12 +67,24 @@ impl AdditionalServiceRepository {
         pool: &DbPool,
         booking_id: i64,
         service_name: String,
-        service_price: f32,
+        service_price: f64,  // Changed from f32
         template_id: Option<i32>,
         price_type: String,
-        original_value: f32,
+        original_value: f64,  // Changed from f32
         applies_to: String,
     ) -> DbResult<AdditionalService> {
+        // Bug 7 fix: Validate service value
+        if original_value < 0.0 {
+            return Err(crate::database_pg::DbError::ValidationError(
+                "Service-Wert darf nicht negativ sein".to_string()
+            ));
+        }
+        if service_price < 0.0 {
+            return Err(crate::database_pg::DbError::ValidationError(
+                "Service-Preis darf nicht negativ sein".to_string()
+            ));
+        }
+
         let client = pool.get().await?;
 
         let row = client
@@ -105,12 +117,24 @@ impl AdditionalServiceRepository {
         id: i64,
         booking_id: i64,
         service_name: String,
-        service_price: f32,
+        service_price: f64,  // Changed from f32
         template_id: Option<i32>,
         price_type: String,
-        original_value: f32,
+        original_value: f64,  // Changed from f32
         applies_to: String,
     ) -> DbResult<AdditionalService> {
+        // Bug 7 fix: Validate service value
+        if original_value < 0.0 {
+            return Err(crate::database_pg::DbError::ValidationError(
+                "Service-Wert darf nicht negativ sein".to_string()
+            ));
+        }
+        if service_price < 0.0 {
+            return Err(crate::database_pg::DbError::ValidationError(
+                "Service-Preis darf nicht negativ sein".to_string()
+            ));
+        }
+
         let client = pool.get().await?;
 
         let row = client

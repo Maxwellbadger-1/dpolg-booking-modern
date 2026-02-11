@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 import type { Reminder, CreateReminderData, UpdateReminderData } from '../../types/reminder';
 import { useGlobalReminderUpdates } from '../../hooks/useGlobalReminderUpdates';
+import FilterDatePicker from '../BookingManagement/FilterDatePicker';
 
 interface BookingRemindersProps {
   bookingId: number;
@@ -462,12 +463,11 @@ function ReminderDialog({ reminder, bookingId, onSave, onClose }: ReminderDialog
             <label className="block text-sm font-medium text-slate-300 mb-2">
               Fälligkeitsdatum *
             </label>
-            <input
-              type="date"
+            <FilterDatePicker
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-              required
+              onChange={setDueDate}
+              placeholder="Datum auswählen"
+              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
             />
           </div>
 

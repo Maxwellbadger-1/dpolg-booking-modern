@@ -38,8 +38,6 @@ interface Room {
   name: string;
   gebaeude_typ: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
   ort: string;
   schluesselcode?: string;
 }
@@ -677,6 +675,21 @@ function AppContent() {
 
 // Wrapper component with DataProvider
 function App() {
+  // DevTools visibility from localStorage (default: hidden)
+  const [showDevTools, setShowDevTools] = useState(() => {
+    const saved = localStorage.getItem('devtools-enabled');
+    return saved === 'true';
+  });
+
+  // Listen for settings changes
+  useEffect(() => {
+    const handleDevToolsToggle = (e: CustomEvent<{ enabled: boolean }>) => {
+      setShowDevTools(e.detail.enabled);
+    };
+    window.addEventListener('devtools-toggle' as any, handleDevToolsToggle);
+    return () => window.removeEventListener('devtools-toggle' as any, handleDevToolsToggle);
+  }, []);
+
   return (
     <OnlineProvider>
       <DataProvider>
@@ -720,8 +733,8 @@ function App() {
           }}
         />
 
-        {/* DevTools with Pool Stats Monitoring */}
-        <DevTools />
+        {/* DevTools with Pool Stats Monitoring - nur wenn aktiviert */}
+        {showDevTools && <DevTools />}
       </DataProvider>
     </OnlineProvider>
   );

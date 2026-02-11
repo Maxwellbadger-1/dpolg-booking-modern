@@ -2,14 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TrendingUp, Home, Users, Calendar, DollarSign, Clock, Award, UserCheck, Repeat, XCircle, CalendarRange, Heart, Briefcase, Moon } from 'lucide-react';
 import { useBatchPriceCalculation, getBookingPrice } from '../../hooks/useBatchPriceCalculation';
+import FilterDatePicker from '../BookingManagement/FilterDatePicker';
 
 interface Room {
   id: number;
   name: string;
   gebaeude_typ: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
   ort: string;
 }
 
@@ -453,34 +452,32 @@ export default function StatisticsView() {
                     ? 'bg-blue-600 border-2 border-blue-500 shadow-lg shadow-blue-500/30'
                     : 'bg-slate-800 border border-slate-700'
                 }`}>
-                  <input
-                    type="date"
+                  <FilterDatePicker
                     value={customStartDate}
-                    onChange={(e) => {
-                      setCustomStartDate(e.target.value);
-                      if (e.target.value && customEndDate) {
+                    onChange={(value) => {
+                      setCustomStartDate(value);
+                      if (value && customEndDate) {
                         setDateRange('customRange');
                       }
                     }}
-                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none ${
+                    placeholder="Von"
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none cursor-pointer ${
                       dateRange === 'customRange' ? 'text-white placeholder-blue-200' : 'text-slate-200 placeholder-slate-500'
                     }`}
-                    placeholder="Von"
                   />
                   <span className={dateRange === 'customRange' ? 'text-blue-200' : 'text-slate-600'}>—</span>
-                  <input
-                    type="date"
+                  <FilterDatePicker
                     value={customEndDate}
-                    onChange={(e) => {
-                      setCustomEndDate(e.target.value);
-                      if (customStartDate && e.target.value) {
+                    onChange={(value) => {
+                      setCustomEndDate(value);
+                      if (customStartDate && value) {
                         setDateRange('customRange');
                       }
                     }}
-                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none ${
+                    placeholder="Bis"
+                    className={`flex-1 px-2 py-1 rounded text-xs font-medium bg-transparent border-none focus:outline-none cursor-pointer ${
                       dateRange === 'customRange' ? 'text-white placeholder-blue-200' : 'text-slate-200 placeholder-slate-500'
                     }`}
-                    placeholder="Bis"
                   />
                 </div>
               </div>

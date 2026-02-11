@@ -437,4 +437,221 @@ impl BookingRepository {
 
         Ok(row.get("count"))
     }
+
+    /// Check room availability with row-level locking (prevents race conditions)
+    /// Uses SELECT ... FOR UPDATE to lock overlapping bookings during check
+    pub async fn check_and_lock_availability(
+        transaction: &tokio_postgres::Transaction<'_>,
+        room_id: i32,
+        checkin_date: &str,
+        checkout_date: &str,
+        exclude_booking_id: Option<i32>,
+    ) -> DbResult<bool> {
+        // Lock all overlapping bookings for this room using FOR UPDATE
+        // This prevents other transactions from inserting conflicting bookings
+        let rows = match exclude_booking_id {
+            Some(exclude_id) => {
+                transaction.query(
+                    "SELECT id FROM bookings
+                     WHERE room_id = $1
+                       AND checkin_date < $3
+                       AND checkout_date > $2
+                       AND status != 'storniert'
+                       AND id != $4
+                     FOR UPDATE",
+                    &[&room_id, &checkin_date, &checkout_date, &exclude_id],
+                ).await?
+            }
+            None => {
+                transaction.query(
+                    "SELECT id FROM bookings
+                     WHERE room_id = $1
+                       AND checkin_date < $3
+                       AND checkout_date > $2
+                       AND status != 'storniert'
+                     FOR UPDATE",
+                    &[&room_id, &checkin_date, &checkout_date],
+                ).await?
+            }
+        };
+
+        Ok(rows.is_empty())
+    }
+
+    /// Create a new booking with atomic availability check (prevents double bookings)
+    /// Uses database transaction with row-level locking
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_with_availability_check(
+        pool: &DbPool,
+        room_id: i32,
+        guest_id: i32,
+        reservierungsnummer: String,
+        checkin_date: String,
+        checkout_date: String,
+        anzahl_gaeste: i32,
+        status: String,
+        gesamtpreis: f64,
+        bemerkungen: Option<String>,
+        anzahl_begleitpersonen: Option<i32>,
+        grundpreis: Option<f64>,
+        services_preis: Option<f64>,
+        rabatt_preis: Option<f64>,
+        anzahl_naechte: Option<i32>,
+        bezahlt: Option<bool>,
+        bezahlt_am: Option<String>,
+        zahlungsmethode: Option<String>,
+        mahnung_gesendet_am: Option<String>,
+        rechnung_versendet_am: Option<String>,
+        rechnung_versendet_an: Option<String>,
+        ist_stiftungsfall: Option<bool>,
+        payment_recipient_id: Option<i32>,
+        putzplan_checkout_date: Option<String>,
+        ist_dpolg_mitglied: Option<bool>,
+    ) -> DbResult<Booking> {
+        // 1. Get connection from pool
+        let mut client = pool.get().await?;
+
+        // 2. Start transaction with SERIALIZABLE isolation for maximum safety
+        let transaction = client
+            .build_transaction()
+            .isolation_level(tokio_postgres::IsolationLevel::Serializable)
+            .start()
+            .await
+            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Transaction start failed: {}", e)))?;
+
+        // 3. Check availability with row-level locking (within transaction)
+        let is_available = Self::check_and_lock_availability(
+            &transaction,
+            room_id,
+            &checkin_date,
+            &checkout_date,
+            None, // No exclusion for new bookings
+        ).await?;
+
+        if !is_available {
+            // Rollback happens automatically when transaction is dropped
+            return Err(crate::database_pg::DbError::DoubleBookingError(format!(
+                "Das Zimmer ist für den Zeitraum {} bis {} bereits gebucht. \
+                 Bitte wählen Sie einen anderen Zeitraum oder ein anderes Zimmer.",
+                checkin_date, checkout_date
+            )));
+        }
+
+        // 4. Insert booking (still within transaction)
+        let row = transaction
+            .query_one(
+                "INSERT INTO bookings (
+                    room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
+                    anzahl_gaeste, status, gesamtpreis, bemerkungen,
+                    anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
+                    anzahl_naechte, bezahlt, bezahlt_am, zahlungsmethode,
+                    mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
+                    ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
+                    ist_dpolg_mitglied, created_at, updated_at
+                 ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                    $21, $22, $23, $24, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                 ) RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
+                             anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
+                             anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
+                             anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                             mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
+                             ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
+                             ist_dpolg_mitglied",
+                &[
+                    &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
+                    &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
+                    &anzahl_begleitpersonen, &grundpreis, &services_preis, &rabatt_preis,
+                    &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
+                    &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
+                    &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
+                    &ist_dpolg_mitglied,
+                ],
+            )
+            .await
+            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Insert failed: {}", e)))?;
+
+        // 5. Commit transaction
+        transaction.commit().await
+            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Transaction commit failed: {}", e)))?;
+
+        Ok(Booking::from(row))
+    }
+
+    /// Update booking dates/room with atomic availability check (prevents double bookings on date changes)
+    /// Uses database transaction with row-level locking
+    pub async fn update_dates_with_availability_check(
+        pool: &DbPool,
+        id: i32,
+        room_id: i32,
+        checkin_date: String,
+        checkout_date: String,
+        expected_updated_at: Option<String>,
+    ) -> DbResult<Booking> {
+        // 1. Get connection and start transaction
+        let mut client = pool.get().await?;
+        let transaction = client
+            .build_transaction()
+            .isolation_level(tokio_postgres::IsolationLevel::Serializable)
+            .start()
+            .await
+            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Transaction start failed: {}", e)))?;
+
+        // 3. Check availability, excluding the booking being updated
+        let is_available = Self::check_and_lock_availability(
+            &transaction,
+            room_id,
+            &checkin_date,
+            &checkout_date,
+            Some(id), // Exclude self from check
+        ).await?;
+
+        if !is_available {
+            return Err(crate::database_pg::DbError::DoubleBookingError(format!(
+                "Das Zimmer ist für den Zeitraum {} bis {} bereits gebucht.",
+                checkin_date, checkout_date
+            )));
+        }
+
+        // 4. Optimistic locking check (if expected_updated_at provided)
+        if let Some(expected_ts) = &expected_updated_at {
+            let current = transaction.query_one(
+                "SELECT updated_at::text FROM bookings WHERE id = $1 FOR UPDATE",
+                &[&id]
+            ).await.map_err(|_| crate::database_pg::DbError::NotFound(format!("Booking {} not found", id)))?;
+
+            let current_ts: String = current.get(0);
+            if current_ts != *expected_ts {
+                return Err(crate::database_pg::DbError::ConflictError(format!(
+                    "Buchung {} wurde von einem anderen Benutzer geändert. Bitte neu laden.",
+                    id
+                )));
+            }
+        }
+
+        // 5. Perform update (only room and dates, keep all other fields)
+        let row = transaction.query_one(
+            "UPDATE bookings SET
+                room_id = $2,
+                checkin_date = $3,
+                checkout_date = $4,
+                updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
+                       anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
+                       anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
+                       anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
+                       mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
+                       ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
+                       ist_dpolg_mitglied",
+            &[&id, &room_id, &checkin_date, &checkout_date]
+        ).await.map_err(|e| crate::database_pg::DbError::QueryError(format!("Update failed: {}", e)))?;
+
+        // 6. Commit transaction
+        transaction.commit().await
+            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Transaction commit failed: {}", e)))?;
+
+        Ok(Booking::from(row))
+    }
 }

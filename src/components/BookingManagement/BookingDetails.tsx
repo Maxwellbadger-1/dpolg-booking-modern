@@ -30,8 +30,6 @@ interface Room {
   gebaeude_typ: string;
   ort: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
   schluesselcode?: string;
 }
 

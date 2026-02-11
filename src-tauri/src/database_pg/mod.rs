@@ -13,7 +13,7 @@ pub use pool::{create_pool, DbPool};
 pub use error::{DbError, DbResult};
 pub use models::*;
 pub use repositories::*;
-pub use listener::{DbChangeEvent, EventSender, EventReceiver, start_listener_background};  // ← NEW
+pub use listener::{DbChangeEvent, start_pg_listener};  // Real-Time LISTEN/NOTIFY
 
 /// Initialize PostgreSQL connection pool and verify connection
 pub async fn init_database() -> DbResult<DbPool> {

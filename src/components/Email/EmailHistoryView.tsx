@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileText, History, CalendarClock, Trash2 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { SELECT_SMALL_STYLES, SELECT_SMALL_BACKGROUND_STYLE } from '../../lib/selectStyles';
+import { SELECT_SMALL_STYLES } from '../../lib/selectStyles';
 import { commandManager, DeleteEmailLogCommand } from '../../lib/commandManager';
 
 interface EmailLog {
@@ -501,7 +501,6 @@ export default function EmailHistoryView() {
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value as 'all' | 'gesendet' | 'fehler')}
                 className={SELECT_SMALL_STYLES}
-                style={SELECT_SMALL_BACKGROUND_STYLE}
               >
                 <option value="all">Alle anzeigen ({emailLogs.length})</option>
                 <option value="gesendet">

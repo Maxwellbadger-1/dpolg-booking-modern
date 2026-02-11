@@ -14,7 +14,8 @@ import PaymentDropdown from './PaymentDropdown';
 import InvoiceDropdown from './InvoiceDropdown';
 import PortalDropdown from '../PortalDropdown';
 import { useData } from '../../context/DataContext';
-import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
+import { SELECT_STYLES } from '../../lib/selectStyles';
+import FilterDatePicker from './FilterDatePicker';
 
 interface Room {
   id: number;
@@ -382,7 +383,6 @@ export default function BookingList() {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Status</option>
               <option value="reserviert">Reserviert</option>
@@ -395,7 +395,6 @@ export default function BookingList() {
               value={roomFilter}
               onChange={(e) => setRoomFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Zimmer</option>
               {rooms.map(room => (
@@ -408,7 +407,6 @@ export default function BookingList() {
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Zahlungen</option>
               <option value="bezahlt">Bezahlt</option>
@@ -418,7 +416,6 @@ export default function BookingList() {
               value={stiftungsfallFilter}
               onChange={(e) => setStiftungsfallFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Buchungen</option>
               <option value="stiftungsfall">Nur Stiftungsfälle</option>
@@ -428,20 +425,18 @@ export default function BookingList() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-600 font-medium whitespace-nowrap">Zeitraum:</label>
-              <input
-                type="date"
+              <FilterDatePicker
                 value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setDateFrom}
                 placeholder="Von"
+                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white w-36"
               />
               <span className="text-slate-400">bis</span>
-              <input
-                type="date"
+              <FilterDatePicker
                 value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={setDateTo}
                 placeholder="Bis"
+                className="px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer bg-white w-36"
               />
             </div>
             {(dateFrom || dateTo) && (

@@ -24,6 +24,7 @@ import EmailSelectionDialog from './EmailSelectionDialog';
 import CompanionSelector from './CompanionSelector';
 import CancellationConfirmDialog from './CancellationConfirmDialog';
 import GuestDialog from '../GuestManagement/GuestDialog';
+import BookingDatePicker from './BookingDatePicker';
 
 interface BookingSidebarProps {
   bookingId: number | null;
@@ -39,8 +40,7 @@ interface Room {
   gebaeude_typ: string;
   ort: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
+  endreinigung: number;
   schluesselcode?: string;
 }
 
@@ -152,7 +152,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initialMode = 'view', prefillData }: BookingSidebarProps) {
-  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus, rooms } = useData();
+  const { createBooking, updateBooking, reloadBooking, updateBookingPayment, refreshBookings, updateBookingStatus, rooms, bookings: allBookings } = useData();
   const { syncBookingDatesQuiet } = useBookingSync();
 
   // Mode State
@@ -211,14 +211,97 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
     available: boolean | null;
   }>({ checking: false, available: null });
 
-  // NEUE ARCHITEKTUR: Single Source of Truth Preisberechnung
-  // Funktioniert jetzt für ALLE Modi: create, edit UND view!
+  // Hauptsaison-Erkennung für View-Mode
+  const [viewIsHauptsaison, setViewIsHauptsaison] = useState(false);
+
+  // NEUE ARCHITEKTUR: View-Mode zeigt gespeicherte Preise, Edit/Create berechnet dynamisch
   const guest = guests.find(g => g.id === formData.guest_id);
 
-  // Determine which data source to use based on mode
+  // View-Mode: Nutze GESPEICHERTE Preise aus der Buchung (konsistent mit Rechnung!)
+  // Dies verhindert Inkonsistenzen wenn Zimmerpreise nach der Buchung geändert wurden
+  const storedPriceBreakdown = useMemo(() => {
+    if (mode === 'view' && booking) {
+      // Nächte aus Datum berechnen wenn nicht gespeichert
+      const nights = booking.anzahl_naechte || (() => {
+        const checkin = new Date(booking.checkin_date);
+        const checkout = new Date(booking.checkout_date);
+        return Math.max(1, Math.round((checkout.getTime() - checkin.getTime()) / 86400000));
+      })();
+
+      // Services: Gespeichert oder aus Service-Records summieren
+      const servicesTotal = booking.services_preis ??
+        services.reduce((sum, s) => sum + s.service_price, 0);
+
+      // Discounts: Gespeichert oder aus Discount-Records summieren
+      const discountsTotal = booking.rabatt_preis ??
+        discounts.reduce((sum, d) => {
+          const ca = (d as unknown as { calculated_amount?: number }).calculated_amount;
+          return sum + (ca ?? d.discount_value);
+        }, 0);
+
+      // Grundpreis: Gespeichert, oder aus Gesamtpreis rekonstruieren
+      const basePrice = booking.grundpreis ?? (booking.gesamtpreis + discountsTotal - servicesTotal);
+
+      const discountBase = basePrice + servicesTotal;
+
+      // Services aus DB-Records mappen
+      const mappedServices = services.map(s => ({
+        name: s.service_name,
+        calculatedPrice: s.service_price,
+        priceType: s.price_type || 'fixed',
+        originalValue: s.original_value || s.service_price,
+        appliesTo: s.applies_to || 'overnight_price',
+        baseAmount: basePrice,
+      }));
+
+      // Endreinigung aus Zimmer hinzufügen (wird nie als DB-Record gespeichert,
+      // aber vom Backend bei Preisberechnung und Rechnung berücksichtigt)
+      const room = rooms.find(r => r.id === booking.room_id);
+      const hasEndreinigungInServices = services.some(s =>
+        s.service_name.toLowerCase().includes('endreinigung') ||
+        s.service_name.toLowerCase().includes('cleaning')
+      );
+      if (room?.endreinigung && room.endreinigung > 0 && !hasEndreinigungInServices) {
+        mappedServices.push({
+          name: 'Endreinigung',
+          calculatedPrice: room.endreinigung,
+          priceType: 'fixed',
+          originalValue: room.endreinigung,
+          appliesTo: 'total_price',
+          baseAmount: basePrice,
+        });
+      }
+
+      return {
+        basePrice: basePrice,
+        nights: nights,
+        pricePerNight: basePrice / nights,
+        isHauptsaison: viewIsHauptsaison,
+        hauptsaisonNights: 0,
+        nebensaisonNights: 0,
+        servicesTotal: servicesTotal,
+        discountsTotal: discountsTotal,
+        subtotal: discountBase,
+        total: booking.gesamtpreis,
+        services: mappedServices,
+        discounts: discounts.map(d => ({
+          name: d.discount_name,
+          calculatedAmount: ((d as unknown as { calculated_amount?: number }).calculated_amount) ??
+            (d.discount_type === 'percent'
+              ? discountBase * (d.discount_value / 100)
+              : d.discount_value),
+          discountType: d.discount_type,
+          originalValue: d.discount_value,
+          baseAmount: discountBase,
+        })),
+      };
+    }
+    return null;
+  }, [mode, booking, services, discounts, viewIsHauptsaison, rooms]);
+
+  // Edit/Create: Dynamische Preisberechnung via Hook (nutzt aktuelle Zimmerpreise)
   const priceInputData = (() => {
     if (mode === 'edit' || mode === 'create') {
-      // Edit/Create: Use formData
       if (formData.room_id && formData.checkin_date && formData.checkout_date) {
         return {
           roomId: formData.room_id,
@@ -238,31 +321,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           })),
         };
       }
-    } else if (mode === 'view' && booking) {
-      // View: Use booking data
-      const bookingGuest = guests.find(g => g.id === booking.guest_id);
-      return {
-        roomId: booking.room_id,
-        checkin: booking.checkin_date,
-        checkout: booking.checkout_date,
-        isMember: bookingGuest?.dpolg_mitglied || false,
-        services: services.map(s => ({
-          name: s.service_name,
-          priceType: (s.price_type || 'fixed') as 'fixed' | 'percent',
-          originalValue: s.original_value || s.service_price,
-          appliesTo: (s.applies_to || 'overnight_price') as 'overnight_price' | 'total_price',
-        })),
-        discounts: discounts.map(d => ({
-          name: d.discount_name,
-          discountType: d.discount_type as 'fixed' | 'percent',
-          value: d.discount_value,
-        })),
-      };
     }
     return null;
   })();
 
-  const { priceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(priceInputData);
+  const { priceBreakdown: calculatedPriceBreakdown, loading: priceLoading, error: priceError } = usePriceCalculation(priceInputData);
+
+  // Finale Preisanzeige: View = gespeicherte Preise, Edit/Create = dynamisch berechnet
+  const priceBreakdown = mode === 'view' ? storedPriceBreakdown : calculatedPriceBreakdown;
 
   // Dialog State
   const [showCancelDialog, setShowCancelDialog] = useState(false);
@@ -375,6 +441,28 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
       setAvailabilityStatus({ checking: false, available: null });
     }
   }, [mode, formData.room_id, formData.checkin_date, formData.checkout_date]);
+
+  // Hauptsaison-Erkennung für View-Mode (PricingSettings laden)
+  useEffect(() => {
+    if (mode === 'view' && booking?.checkin_date) {
+      invoke<{ hauptsaisonAktiv: boolean | null; hauptsaisonStart: string | null; hauptsaisonEnde: string | null }>('get_pricing_settings_pg')
+        .then(settings => {
+          if (settings.hauptsaisonAktiv && settings.hauptsaisonStart && settings.hauptsaisonEnde) {
+            const checkinMmDd = booking.checkin_date.slice(5, 10);
+            const start = settings.hauptsaisonStart;
+            const ende = settings.hauptsaisonEnde;
+            if (start > ende) {
+              setViewIsHauptsaison(checkinMmDd >= start || checkinMmDd <= ende);
+            } else {
+              setViewIsHauptsaison(checkinMmDd >= start && checkinMmDd <= ende);
+            }
+          } else {
+            setViewIsHauptsaison(false);
+          }
+        })
+        .catch(() => setViewIsHauptsaison(false));
+    }
+  }, [mode, booking?.checkin_date]);
 
   // Load guest credit balance when guest is selected
   useEffect(() => {
@@ -762,6 +850,87 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           console.error('Error syncing accompanying guests:', err);
         }
 
+        // Sync services (delete + recreate, wie bei Begleitpersonen)
+        try {
+          const existingServices = await invoke<AdditionalService[]>('get_additional_services_by_booking_pg', { bookingId: booking.id });
+          if (existingServices.length > 0) {
+            await Promise.all(
+              existingServices.map(s => invoke('delete_additional_service_pg', { id: s.id }))
+            );
+          }
+          for (const service of services) {
+            if (service.template_id) {
+              await invoke('link_service_template_to_booking_command', {
+                bookingId: booking.id,
+                serviceTemplateId: service.template_id,
+              });
+            } else {
+              await invoke('create_additional_service_pg', {
+                bookingId: booking.id,
+                serviceName: service.service_name,
+                servicePrice: service.service_price,
+                priceType: 'fixed',
+                originalValue: service.service_price,
+                appliesTo: 'overnight_price',
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Error syncing services:', err);
+        }
+
+        // Sync discounts (delete + recreate)
+        try {
+          const existingDiscounts = await invoke<Discount[]>('get_discounts_by_booking_pg', { bookingId: booking.id });
+          if (existingDiscounts.length > 0) {
+            await Promise.all(
+              existingDiscounts.map(d => invoke('delete_discount_pg', { id: d.id }))
+            );
+          }
+          for (const discount of discounts) {
+            if (discount.template_id) {
+              await invoke('link_discount_template_to_booking_command', {
+                bookingId: booking.id,
+                discountTemplateId: discount.template_id,
+              });
+            } else {
+              // Find matching priceBreakdown discount for calculated amount
+              const breakdownMatch = priceBreakdown?.discounts?.find(
+                (bd: { name: string }) => bd.name === discount.discount_name
+              );
+              await invoke('create_discount_pg', {
+                bookingId: booking.id,
+                discountName: discount.discount_name,
+                discountType: discount.discount_type,
+                discountValue: discount.discount_value,
+                calculatedAmount: breakdownMatch?.calculatedAmount ?? null,
+              });
+            }
+          }
+          // DPolG-Auto-Rabatt aus priceBreakdown speichern
+          if (priceBreakdown?.discounts) {
+            for (const autoDiscount of priceBreakdown.discounts) {
+              const isDpolg = autoDiscount.name.toLowerCase().includes('dpolg') ||
+                              autoDiscount.name.toLowerCase().includes('mitglieder');
+              const alreadyInDiscounts = discounts.some((d: Discount) =>
+                d.discount_name.toLowerCase().includes('dpolg') ||
+                d.discount_name.toLowerCase().includes('mitglieder')
+              );
+              if (isDpolg && !alreadyInDiscounts) {
+                await invoke('create_discount_pg', {
+                  bookingId: booking.id,
+                  discountName: autoDiscount.name,
+                  discountType: autoDiscount.discountType,
+                  discountValue: autoDiscount.originalValue,
+                  calculatedAmount: autoDiscount.calculatedAmount,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error syncing discounts:', err);
+        }
+
         // 💰 Apply guest credit if any
         if (creditToApply > 0) {
           try {
@@ -830,10 +999,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
             checkinDate: formData.checkin_date,
             checkoutDate: formData.checkout_date,
             anzahlGaeste: formData.anzahl_gaeste,
-            status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status, // ✅ FIX: Auto-set status to stiftungsfall if checkbox is checked
+            status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status,
             gesamtpreis: totalPrice,
             bemerkungen: formData.bemerkungen || null,
-            istStiftungsfall: formData.ist_stiftungsfall || false, // ✅ FIX: Pass istStiftungsfall flag
+            istStiftungsfall: formData.ist_stiftungsfall || false,
+            grundpreis: basePrice,
+            servicesPreis: servicesTotal,
+            rabattPreis: discountsTotal,
+            anzahlNaechte: nights,
           });
           console.log(`✅ Reservierungsnummer aktualisiert: ${finalReservierungsnummer}`);
         }
@@ -884,11 +1057,36 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 discountTemplateId: discount.template_id,
               });
             } else {
+              const breakdownMatch = priceBreakdown?.discounts?.find(
+                (bd: { name: string }) => bd.name === discount.discount_name
+              );
               await invoke('create_discount_pg', {
                 bookingId: result.id,
                 discountName: discount.discount_name,
                 discountType: discount.discount_type,
                 discountValue: discount.discount_value,
+                calculatedAmount: breakdownMatch?.calculatedAmount ?? null,
+              });
+            }
+          }
+        }
+
+        // Save DPolG-Auto-Rabatt aus priceBreakdown (nicht im discounts-State enthalten)
+        if (priceBreakdown?.discounts && result.id) {
+          for (const autoDiscount of priceBreakdown.discounts) {
+            const isDpolg = autoDiscount.name.toLowerCase().includes('dpolg') ||
+                            autoDiscount.name.toLowerCase().includes('mitglieder');
+            const alreadyInDiscounts = discounts.some((d: Discount) =>
+              d.discount_name.toLowerCase().includes('dpolg') ||
+              d.discount_name.toLowerCase().includes('mitglieder')
+            );
+            if (isDpolg && !alreadyInDiscounts) {
+              await invoke('create_discount_pg', {
+                bookingId: result.id,
+                discountName: autoDiscount.name,
+                discountType: autoDiscount.discountType,
+                discountValue: autoDiscount.originalValue,
+                calculatedAmount: autoDiscount.calculatedAmount,
               });
             }
           }
@@ -1347,16 +1545,29 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   Preisaufschlüsselung
                 </h3>
                 <div className="space-y-3">
-                  {/* ALLE MODI: Detaillierte Anzeige mit priceBreakdown Hook */}
                   <div className="flex justify-between items-center">
-                    <span className="text-slate-700">Grundpreis ({priceBreakdown?.nights ?? 0} Nächte)</span>
+                    <span className="text-slate-700">Anzahl Nächte:</span>
+                    <span className="font-semibold text-slate-900">{priceBreakdown?.nights ?? 0}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-700">
+                      Preis pro Nacht {priceBreakdown?.hauptsaisonNights && priceBreakdown?.nebensaisonNights
+                        ? `(${priceBreakdown.hauptsaisonNights} HS + ${priceBreakdown.nebensaisonNights} NS)`
+                        : priceBreakdown?.isHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
+                    </span>
+                    <span className="font-semibold text-slate-900">{(priceBreakdown?.pricePerNight ?? 0).toFixed(2)} €</span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-700">Grundpreis:</span>
                     <span className="font-semibold text-slate-900">{(priceBreakdown?.basePrice ?? 0).toFixed(2)} €</span>
                   </div>
 
                   {/* Services mit Details */}
                   {priceBreakdown?.services && priceBreakdown.services.length > 0 && (
                     <>
-                      {priceBreakdown.services.map((service: any, index: number) => (
+                      {priceBreakdown.services.map((service: { name: string; calculatedPrice: number; priceType: string; originalValue: number }, index: number) => (
                         <div key={index} className="flex justify-between items-center">
                           <span className="text-emerald-700">
                             + {service.name}
@@ -1373,7 +1584,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   {/* Discounts mit Details */}
                   {priceBreakdown?.discounts && priceBreakdown.discounts.length > 0 && (
                     <>
-                      {priceBreakdown.discounts.map((discount: any, index: number) => (
+                      {priceBreakdown.discounts.map((discount: { name: string; calculatedAmount: number; discountType: string; originalValue: number }, index: number) => (
                         <div key={index} className="flex justify-between items-center">
                           <span className="text-orange-700">
                             - {discount.name} {discount.discountType === 'percent' && `(${discount.originalValue}%)`}
@@ -1389,7 +1600,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                     <div className="flex justify-between items-center">
                       <span className="text-emerald-700 flex items-center gap-1">
                         <Wallet className="w-4 h-4" />
-                        💰 Gast-Guthaben
+                        Gast-Guthaben
                       </span>
                       <span className="font-semibold text-emerald-700">-{creditUsed.toFixed(2)} €</span>
                     </div>
@@ -1858,31 +2069,34 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
               {/* Check-in & Check-out */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Check-in Datum *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.checkin_date}
-                    onChange={(e) => setFormData({ ...formData, checkin_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                <BookingDatePicker
+                  value={formData.checkin_date}
+                  onChange={(value) => {
+                    setFormData(prev => ({
+                      ...prev,
+                      checkin_date: value,
+                      // Reset checkout if it's before checkin
+                      checkout_date: prev.checkout_date && prev.checkout_date <= value ? '' : prev.checkout_date
+                    }));
+                  }}
+                  label="Check-in Datum"
+                  required
+                  roomId={formData.room_id || undefined}
+                  bookings={allBookings}
+                  currentBookingId={bookingId || undefined}
+                />
 
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    Check-out Datum *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.checkout_date}
-                    onChange={(e) => setFormData({ ...formData, checkout_date: e.target.value })}
-                    className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                <BookingDatePicker
+                  value={formData.checkout_date}
+                  onChange={(value) => setFormData({ ...formData, checkout_date: value })}
+                  label="Check-out Datum"
+                  required
+                  isCheckout
+                  checkinDate={formData.checkin_date}
+                  roomId={formData.room_id || undefined}
+                  bookings={allBookings}
+                  currentBookingId={bookingId || undefined}
+                />
               </div>
 
               {/* Alternative Cleaning Checkout Date */}
@@ -1914,19 +2128,17 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 {/* Conditional Date Picker */}
                 {useAlternativeCleaningDate && (
                   <div className="border-t border-blue-200 pt-3 mt-1">
-                    <label className="block text-sm font-semibold text-blue-900 mb-2">
-                      Putzplan Checkout-Datum *
-                    </label>
-                    <input
-                      type="date"
-                      required={useAlternativeCleaningDate}
+                    <BookingDatePicker
                       value={formData.putzplan_checkout_date || ''}
-                      onChange={(e) => setFormData({ ...formData, putzplan_checkout_date: e.target.value })}
-                      min={formData.checkin_date}
+                      onChange={(value) => setFormData({ ...formData, putzplan_checkout_date: value })}
+                      label="Putzplan Checkout-Datum"
+                      required
+                      isCheckout
+                      checkinDate={formData.checkin_date}
                       className="w-full px-4 py-2 bg-white border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
                     />
                     <p className="text-xs text-blue-600 mt-1">
-                      📱 Dieses Datum wird in der Mobile Cleaning App als Checkout angezeigt
+                      Dieses Datum wird in der Mobile Cleaning App als Checkout angezeigt
                     </p>
                   </div>
                 )}
@@ -2026,7 +2238,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                     </div>
                     <div className="flex justify-between">
                       <span className="text-blue-700">
-                        Preis pro Nacht {priceBreakdown?.isHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
+                        Preis pro Nacht {priceBreakdown?.hauptsaisonNights && priceBreakdown?.nebensaisonNights
+                        ? `(${priceBreakdown.hauptsaisonNights} HS + ${priceBreakdown.nebensaisonNights} NS)`
+                        : priceBreakdown?.isHauptsaison ? '(Hauptsaison)' : '(Nebensaison)'}:
                       </span>
                       <span className="font-semibold text-blue-900">{(priceBreakdown?.pricePerNight ?? 0).toFixed(2)} €</span>
                     </div>

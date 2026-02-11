@@ -7,8 +7,6 @@ interface Room {
   name: string;
   gebaeude_typ: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
   nebensaison_preis: number;
   hauptsaison_preis: number;
   endreinigung: number;
@@ -33,8 +31,6 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
     name: '',
     gebaeude_typ: '',
     capacity: 1,
-    price_member: 0,        // Deprecated - kept for backward compatibility
-    price_non_member: 0,     // Deprecated - kept for backward compatibility
     nebensaison_preis: 0,
     hauptsaison_preis: 0,
     endreinigung: 0,
@@ -56,8 +52,6 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
         name: '',
         gebaeude_typ: '',
         capacity: 1,
-        price_member: 0,
-        price_non_member: 0,
         nebensaison_preis: 0,
         hauptsaison_preis: 0,
         endreinigung: 0,
@@ -82,8 +76,6 @@ export default function RoomDialog({ isOpen, onClose, onSuccess, room }: RoomDia
         name: formData.name,
         gebaeudeTyp: formData.gebaeude_typ,
         capacity: formData.capacity,
-        priceMember: formData.price_member,
-        priceNonMember: formData.price_non_member,
         nebensaisonPreis: formData.nebensaison_preis,
         hauptsaisonPreis: formData.hauptsaison_preis,
         endreinigung: formData.endreinigung,

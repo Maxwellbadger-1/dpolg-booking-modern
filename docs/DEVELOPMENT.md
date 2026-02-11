@@ -98,3 +98,54 @@ npx playwright test
 git checkout main
 git merge feature/neue-funktion
 ```
+
+---
+
+## 🔄 Multi-Geräte-Entwicklung
+
+### Quick Reference: Gerätewechsel
+
+```bash
+# Vor Wechsel (auf aktuellem Gerät):
+git add .
+git commit -m "feat: Beschreibung"
+git push origin main
+
+# Nach Wechsel (auf neuem Gerät):
+git pull origin main
+npm run tauri:dev
+```
+
+**Dauer:** ~1-2 Minuten (statt 10+ Min manuelles Kopieren)
+
+### Plattform-spezifische Setup-Anleitungen:
+
+- **Windows:** [docs/WINDOWS_BUILD_GUIDE.md](WINDOWS_BUILD_GUIDE.md)
+- **macOS:** [docs/MACOS_SETUP.md](MACOS_SETUP.md)
+- **Workflow-Details:** [docs/DEVICE_SYNC_WORKFLOW.md](DEVICE_SYNC_WORKFLOW.md)
+
+### Wichtig:
+
+**✅ Was wird via Git synchronisiert:**
+- Source Code (TypeScript, Rust, React)
+- Config-Dateien (package.json, Cargo.toml)
+- Dokumentation
+
+**❌ Was bleibt lokal:**
+- `node_modules/` (~323 MB) - via `npm install` generiert
+- `src-tauri/target/` (~11 GB) - via `cargo build` generiert
+- `.env` - bleibt lokal (Credentials!)
+- `dist/` - Build-Output
+
+### Troubleshooting Multi-Device:
+
+```bash
+# Dependencies nach git pull aktualisieren:
+npm install
+
+# Bei Cargo-Problemen:
+cd src-tauri && cargo clean && cd ..
+
+# Alte Prozesse killen:
+pkill -9 -f "tauri|cargo|vite|node|npm"
+```

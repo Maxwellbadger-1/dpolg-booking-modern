@@ -6,7 +6,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import GuestDialog from './GuestDialog';
 import GuestDetails from './GuestDetails';
 import ConfirmDialog from '../ConfirmDialog';
-import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
+import { SELECT_STYLES } from '../../lib/selectStyles';
 
 interface Guest {
   id: number;
@@ -167,7 +167,6 @@ export default function GuestList() {
               value={memberFilter}
               onChange={(e) => setMemberFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Gäste</option>
               <option value="member">Nur Mitglieder</option>

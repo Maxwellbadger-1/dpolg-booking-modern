@@ -109,7 +109,7 @@ impl EmailLogRepository {
             .query_one(
                 "INSERT INTO email_logs (
                     booking_id, guest_id, template_name, recipient_email,
-                    subject, status, error_message, sent_at::text as sent_at
+                    subject, status, error_message, sent_at
                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
                  RETURNING id, booking_id, guest_id, template_name, recipient_email,
                            subject, status, error_message, sent_at::text as sent_at",
@@ -185,7 +185,7 @@ impl EmailLogRepository {
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
                         subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
-                 WHERE status = 'failed'
+                 WHERE status = 'fehler'
                  ORDER BY sent_at DESC",
                 &[],
             )

@@ -129,8 +129,8 @@ export const getTestRoomData = () => ({
   name: `DT-${Date.now().toString().slice(-4)}`,
   gebaeudeTyp: 'Einzelzimmer',
   capacity: 1,
-  priceMember: 50.0,
-  priceNonMember: 60.0,
+  nebensaisonPreis: 50.0,
+  hauptsaisonPreis: 60.0,
   ort: 'Teststadt',
 });
 

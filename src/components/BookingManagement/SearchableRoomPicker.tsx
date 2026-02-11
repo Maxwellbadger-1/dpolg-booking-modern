@@ -6,8 +6,6 @@ interface Room {
   name: string;
   gebaeude_typ: string;
   capacity: number;
-  price_member: number;
-  price_non_member: number;
   ort: string;
   schluesselcode?: string;
 }

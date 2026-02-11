@@ -596,8 +596,8 @@ export default function ComprehensiveDevTools() {
             name: room.name || 'Test Room',
             gebaeudeTyp: room.gebaeude_typ || 'Einzelzimmer',
             capacity: room.capacity || 1,
-            priceMember: room.price_member || 50.0,
-            priceNonMember: room.price_non_member || 60.0,
+            nebensaisonPreis: room.nebensaison_preis || 50.0,
+            hauptsaisonPreis: room.hauptsaison_preis || 60.0,
             ort: room.ort || 'Teststadt',
             notizen: 'Updated via DevTools',
           });

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { X, User, Mail, Phone, MapPin, Hash, FileText, Check, Loader2, Briefcase, MapPinned, Building2, Wallet, Plus, Clock, History, Globe, Calendar, CreditCard, Tag, Settings, Home, Smartphone } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { formatDateTime } from '../../utils/dateFormatting';
+import FilterDatePicker from '../BookingManagement/FilterDatePicker';
 
 // HMR Force Reload - Tab-based UI with 21 new fields
 
@@ -903,15 +904,14 @@ export default function GuestDialog({ isOpen, onClose, guest, onSuccess }: Guest
                       Geburtsdatum
                     </label>
                     <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none z-10">
                         <Calendar className="w-5 h-5 text-slate-400" />
                       </div>
-                      <input
-                        id="geburtsdatum"
-                        type="date"
-                        value={formData.geburtsdatum}
-                        onChange={(e) => handleChange('geburtsdatum', e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      <FilterDatePicker
+                        value={formData.geburtsdatum || ''}
+                        onChange={(value) => handleChange('geburtsdatum', value)}
+                        placeholder="Geburtsdatum"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
                         disabled={loading}
                       />
                     </div>

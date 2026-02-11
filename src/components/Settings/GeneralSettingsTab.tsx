@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { convertFileSrc } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { check } from '@tauri-apps/plugin-updater';
 import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info } from 'lucide-react';
+import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info, Code } from 'lucide-react';
 
 interface CompanySettings {
   id: number;
@@ -22,7 +21,15 @@ interface CompanySettings {
   ceoName: string | null;
   registryCourt: string | null;
   logoPath: string | null;
+  logoData: string | null;
+  logoMimeType: string | null;
   updatedAt: string | null;
+}
+
+interface LogoUploadResult {
+  logoData: string;
+  logoMimeType: string;
+  fileName: string;
 }
 
 export default function GeneralSettingsTab() {
@@ -40,6 +47,8 @@ export default function GeneralSettingsTab() {
   const [ceoName, setCeoName] = useState('');
   const [registryCourt, setRegistryCourt] = useState('');
   const [logoPath, setLogoPath] = useState('');
+  const [logoData, setLogoData] = useState<string | null>(null);
+  const [logoMimeType, setLogoMimeType] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -47,6 +56,9 @@ export default function GeneralSettingsTab() {
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'current' | 'error'>('idle');
   const [updateVersion, setUpdateVersion] = useState<string>('');
   const [currentVersion, setCurrentVersion] = useState<string>('...');
+  const [devToolsEnabled, setDevToolsEnabled] = useState(() => {
+    return localStorage.getItem('devtools-enabled') === 'true';
+  });
 
   useEffect(() => {
     loadSettings();
@@ -73,6 +85,8 @@ export default function GeneralSettingsTab() {
       setCeoName(data.ceoName || '');
       setRegistryCourt(data.registryCourt || '');
       setLogoPath(data.logoPath || '');
+      setLogoData(data.logoData || null);
+      setLogoMimeType(data.logoMimeType || null);
     } catch (error) {
       console.error('Fehler beim Laden der Einstellungen:', error);
       alert(`Fehler beim Laden: ${error}`);
@@ -103,12 +117,14 @@ export default function GeneralSettingsTab() {
       });
 
       if (file) {
-        // Backend aufrufen zum Kopieren
-        const newPath = await invoke<string>('upload_logo_command', {
+        // Backend liest Datei und gibt Base64-Daten zurück
+        const result = await invoke<LogoUploadResult>('upload_logo_command', {
           sourcePath: file
         });
-        setLogoPath(newPath);
-        setSuccessMessage('Logo erfolgreich hochgeladen!');
+        setLogoData(result.logoData);
+        setLogoMimeType(result.logoMimeType);
+        setLogoPath('');
+        setSuccessMessage('Logo erfolgreich hochgeladen! Bitte speichern.');
         setTimeout(() => setSuccessMessage(null), 3000);
       }
     } catch (error) {
@@ -118,11 +134,11 @@ export default function GeneralSettingsTab() {
   };
 
   const handleLogoDelete = () => {
-    if (confirm('Logo wirklich entfernen?')) {
-      setLogoPath('');
-      setSuccessMessage('Logo entfernt. Bitte speichern Sie die Änderungen.');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    }
+    setLogoPath('');
+    setLogoData(null);
+    setLogoMimeType(null);
+    setSuccessMessage('Logo entfernt. Bitte speichern Sie die Änderungen.');
+    setTimeout(() => setSuccessMessage(null), 3000);
   };
 
   const checkForUpdate = async () => {
@@ -218,6 +234,15 @@ export default function GeneralSettingsTab() {
     }
   };
 
+  const toggleDevTools = (enabled: boolean) => {
+    setDevToolsEnabled(enabled);
+    localStorage.setItem('devtools-enabled', enabled.toString());
+    // Dispatch event to notify App.tsx
+    window.dispatchEvent(new CustomEvent('devtools-toggle', { detail: { enabled } }));
+    setSuccessMessage(enabled ? '🛠️ DevTools aktiviert' : '🛠️ DevTools deaktiviert');
+    setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -239,6 +264,8 @@ export default function GeneralSettingsTab() {
         ceoName: ceoName || null,
         registryCourt: registryCourt || null,
         logoPath: logoPath || null,
+        logoData: logoData || null,
+        logoMimeType: logoMimeType || null,
         updatedAt: null,
       };
 
@@ -330,6 +357,47 @@ export default function GeneralSettingsTab() {
               <div className="mt-4 flex items-center gap-2 text-red-400 bg-red-900/20 p-3 rounded-lg border border-red-700">
                 <XCircle className="w-4 h-4" />
                 <span className="text-sm font-medium">Fehler beim Update-Check</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ENTWICKLER-TOOLS */}
+      <div className="border-t border-slate-700 pt-6">
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Code className="w-5 h-5 text-purple-400" />
+          Entwickler-Tools
+        </h3>
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-purple-600/10 to-purple-500/10 border border-purple-500/30 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-300">
+                  DevTools anzeigen
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Zeigt Entwickler-Werkzeuge für Diagnose und Tests
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => toggleDevTools(!devToolsEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  devToolsEnabled ? 'bg-purple-600' : 'bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    devToolsEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            {devToolsEnabled && (
+              <div className="mt-4 flex items-center gap-2 text-purple-400 bg-purple-900/20 p-3 rounded-lg border border-purple-700">
+                <Code className="w-4 h-4" />
+                <span className="text-sm font-medium">DevTools sind aktiviert - Button erscheint unten rechts</span>
               </div>
             )}
           </div>
@@ -534,29 +602,16 @@ export default function GeneralSettingsTab() {
         <h3 className="text-lg font-bold text-white mb-4">Logo (für Rechnungen)</h3>
         <div className="space-y-4">
           {/* Logo-Vorschau */}
-          {logoPath && !logoPath.startsWith('C:') && !logoPath.includes('\\') && (
+          {logoData && logoMimeType && (
             <div className="bg-slate-700 rounded-lg p-4 border border-slate-600">
               <p className="text-sm text-slate-300 mb-2">Aktuelles Logo:</p>
               <div className="bg-white p-4 rounded">
                 <img
-                  src={convertFileSrc(logoPath)}
+                  src={`data:${logoMimeType};base64,${logoData}`}
                   alt="Firmen-Logo"
                   className="max-h-32 w-auto object-contain mx-auto"
-                  onLoad={() => console.log('✅ Logo erfolgreich geladen:', logoPath)}
-                  onError={(e) => {
-                    console.error('❌ Fehler beim Laden des Logos:', logoPath);
-                    console.error('❌ Konvertierter Pfad:', convertFileSrc(logoPath));
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
                 />
               </div>
-            </div>
-          )}
-          {/* Warnung bei Windows-Pfad auf Mac */}
-          {logoPath && (logoPath.startsWith('C:') || logoPath.includes('\\')) && (
-            <div className="bg-yellow-900/50 border border-yellow-600 rounded-lg p-4">
-              <p className="text-yellow-400 text-sm font-medium">⚠️ Logo wurde auf einem anderen Computer hochgeladen</p>
-              <p className="text-yellow-300/70 text-xs mt-1">Bitte lade das Logo erneut hoch um es auf diesem Mac anzuzeigen.</p>
             </div>
           )}
 
@@ -567,15 +622,15 @@ export default function GeneralSettingsTab() {
             className="flex items-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
           >
             <Upload className="w-5 h-5" />
-            {logoPath ? 'Logo ändern' : 'Logo hochladen'}
+            {logoData ? 'Logo ändern' : 'Logo hochladen'}
           </button>
 
           <p className="text-xs text-slate-400">
-            Unterstützte Formate: PNG, JPG, JPEG. Das Logo wird oben mittig auf Rechnungen angezeigt.
+            Unterstützte Formate: PNG, JPG, JPEG (max. 2 MB). Das Logo wird oben mittig auf Rechnungen angezeigt.
           </p>
 
           {/* Logo löschen */}
-          {logoPath && (
+          {logoData && (
             <button
               type="button"
               onClick={handleLogoDelete}

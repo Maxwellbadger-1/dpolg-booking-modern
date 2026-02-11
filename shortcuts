@@ -1,9 +1,29 @@
-./dev-stop.sh && ./dev-start.sh
+ 
+● Fertig! 4 Skripte erstellt:                                                                      
+  ┌───────────────┬───────────┬─────────────┐
+  │     Datei     │ Plattform │  Funktion   │                                                        ├───────────────┼───────────┼─────────────┤
+  │ dev-start.ps1 │ Windows   │ App starten │                                                      
+  ├───────────────┼───────────┼─────────────┤
+  │ dev-stop.ps1  │ Windows   │ App stoppen │
+  ├───────────────┼───────────┼─────────────┤
+  │ dev-start.sh  │ Mac/Linux │ App starten │
+  ├───────────────┼───────────┼─────────────┤
+  │ dev-stop.sh   │ Mac/Linux │ App stoppen │
+  └───────────────┴───────────┴─────────────┘
+  Verwendung:
 
-VOLLSTAENDIGKEITS_ANALYSE.md 
+  Windows (PowerShell):
+  .\dev-start.ps1    # Starten
+  .\dev-stop.ps1     # Stoppen
 
-mache jetzt maximal massiven debug code. nichts anderes. damit wir den fehler finden
+  Mac/Linux:
+  ./dev-start.sh     # Starten
+  ./dev-stop.sh      # Stoppen
 
-MOBILE_APP_ARCHITECTURE.md
 
-./cleanup-all.sh && ./dev-start.sh
+
+./dev-stop.sh
+
+cd "C:\Users\maxfe\Desktop\dpolg-booking-modern - aktuell" npx tauri dev
+/dev 
+startet die app

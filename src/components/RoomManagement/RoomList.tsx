@@ -3,7 +3,7 @@ import { Hotel, Search, Plus, Edit2, MapPin, Users, Euro, Trash2, FileText } fro
 import { useData } from '../../context/DataContext';
 import RoomDialog from './RoomDialog';
 import ConfirmDialog from '../ConfirmDialog';
-import { SELECT_STYLES, SELECT_BACKGROUND_STYLE } from '../../lib/selectStyles';
+import { SELECT_STYLES } from '../../lib/selectStyles';
 
 interface Room {
   id: number;
@@ -133,7 +133,6 @@ export default function RoomList() {
               value={locationFilter}
               onChange={(e) => setLocationFilter(e.target.value)}
               className={SELECT_STYLES}
-              style={SELECT_BACKGROUND_STYLE}
             >
               <option value="all">Alle Orte</option>
               {uniqueLocations.map(location => (

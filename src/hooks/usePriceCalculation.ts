@@ -67,6 +67,8 @@ export interface FullPriceBreakdown {
   nights: number;
   pricePerNight: number;
   isHauptsaison: boolean;
+  hauptsaisonNights: number;
+  nebensaisonNights: number;
   services: ServiceCalculation[];
   servicesTotal: number;
   discounts: DiscountCalculation[];

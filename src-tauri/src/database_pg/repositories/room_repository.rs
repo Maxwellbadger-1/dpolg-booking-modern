@@ -16,7 +16,7 @@ impl RoomRepository {
 
         let rows = client
             .query(
-                "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member,
+                "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                         schluesselcode, street_address, postal_code, city, notizen
                  FROM rooms
@@ -36,7 +36,7 @@ impl RoomRepository {
 
         let row = client
             .query_one(
-                "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member,
+                "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                         schluesselcode, street_address, postal_code, city, notizen
                  FROM rooms
@@ -61,8 +61,6 @@ impl RoomRepository {
         name: String,
         gebaeude_typ: String,
         capacity: i32,
-        price_member: f64,
-        price_non_member: f64,
         ort: String,
         nebensaison_preis: Option<f64>,
         hauptsaison_preis: Option<f64>,
@@ -78,19 +76,17 @@ impl RoomRepository {
         let row = client
             .query_one(
                 "INSERT INTO rooms (
-                    name, gebaeude_typ, capacity, price_member, price_non_member,
+                    name, gebaeude_typ, capacity,
                     nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                     schluesselcode, street_address, postal_code, city, notizen
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                RETURNING id, name, gebaeude_typ, capacity, price_member, price_non_member,
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                RETURNING id, name, gebaeude_typ, capacity,
                          nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                          schluesselcode, street_address, postal_code, city, notizen",
                 &[
                     &name,
                     &gebaeude_typ,
                     &capacity,
-                    &price_member,
-                    &price_non_member,
                     &nebensaison_preis,
                     &hauptsaison_preis,
                     &endreinigung,
@@ -114,8 +110,6 @@ impl RoomRepository {
         name: String,
         gebaeude_typ: String,
         capacity: i32,
-        price_member: f64,
-        price_non_member: f64,
         ort: String,
         nebensaison_preis: Option<f64>,
         hauptsaison_preis: Option<f64>,
@@ -134,19 +128,17 @@ impl RoomRepository {
                     name = $2,
                     gebaeude_typ = $3,
                     capacity = $4,
-                    price_member = $5,
-                    price_non_member = $6,
-                    nebensaison_preis = $7,
-                    hauptsaison_preis = $8,
-                    endreinigung = $9,
-                    ort = $10,
-                    schluesselcode = $11,
-                    street_address = $12,
-                    postal_code = $13,
-                    city = $14,
-                    notizen = $15
+                    nebensaison_preis = $5,
+                    hauptsaison_preis = $6,
+                    endreinigung = $7,
+                    ort = $8,
+                    schluesselcode = $9,
+                    street_address = $10,
+                    postal_code = $11,
+                    city = $12,
+                    notizen = $13
                  WHERE id = $1
-                 RETURNING id, name, gebaeude_typ, capacity, price_member, price_non_member,
+                 RETURNING id, name, gebaeude_typ, capacity,
                           nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                           schluesselcode, street_address, postal_code, city, notizen",
                 &[
@@ -154,8 +146,6 @@ impl RoomRepository {
                     &name,
                     &gebaeude_typ,
                     &capacity,
-                    &price_member,
-                    &price_non_member,
                     &nebensaison_preis,
                     &hauptsaison_preis,
                     &endreinigung,
@@ -202,7 +192,7 @@ impl RoomRepository {
 
         let rows = client
             .query(
-                "SELECT id, name, gebaeude_typ, capacity, price_member, price_non_member,
+                "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
                         schluesselcode, street_address, postal_code, city, notizen
                  FROM rooms

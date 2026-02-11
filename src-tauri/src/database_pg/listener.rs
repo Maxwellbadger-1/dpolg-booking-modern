@@ -2,14 +2,16 @@
 // POSTGRESQL LISTEN/NOTIFY - Real-Time Event Listener
 // ============================================================================
 // Created: 2025-11-16
+// Updated: 2025-02-02 - Fixed notification handling with poll_message
 // Purpose: Listen to PostgreSQL NOTIFY events and broadcast to frontend
 // Architecture: PostgreSQL NOTIFY → Rust Listener → Tauri Events → Frontend
 // ============================================================================
 
+use futures_util::future::poll_fn;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use tokio_postgres::{Client, Error, NoTls};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tokio_postgres::{AsyncMessage, NoTls};
 
 /// Database change event from PostgreSQL NOTIFY
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,178 +28,107 @@ pub struct DbChangeEvent {
 
     /// Timestamp when the change occurred
     pub timestamp: String,
-
-    /// Old data (only for UPDATE, otherwise null)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub old_data: Option<serde_json::Value>,
-
-    /// New data (for INSERT and UPDATE, otherwise null)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_data: Option<serde_json::Value>,
 }
 
-/// Type alias for the broadcast sender
-pub type EventSender = Arc<broadcast::Sender<DbChangeEvent>>;
-
-/// Type alias for the broadcast receiver
-pub type EventReceiver = broadcast::Receiver<DbChangeEvent>;
-
-/// PostgreSQL NOTIFY Listener
+/// Start PostgreSQL NOTIFY listener in background
 ///
-/// Connects to PostgreSQL and listens for NOTIFY events on specified channels.
-/// Broadcasts received events to all subscribed frontends via Tauri events.
-pub struct PgListener {
-    client: Client,
-    event_sender: EventSender,
-}
-
-impl PgListener {
-    /// Create a new PostgreSQL listener
-    ///
-    /// # Arguments
-    /// * `connection_string` - PostgreSQL connection string (e.g., "postgres://user:pass@host/db")
-    /// * `event_sender` - Broadcast channel sender for distributing events
-    ///
-    /// # Returns
-    /// Result with PgListener instance or connection error
-    pub async fn new(
-        connection_string: &str,
-        event_sender: EventSender,
-    ) -> Result<Self, Error> {
-        println!("🔌 [PgListener] Connecting to PostgreSQL...");
-        println!("   URL: {}", Self::sanitize_url(connection_string));
-
-        // Connect to PostgreSQL
-        let (client, connection) = tokio_postgres::connect(connection_string, NoTls).await?;
-
-        // Spawn connection handler in background
-        tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                eprintln!("❌ [PgListener] Connection error: {}", e);
-            }
-        });
-
-        println!("✅ [PgListener] Connected to PostgreSQL");
-
-        Ok(Self {
-            client,
-            event_sender,
-        })
-    }
-
-    /// Start listening to PostgreSQL NOTIFY channels
-    ///
-    /// Subscribes to multiple channels and forwards notifications to the broadcast channel.
-    /// This is a blocking operation that runs indefinitely.
-    ///
-    /// # Channels
-    /// - `booking_changes` - Bookings table changes
-    /// - `guest_changes` - Guests table changes
-    /// - `room_changes` - Rooms table changes
-    /// - `table_changes` - Fallback for other tables
-    pub async fn listen(&self) -> Result<(), Error> {
-        // Subscribe to all notification channels
-        self.client.execute("LISTEN booking_changes", &[]).await?;
-        self.client.execute("LISTEN guest_changes", &[]).await?;
-        self.client.execute("LISTEN room_changes", &[]).await?;
-        self.client.execute("LISTEN table_changes", &[]).await?;
-
-        println!("✅ [PgListener] Subscribed to channels:");
-        println!("   - booking_changes");
-        println!("   - guest_changes");
-        println!("   - room_changes");
-        println!("   - table_changes");
-        println!("");
-        println!("🎧 [PgListener] Listening for PostgreSQL NOTIFY events...");
-
-        // Get notification stream from client
-        // Note: In tokio-postgres, we need to keep the connection alive and poll for notifications
-        // This is a simplified implementation - for production, use async-postgres or similar
-
-        loop {
-            // Poll for a notification with timeout
-            // Using simple_query to trigger notification delivery
-            if let Err(e) = self.client.simple_query("SELECT 1").await {
-                eprintln!("❌ [PgListener] Connection error: {}", e);
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                continue;
-            }
-
-            // Sleep to prevent CPU spinning (100ms polling interval)
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        }
-    }
-
-    /// Sanitize connection URL for logging (hide password)
-    fn sanitize_url(url: &str) -> String {
-        url.split('@')
-            .enumerate()
-            .map(|(i, part)| {
-                if i == 0 {
-                    // Before @: hide password
-                    let parts: Vec<&str> = part.split(':').collect();
-                    if parts.len() >= 3 {
-                        format!("{}://{}:***", parts[0], parts[1].trim_start_matches("//"))
-                    } else {
-                        part.to_string()
-                    }
-                } else {
-                    // After @: show as is
-                    part.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("@")
-    }
-}
-
-/// Start the PostgreSQL listener in a background task
-///
-/// This is a convenience function that creates a PgListener and starts listening
-/// in a new Tokio task. It's designed to be called from the Tauri app setup.
+/// WICHTIG: Verwendet separate Connection (nicht aus Pool!)
+/// weil LISTEN erfordert eine persistente Connection.
 ///
 /// # Arguments
+/// * `app_handle` - Tauri AppHandle for emitting events to frontend
 /// * `connection_string` - PostgreSQL connection string
-/// * `event_sender` - Broadcast channel sender
-///
-/// # Example
-/// ```rust
-/// let (event_sender, _) = broadcast::channel::<DbChangeEvent>(100);
-/// let event_sender_arc = Arc::new(event_sender);
-/// start_listener_background(&db_url, event_sender_arc);
-/// ```
-pub fn start_listener_background(connection_string: String, event_sender: EventSender) {
-    tokio::spawn(async move {
+pub fn start_pg_listener(app_handle: AppHandle, connection_string: String) {
+    tauri::async_runtime::spawn(async move {
         println!("🚀 [PgListener] Starting PostgreSQL LISTEN background task...");
 
-        match PgListener::new(&connection_string, event_sender.clone()).await {
-            Ok(listener) => {
-                println!("✅ [PgListener] Listener created successfully");
-
-                // Start listening (blocks forever)
-                if let Err(e) = listener.listen().await {
-                    eprintln!("❌ [PgListener] Listen error: {}", e);
+        loop {
+            match connect_and_listen(&app_handle, &connection_string).await {
+                Ok(_) => {
+                    println!("⚠️ [PgListener] Connection closed, reconnecting in 5s...");
+                }
+                Err(e) => {
+                    eprintln!("❌ [PgListener] Connection error: {}", e);
                 }
             }
-            Err(e) => {
-                eprintln!("❌ [PgListener] Failed to create listener: {}", e);
-            }
+
+            // Reconnect nach 5 Sekunden
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
+}
+
+/// Connect to PostgreSQL and listen for notifications
+async fn connect_and_listen(
+    app_handle: &AppHandle,
+    connection_string: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Separate Connection für LISTEN (nicht aus Pool!)
+    let (client, mut connection) = tokio_postgres::connect(connection_string, NoTls).await?;
+
+    println!("✅ [PgListener] Connected to PostgreSQL");
+
+    // LISTEN auf alle Channels
+    client.execute("LISTEN booking_changes", &[]).await?;
+    client.execute("LISTEN guest_changes", &[]).await?;
+    client.execute("LISTEN room_changes", &[]).await?;
+    client.execute("LISTEN table_changes", &[]).await?;
+
+    println!("🎧 [PgListener] Listening on channels: booking_changes, guest_changes, room_changes, table_changes");
+
+    // Wichtig: Die Connection muss als Stream verarbeitet werden
+    // poll_message() wartet auf die nächste Nachricht
+    loop {
+        match poll_fn(|cx| connection.poll_message(cx)).await {
+            Some(Ok(AsyncMessage::Notification(notification))) => {
+                println!(
+                    "📨 [PgListener] Received: {} -> {}",
+                    notification.channel(),
+                    notification.payload()
+                );
+
+                // Parse JSON payload
+                match serde_json::from_str::<DbChangeEvent>(notification.payload()) {
+                    Ok(event) => {
+                        // Emit to frontend via Tauri event system
+                        if let Err(e) = app_handle.emit("db-change", &event) {
+                            eprintln!("❌ [PgListener] Failed to emit event: {}", e);
+                        } else {
+                            println!("✅ [PgListener] Emitted db-change: {:?}", event);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "⚠️ [PgListener] Failed to parse payload: {} - Error: {}",
+                            notification.payload(),
+                            e
+                        );
+                    }
+                }
+            }
+            Some(Ok(AsyncMessage::Notice(notice))) => {
+                // PostgreSQL NOTICE messages (info, warnings)
+                println!("📝 [PgListener] Notice: {}", notice.message());
+            }
+            Some(Ok(_)) => {
+                // Other async messages (ignore)
+            }
+            Some(Err(e)) => {
+                eprintln!("❌ [PgListener] Connection error: {}", e);
+                return Err(Box::new(e));
+            }
+            None => {
+                // Connection geschlossen
+                println!("⚠️ [PgListener] Connection closed by server");
+                return Ok(());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_sanitize_url() {
-        let url = "postgres://user:secret@localhost:5432/mydb";
-        let sanitized = PgListener::sanitize_url(url);
-        assert!(sanitized.contains("***"));
-        assert!(!sanitized.contains("secret"));
-        assert!(sanitized.contains("localhost:5432/mydb"));
-    }
 
     #[test]
     fn test_event_serialization() {
@@ -206,13 +137,21 @@ mod tests {
             action: "UPDATE".to_string(),
             id: 123,
             timestamp: "2025-11-16T10:00:00Z".to_string(),
-            old_data: None,
-            new_data: None,
         };
 
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"table\":\"bookings\""));
         assert!(json.contains("\"action\":\"UPDATE\""));
         assert!(json.contains("\"id\":123"));
+    }
+
+    #[test]
+    fn test_event_deserialization() {
+        let json = r#"{"table":"guests","action":"INSERT","id":456,"timestamp":"2025-02-02T12:00:00Z"}"#;
+        let event: DbChangeEvent = serde_json::from_str(json).unwrap();
+
+        assert_eq!(event.table, "guests");
+        assert_eq!(event.action, "INSERT");
+        assert_eq!(event.id, 456);
     }
 }

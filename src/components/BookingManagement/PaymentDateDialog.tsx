@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Calendar, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import FilterDatePicker from './FilterDatePicker';
 
 interface PaymentDateDialogProps {
   isOpen: boolean;
@@ -17,14 +18,9 @@ export default function PaymentDateDialog({
   onConfirm,
   onCancel,
 }: PaymentDateDialogProps) {
-  const today = new Date().toISOString().split('T')[0];
-  const [paymentDate, setPaymentDate] = useState<string>(today);
+  const [paymentDate, setPaymentDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
 
   if (!isOpen) return null;
-
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPaymentDate(e.target.value);
-  };
 
   const handleConfirm = () => {
     onConfirm(paymentDate);
@@ -61,15 +57,15 @@ export default function PaymentDateDialog({
             <label className="block text-sm font-medium text-slate-300 mb-2">
               Wann wurde die Zahlung erhalten?
             </label>
-            <input
-              type="date"
+            <FilterDatePicker
               value={paymentDate}
-              onChange={handleDateChange}
-              max={today}
-              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              onChange={(value) => setPaymentDate(value)}
+              maxDate={new Date()}
+              placeholder="Datum auswählen"
+              className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent cursor-pointer"
             />
             <p className="text-xs text-slate-400 mt-2">
-              💡 Nur Daten bis heute auswählbar (kein Bezahldatum in der Zukunft)
+              Nur Daten bis heute auswählbar (kein Bezahldatum in der Zukunft)
             </p>
           </div>
 
