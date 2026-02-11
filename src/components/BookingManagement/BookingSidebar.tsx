@@ -87,6 +87,10 @@ interface Booking {
   ist_stiftungsfall?: boolean;
   payment_recipient_id?: number | null;
   putzplan_checkout_date?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string;
   room?: Room;
   guest?: Guest;
 }
@@ -1760,6 +1764,39 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
               {/* Reminders Section */}
               {booking.id && <BookingReminders bookingId={booking.id} />}
+
+              {/* Audit Trail - Änderungshistorie */}
+              {(booking.created_by || booking.updated_by) && (
+                <div className="border-t border-slate-700 pt-6 mt-6">
+                  <h4 className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wide">
+                    Änderungshistorie
+                  </h4>
+                  <div className="space-y-2">
+                    {booking.created_by && (
+                      <p className="text-sm text-slate-300">
+                        <span className="text-slate-400">Erstellt von:</span>{' '}
+                        <span className="font-medium text-white">{booking.created_by}</span>
+                        {booking.created_at && (
+                          <span className="text-slate-500 ml-2">
+                            am {format(new Date(booking.created_at), 'dd.MM.yyyy HH:mm', { locale: de })} Uhr
+                          </span>
+                        )}
+                      </p>
+                    )}
+                    {booking.updated_by && (
+                      <p className="text-sm text-slate-300">
+                        <span className="text-slate-400">Zuletzt geändert von:</span>{' '}
+                        <span className="font-medium text-white">{booking.updated_by}</span>
+                        {booking.updated_at && (
+                          <span className="text-slate-500 ml-2">
+                            am {format(new Date(booking.updated_at), 'dd.MM.yyyy HH:mm', { locale: de })} Uhr
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Email Buttons Section */}
               <div className="border border-slate-200 rounded-lg p-5 bg-gradient-to-br from-blue-50 to-white">
