@@ -1767,15 +1767,15 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
               {/* Audit Trail - Änderungshistorie */}
               {(booking.created_by || booking.updated_by) && (
-                <div className="border-t border-slate-700 pt-6 mt-6">
-                  <h4 className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wide">
+                <div className="border-t border-slate-200 pt-6 mt-6">
+                  <h4 className="text-xs font-semibold text-slate-600 mb-3 uppercase tracking-wide">
                     Änderungshistorie
                   </h4>
                   <div className="space-y-2">
                     {booking.created_by && (
-                      <p className="text-sm text-slate-300">
-                        <span className="text-slate-400">Erstellt von:</span>{' '}
-                        <span className="font-medium text-white">{booking.created_by}</span>
+                      <p className="text-sm text-slate-700">
+                        <span className="text-slate-600">Erstellt von:</span>{' '}
+                        <span className="font-medium text-slate-900">{booking.created_by}</span>
                         {booking.created_at && (
                           <span className="text-slate-500 ml-2">
                             am {format(new Date(booking.created_at), 'dd.MM.yyyy HH:mm', { locale: de })} Uhr
@@ -1784,9 +1784,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                       </p>
                     )}
                     {booking.updated_by && (
-                      <p className="text-sm text-slate-300">
-                        <span className="text-slate-400">Zuletzt geändert von:</span>{' '}
-                        <span className="font-medium text-white">{booking.updated_by}</span>
+                      <p className="text-sm text-slate-700">
+                        <span className="text-slate-600">Zuletzt geändert von:</span>{' '}
+                        <span className="font-medium text-slate-900">{booking.updated_by}</span>
                         {booking.updated_at && (
                           <span className="text-slate-500 ml-2">
                             am {format(new Date(booking.updated_at), 'dd.MM.yyyy HH:mm', { locale: de })} Uhr

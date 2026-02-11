@@ -155,6 +155,7 @@ async fn create_room_pg(
     postal_code: Option<String>,
     city: Option<String>,
     notizen: Option<String>,
+    current_user: Option<String>,
 ) -> Result<database_pg::Room, String> {
     println!("create_room_pg called: {}", name);
 
@@ -172,6 +173,7 @@ async fn create_room_pg(
         postal_code,
         city,
         notizen,
+        current_user,
     ).await {
         Ok(room) => {
             println!("Successfully created room: {}", room.name);
@@ -200,6 +202,7 @@ async fn update_room_pg(
     postal_code: Option<String>,
     city: Option<String>,
     notizen: Option<String>,
+    current_user: Option<String>,
 ) -> Result<database_pg::Room, String> {
     println!("update_room_pg called: id={}, name={}", id, name);
 
@@ -218,6 +221,7 @@ async fn update_room_pg(
         postal_code,
         city,
         notizen,
+        current_user,
     ).await {
         Ok(room) => {
             println!("Successfully updated room: {}", room.name);
@@ -345,6 +349,7 @@ async fn create_guest_pg(
     tags: Option<String>,
     automail: Option<bool>,
     automail_sprache: Option<String>,
+    current_user: Option<String>,
 ) -> Result<database_pg::Guest, String> {
     println!("create_guest_pg called: {} {}", vorname, nachname);
 
@@ -357,7 +362,7 @@ async fn create_guest_pg(
         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
         identifikationsnummer, debitorenkonto, kennzeichen,
         rechnungs_email, marketing_einwilligung, leitweg_id,
-        kostenstelle, tags, automail, automail_sprache,
+        kostenstelle, tags, automail, automail_sprache, current_user,
     ).await {
         Ok(guest) => {
             println!("Successfully created guest: {} {}", guest.vorname, guest.nachname);
@@ -409,6 +414,7 @@ async fn update_guest_pg(
     tags: Option<String>,
     automail: Option<bool>,
     automail_sprache: Option<String>,
+    current_user: Option<String>,
 ) -> Result<database_pg::Guest, String> {
     println!("update_guest_pg called: id={}", id);
 
@@ -421,7 +427,7 @@ async fn update_guest_pg(
         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
         identifikationsnummer, debitorenkonto, kennzeichen,
         rechnungs_email, marketing_einwilligung, leitweg_id,
-        kostenstelle, tags, automail, automail_sprache,
+        kostenstelle, tags, automail, automail_sprache, current_user,
     ).await {
         Ok(guest) => {
             println!("Successfully updated guest: {} {}", guest.vorname, guest.nachname);
@@ -544,6 +550,7 @@ async fn update_booking_pg(
     payment_recipient_id: Option<i32>,
     putzplan_checkout_date: Option<String>,
     ist_dpolg_mitglied: Option<bool>,
+    current_user: Option<String>,
     expected_updated_at: Option<String>,  // ← OPTIMISTIC LOCKING!
 ) -> Result<database_pg::Booking, String> {
     println!("update_booking_pg called: id={}, optimistic_locking={}",
@@ -577,6 +584,7 @@ async fn update_booking_pg(
         payment_recipient_id,
         putzplan_checkout_date,
         ist_dpolg_mitglied,
+        current_user,
         expected_updated_at,  // Pass through to repository
     ).await {
         Ok(booking) => {
@@ -980,6 +988,7 @@ pub fn run_pg() {
             run_email_automation_migration,
             run_discount_calculated_amount_migration,
             backfill_scheduled_emails,
+            cleanup_booking_reminder_emails,
 
             // Real-Time Multi-User
             run_realtime_notify_migration,
@@ -1186,6 +1195,7 @@ async fn create_booking_pg(
     payment_recipient_id: Option<i32>,
     putzplan_checkout_date: Option<String>,
     ist_dpolg_mitglied: Option<bool>,
+    current_user: Option<String>,
 ) -> Result<database_pg::Booking, String> {
     println!("create_booking_pg called with availability check");
 
@@ -1217,6 +1227,7 @@ async fn create_booking_pg(
         payment_recipient_id,
         putzplan_checkout_date,
         ist_dpolg_mitglied,
+        current_user,
     )
     .await
     .map_err(|e| {
@@ -1307,6 +1318,7 @@ async fn update_booking_status_pg(
         booking.payment_recipient_id,
         booking.putzplan_checkout_date,
         booking.ist_dpolg_mitglied,
+        None, // No user tracking for internal status updates
         booking.updated_at, // Optimistic locking
     )
     .await
@@ -1386,7 +1398,8 @@ async fn update_booking_statuses_pg(pool: State<'_, DbPool>) -> Result<Vec<datab
                 booking.payment_recipient_id,
                 booking.putzplan_checkout_date,
                 booking.ist_dpolg_mitglied,
-                booking.updated_at,
+                Some("System".to_string()), // Auto-update by system
+                booking.updated_at, // Optimistic locking
             )
             .await
             .map_err(|e| {
@@ -1444,7 +1457,8 @@ async fn update_booking_payment_pg(
         booking.payment_recipient_id,
         booking.putzplan_checkout_date,
         booking.ist_dpolg_mitglied,
-        booking.updated_at,
+        None, // No user tracking for payment updates
+        booking.updated_at, // Optimistic locking
     )
     .await
     .map_err(|e| {
@@ -3183,7 +3197,7 @@ async fn backfill_scheduled_emails(pool: State<'_, DbPool>) -> Result<String, St
              SELECT
                  b.id,
                  b.guest_id,
-                 'booking_reminder',
+                 'erinnerung',
                  g.email,
                  'Erinnerung: Ihre Buchung #' || b.id::text,
                  (b.checkin_date::date - INTERVAL '3 days')::TIMESTAMP,
@@ -3197,7 +3211,7 @@ async fn backfill_scheduled_emails(pool: State<'_, DbPool>) -> Result<String, St
                AND NOT EXISTS (
                    SELECT 1 FROM scheduled_emails se
                    WHERE se.booking_id = b.id
-                   AND se.template_name = 'booking_reminder'
+                   AND se.template_name = 'erinnerung'
                    AND se.status = 'pending'
                )",
             &[]
@@ -3212,6 +3226,44 @@ async fn backfill_scheduled_emails(pool: State<'_, DbPool>) -> Result<String, St
     let count = result;
     println!("✅ Created {} scheduled emails for existing bookings", count);
     Ok(format!("Created {} scheduled emails (from {} qualifying bookings, {} already had emails)", count, total_qualifying, existing_count))
+}
+
+#[tauri::command]
+async fn cleanup_booking_reminder_emails(pool: State<'_, DbPool>) -> Result<String, String> {
+    println!("🧹 cleanup_booking_reminder_emails called");
+
+    let client = pool.get().await.map_err(|e| format!("DB connection failed: {}", e))?;
+
+    // Delete scheduled_emails with wrong template name
+    let deleted_scheduled = client
+        .execute(
+            "DELETE FROM scheduled_emails WHERE template_name = 'booking_reminder'",
+            &[]
+        )
+        .await
+        .map_err(|e| format!("Failed to delete scheduled_emails: {}", e))?;
+
+    println!("   Deleted {} scheduled_emails with template 'booking_reminder'", deleted_scheduled);
+
+    // Delete error logs with wrong template name
+    let deleted_logs = client
+        .execute(
+            "DELETE FROM email_logs WHERE template_name = 'booking_reminder' AND status = 'fehler'",
+            &[]
+        )
+        .await
+        .map_err(|e| format!("Failed to delete email_logs: {}", e))?;
+
+    println!("   Deleted {} email_logs with template 'booking_reminder'", deleted_logs);
+
+    let message = format!(
+        "Cleanup erfolgreich: {} geplante Emails und {} Fehler-Logs gelöscht",
+        deleted_scheduled,
+        deleted_logs
+    );
+    println!("✅ {}", message);
+
+    Ok(message)
 }
 
 #[tauri::command]
@@ -3330,6 +3382,7 @@ async fn cancel_booking_command(pool: State<'_, DbPool>, booking_id: i64) -> Res
         booking.payment_recipient_id,
         booking.putzplan_checkout_date,
         booking.ist_dpolg_mitglied,
+        None,  // No user tracking for cancel
         None,  // No optimistic locking for cancel
     )
     .await
@@ -4968,6 +5021,7 @@ struct ScheduledEmail {
     email_type: String,
     scheduled_date: String,
     reason: String,
+    status: String,
 }
 
 #[tauri::command]
@@ -4985,6 +5039,31 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
         })?;
     println!("✅ Step 1: Database client obtained successfully");
 
+    // Debug: Count scheduled emails by status
+    println!("📊 DEBUG: Counting scheduled emails...");
+    let total_result = client.query_one("SELECT COUNT(*) as count FROM scheduled_emails", &[]).await;
+    match total_result {
+        Ok(row) => {
+            let total_count: i64 = row.get("count");
+            println!("   Total scheduled_emails in DB: {}", total_count);
+        }
+        Err(e) => println!("   ⚠️ Could not count total: {}", e)
+    }
+
+    let by_status_result = client.query(
+        "SELECT status, COUNT(*) as count FROM scheduled_emails GROUP BY status ORDER BY status", &[]
+    ).await;
+    match by_status_result {
+        Ok(rows) => {
+            for row in rows {
+                let status: String = row.get("status");
+                let count: i64 = row.get("count");
+                println!("   - Status '{}': {} emails", status, count);
+            }
+        }
+        Err(e) => println!("   ⚠️ Could not count by status: {}", e)
+    }
+
     println!("🔄 Step 2: Executing SQL query...");
     let sql = "SELECT
                 se.booking_id,
@@ -4999,8 +5078,8 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
              FROM scheduled_emails se
              JOIN bookings b ON se.booking_id = b.id
              JOIN guests g ON b.guest_id = g.id
-             WHERE se.status = 'pending'
-             ORDER BY se.scheduled_for ASC";
+             WHERE se.status IN ('pending', 'sent', 'failed', 'cancelled')
+             ORDER BY se.scheduled_for DESC";
 
     println!("📝 SQL Query:");
     println!("{}", sql);
@@ -5064,6 +5143,10 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
             let check_out: String = row.get("check_out");
             println!("    ✅ check_out = {}", check_out);
 
+            println!("    🔍 Extracting status...");
+            let status: String = row.get("status");
+            println!("    ✅ status = {}", status);
+
             // Generate reason based on email type and dates
             println!("    🔍 Generating reason from email_type...");
             let reason = match email_type.as_str() {
@@ -5082,6 +5165,7 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
                 email_type,
                 scheduled_date: scheduled_for,
                 reason,
+                status,
             };
 
             println!("    ✅ ScheduledEmail struct created successfully");
