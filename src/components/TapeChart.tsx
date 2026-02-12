@@ -586,12 +586,17 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
   // KRITISCH: Sync localBookings mit bookings aus Context
   useEffect(() => {
-    console.log('🔄 [TapeChart] Syncing localBookings from context, count:', bookings.length);
-    console.log('📊 [TapeChart] Bookings with services:', bookings.filter(b => b.services && b.services.length > 0).length);
-    console.log('📊 [TapeChart] Sample booking services:', bookings.find(b => b.services && b.services.length > 0)?.services?.map(s => ({ name: s.name, emoji: s.emoji })));
-    setLocalBookings(bookings);
-    console.log('✅ [TapeChart] localBookings state updated');
-  }, [bookings]);
+    // Only sync if no pending changes (prevents overwriting user edits)
+    if (!pendingBookingId && !pendingChange) {
+      console.log('🔄 [TapeChart] Syncing localBookings from context, count:', bookings.length);
+      console.log('📊 [TapeChart] Bookings with services:', bookings.filter(b => b.services && b.services.length > 0).length);
+      console.log('📊 [TapeChart] Sample booking services:', bookings.find(b => b.services && b.services.length > 0)?.services?.map(s => ({ name: s.name, emoji: s.emoji })));
+      setLocalBookings(bookings);
+      console.log('✅ [TapeChart] localBookings state updated');
+    } else {
+      console.log('⏸️ [TapeChart] Skipping sync - pending changes active');
+    }
+  }, [bookings, pendingBookingId, pendingChange]);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Persist density mode to localStorage
@@ -1023,7 +1028,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
       return updatedBookings;
     });
-  }, [updateBooking]);
+  }, [bookings, guestMap, roomMap, priceMap, updateBooking]);
 
   // Manual Confirmation Handlers
   const handleManualSave = useCallback(() => {
@@ -1043,7 +1048,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     setPendingChange(null);
   }, [bookings]);
 
-  const handleConfirmChange = useCallback(async (sendEmail: boolean, sendInvoice: boolean) => {
+  const handleConfirmChange = async (sendEmail: boolean, sendInvoice: boolean) => {
     console.log('═══════════════════════════════════════');
     console.log('🔥 [TapeChart] handleConfirmChange CALLED!');
     console.log('📦 Parameters:', { sendEmail, sendInvoice });
@@ -1067,14 +1072,36 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       });
 
       // Persist to database with Retry Logic (max 3 attempts with exponential backoff)
-      await invokeWithRetry('update_booking_dates_and_room_pg', {
+      const updatedBooking = await invokeWithRetry('update_booking_dates_and_room_pg', {
         id: pendingChange.bookingId,
         roomId: pendingChange.newData.room_id,
         checkinDate: pendingChange.newData.checkin_date,
         checkoutDate: pendingChange.newData.checkout_date,
       });
 
-      console.log('✅ [TapeChart] Change saved to DB successfully');
+      console.log('✅ [TapeChart] Change saved to DB with updated prices:', {
+        bookingId: pendingChange.bookingId,
+        gesamtpreis: updatedBooking.gesamtpreis,
+        grundpreis: updatedBooking.grundpreis,
+      });
+
+      // Update local state with backend response (includes recalculated prices)
+      setLocalBookings(prev => prev.map(b => {
+        if (b.id === pendingChange.bookingId) {
+          return {
+            ...b,
+            ...updatedBooking,
+            // IMPORTANT: Always use backend data for services and discounts
+            // to ensure calculated_amount is up-to-date after price recalculation
+            services: updatedBooking.services || b.services,
+            discounts: updatedBooking.discounts || b.discounts,
+          };
+        }
+        return b;
+      }));
+
+      // Synchronize context with FULL backend response (prevents visual jump)
+      updateBooking(pendingChange.bookingId, updatedBooking);
 
       // Execute command for undo/redo support
       const command = new UpdateBookingDatesCommand(
@@ -1102,11 +1129,6 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       setPendingBookingId(null);
       setPendingChange(null);
       setShowChangeConfirmation(false);
-
-      // Refresh bookings from database to sync UI with DB
-      console.log('🔄 [TapeChart] Refreshing bookings from database...');
-      await refreshBookings();
-      console.log('✅ [TapeChart] Bookings refreshed from database!');
 
       // 🔄 SYNC zu Turso (Mobile App) - NUR wenn SPEICHERN Button geklickt wurde!
       const checkoutChanged = oldCheckoutDate !== newCheckoutDate;
@@ -1218,15 +1240,15 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       setShowChangeConfirmation(false);
       toast.error('Fehler beim Speichern: ' + error);
     }
-  }, [pendingChange, bookings, refreshBookings]);
+  };
 
-  const handleDiscardChange = useCallback(() => {
+  const handleDiscardChange = () => {
     console.log('🗑️ [TapeChart] Discarding change from confirmation dialog');
     setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
     setShowChangeConfirmation(false);
-  }, [bookings]);
+  };
 
   // Context Menu Handler
   const handleContextMenu = useCallback((bookingId: number, x: number, y: number) => {
