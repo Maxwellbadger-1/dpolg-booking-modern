@@ -1,8 +1,8 @@
 # Projekt-Spezifikation
 
 **Projekt:** Stiftung der DPolG Buchungssystem
-**Version:** 1.8.4
-**Stand:** 2025-02-04
+**Version:** 1.9.0
+**Stand:** 2025-02-12
 **Typ:** Desktop-Anwendung (Windows, macOS)
 
 ---
@@ -78,11 +78,13 @@ Buchungsverwaltungssystem für das Gästehaus der Stiftung der Deutschen Polizei
 | FR-004.5 | Manuelle Rabatte | Mittel | Fertig |
 | FR-004.6 | Guthaben-Verrechnung | Niedrig | Fertig |
 | FR-004.7 | Konsistenz Sidebar/Invoice | Hoch | Fertig |
+| FR-004.8 | Automatische Preis-Neuberechnung bei Updates | Hoch | Fertig (v1.9.0) |
 
 **Preiskonsistenz-Prinzip:**
 - **View-Mode:** Zeigt gespeicherte Preise (historisch korrekt, wie Rechnung)
 - **Edit-Mode:** Berechnet dynamisch mit aktuellen Zimmerpreisen
 - **Invoice:** Verwendet immer gespeicherte Preise aus Buchung
+- **Auto-Update (v1.9.0):** Backend berechnet Preise automatisch neu bei Änderungen von Daten/Zimmer/Gast
 
 ### FR-005: Kommunikation
 
@@ -326,10 +328,10 @@ Buchungsverwaltungssystem für das Gästehaus der Stiftung der Deutschen Polizei
 
 | Metrik | Wert |
 |--------|------|
-| React Components | 60 |
-| Tauri Commands | 174 |
-| Database Tables | 32 |
-| Repositories | 20 |
+| React Components | 63 |
+| Tauri Commands | 182 |
+| Database Tables | 33 |
+| Repositories | 21 |
 
 ### Deployment
 
