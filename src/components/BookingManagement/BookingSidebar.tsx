@@ -198,6 +198,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
   const [newService, setNewService] = useState<AdditionalService>({
     service_name: '',
     service_price: 0,
+    price_type: 'fixed',           // Default für manuelle Services
+    original_value: 0,
+    applies_to: 'overnight_price', // Default für manuelle Services
   });
   const [newDiscount, setNewDiscount] = useState<Discount>({
     discount_name: '',
@@ -873,9 +876,9 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                 bookingId: booking.id,
                 serviceName: service.service_name,
                 servicePrice: service.service_price,
-                priceType: 'fixed',
-                originalValue: service.service_price,
-                appliesTo: 'overnight_price',
+                priceType: service.price_type || 'fixed',
+                originalValue: service.original_value || service.service_price,
+                appliesTo: service.applies_to || 'overnight_price',
               });
             }
           }
@@ -972,7 +975,7 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           checkinDate: formData.checkin_date,
           checkoutDate: formData.checkout_date,
           anzahlGaeste: formData.anzahl_gaeste,
-          status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status, // ✅ FIX: Auto-set status to stiftungsfall if checkbox is checked
+          status: formData.ist_stiftungsfall ? 'stiftungsfall' : formData.status,
           gesamtpreis: totalPrice,
           bemerkungen: formData.bemerkungen || null,
           anzahlBegleitpersonen: accompanyingGuests.length,
@@ -981,13 +984,13 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
           rabattPreis: discountsTotal,
           anzahlNaechte: nights,
           istStiftungsfall: formData.ist_stiftungsfall || false,
-          paymentRecipientId: formData.payment_recipient_id, // ✅ FIX: camelCase für Tauri auto-conversion
-          putzplanCheckoutDate: formData.putzplan_checkout_date || null, // ✅ Alternative Cleaning Checkout
-          istDpolgMitglied: guests.find(g => g.id === formData.guest_id)?.dpolg_mitglied || false, // ✅ DPolG-Mitglied Status für Rabattberechnung
+          paymentRecipientId: formData.payment_recipient_id,
+          putzplanCheckoutDate: formData.putzplan_checkout_date || null,
+          istDpolgMitglied: guests.find(g => g.id === formData.guest_id)?.dpolg_mitglied || false,
         };
 
         console.log('📤 [SIDEBAR createPayload] Payload being sent to createBooking:');
-        console.log('  payment_recipient_id:', bookingData.payment_recipient_id, 'type:', typeof bookingData.payment_recipient_id);
+        console.log('  paymentRecipientId:', bookingData.paymentRecipientId, 'type:', typeof bookingData.paymentRecipientId);
         console.log('  Complete payload:', JSON.stringify(bookingData, null, 2));
 
         const result = await createBooking(bookingData) as any;
@@ -1627,10 +1630,11 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                   <PaymentDropdown
                     isPaid={booking.bezahlt}
                     bookingId={bookingId!}
-                    onPaymentChange={async (isPaid, zahlungsmethode) => {
+                    onPaymentChange={async (isPaid, zahlungsmethode, paymentDate) => {
                       try {
-                        await updateBookingPayment(bookingId!, isPaid, zahlungsmethode);
-                        await loadBookingDetails();
+                        // PHASE 1 FIX: Use return value for immediate update
+                        const updated = await updateBookingPayment(bookingId!, isPaid, zahlungsmethode, paymentDate);
+                        setBooking(updated); // Sofort lokales Booking updaten (kein loadBookingDetails nötig)
                       } catch (error) {
                         setShowErrorDialog({
                           show: true,
@@ -2731,14 +2735,14 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
 
                       if (booking?.id) {
                         try {
-                          // 1. Service zum Backend hinzufügen (manuelle Services sind immer "fixed")
+                          // 1. Service zum Backend hinzufügen
                           await invoke('create_additional_service_pg', {
                             bookingId: booking.id,
                             serviceName: newService.service_name,
                             servicePrice: newService.service_price,
-                            priceType: 'fixed',
-                            originalValue: newService.service_price,
-                            appliesTo: 'overnight_price',
+                            priceType: newService.price_type || 'fixed',
+                            originalValue: newService.original_value || newService.service_price,
+                            appliesTo: newService.applies_to || 'overnight_price',
                           });
 
                           // 2. Buchung NEU laden (inkl. Services mit Emojis)
@@ -2755,8 +2759,13 @@ export default function BookingSidebar({ bookingId, isOpen, onClose, mode: initi
                           setError('Fehler beim Hinzufügen des Service');
                         }
                       } else {
-                        setServices([...services, { ...newService, price_type: 'fixed', original_value: newService.service_price, applies_to: 'overnight_price' }]);
-                        setNewService({ service_name: '', service_price: 0 });
+                        setServices([...services, {
+                          ...newService,
+                          price_type: newService.price_type || 'fixed',
+                          original_value: newService.original_value || newService.service_price,
+                          applies_to: newService.applies_to || 'overnight_price'
+                        }]);
+                        setNewService({ service_name: '', service_price: 0, price_type: 'fixed', original_value: 0, applies_to: 'overnight_price' });
                         setError(null);
                       }
                     }}

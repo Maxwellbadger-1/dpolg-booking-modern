@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo, R
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import toast from 'react-hot-toast';
+import { useUser } from './UserContext';
 import {
   commandManager,
   UpdateBookingStatusCommand,
@@ -58,10 +59,11 @@ interface DataContextType {
   deletePaymentRecipient: (id: number) => Promise<void>;
 
   // Optimistic Updates
-  updateBookingStatus: (id: number, status: string) => Promise<void>;
-  updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => Promise<void>;
-  markInvoiceSent: (id: number, emailAddress: string) => Promise<void>;
+  updateBookingStatus: (id: number, status: string) => Promise<Booking>;
+  updateBookingPayment: (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string) => Promise<Booking>;
+  markInvoiceSent: (id: number, emailAddress: string) => Promise<Booking>;
   reloadBooking: (id: number) => Promise<void>;
+  syncBookingFromBackend: (booking: Booking) => void;
 }
 
 // Context
@@ -69,6 +71,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 
 // Provider Component
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { userName } = useUser(); // Get current user for audit trail
   const [rooms, setRooms] = useState<Room[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -173,12 +176,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     const pollForUpdates = async () => {
       try {
+        console.log(`🔍 [POLL] Checking since: ${lastTimestamp}`);
         const response = await invoke<{
           bookings: Booking[];
           guests: Guest[];
           rooms: Room[];
           timestamp: string;
         }>('get_updates_since', { sinceTimestamp: lastTimestamp });
+
+        console.log(`🔍 [POLL] Result: ${response.bookings.length} bookings, ${response.guests.length} guests, ${response.rooms.length} rooms, timestamp: ${response.timestamp}`);
 
         // Update timestamp for next poll
         lastTimestamp = response.timestamp;
@@ -258,8 +264,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
                 try {
                   const updatedBooking = await invoke<Booking>('get_booking_with_details_by_id_pg', { id });
                   setBookings(prev => {
-                    const exists = prev.some(b => b.id === id);
-                    if (exists) {
+                    const existing = prev.find(b => b.id === id);
+                    // Skip wenn Daten identisch (vermeidet unnötige Re-Renders)
+                    if (existing && existing.updated_at === updatedBooking.updated_at) {
+                      console.log(`ℹ️ [Real-Time] Booking ${id} bereits aktuell (updated_at: ${updatedBooking.updated_at})`);
+                      return prev;  // Keine Änderung nötig
+                    }
+                    if (existing) {
                       return prev.map(b => b.id === id ? updatedBooking : b);
                     } else {
                       return [...prev, updatedBooking];
@@ -353,6 +364,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         postalCode: data.postalCode || null,
         city: data.city || null,
         notizen: data.notizen || null,
+        currentUser: userName,
       });
 
       // 2. Command Pattern: SOFORT zum State hinzufügen (Instant Undo!)
@@ -368,7 +380,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.error('❌ [DataContext.createRoom] Error:', error);
       throw error;
     }
-  }, []);
+  }, [userName]);
 
   const updateRoom = useCallback(async (id: number, data: any): Promise<Room> => {
     // 1. Backup für Undo
@@ -391,6 +403,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         postalCode: data.postalCode || null,
         city: data.city || null,
         notizen: data.notizen || null,
+        currentUser: userName,
       });
 
       // 3. Command Pattern: State aktualisieren (Instant Undo!)
@@ -402,7 +415,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.error('❌ [DataContext.updateRoom] Error:', error);
       throw error;
     }
-  }, [rooms]);
+  }, [rooms, userName]);
 
   const deleteRoom = useCallback(async (id: number): Promise<void> => {
     // 1. Backup für Undo
@@ -431,7 +444,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const createGuest = useCallback(async (data: any): Promise<Guest> => {
     try {
       // 1. Backend Create
-      const guest = await invoke<Guest>('create_guest_pg', data);
+      const guest = await invoke<Guest>('create_guest_pg', { ...data, currentUser: userName });
 
       // 2. Command Pattern: SOFORT zum State hinzufügen (Instant Undo!)
       const command = new CreateGuestCommand(guest, setGuests);
@@ -446,7 +459,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Kein Rollback nötig - Guest wurde noch nicht hinzugefügt
       throw error;
     }
-  }, []);
+  }, [userName]);
 
   const updateGuest = useCallback(async (id: number, data: any): Promise<Guest> => {
     // 1. Backup für Undo
@@ -455,7 +468,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     try {
       // 2. Backend Update ZUERST (um korrekten State zu bekommen)
-      const newGuest = await invoke<Guest>('update_guest_pg', { id, ...data });
+      const newGuest = await invoke<Guest>('update_guest_pg', { id, ...data, currentUser: userName });
 
       // 3. Command Pattern: State aktualisieren (Instant Undo!)
       const command = new UpdateGuestCommand(id, oldGuest, newGuest, setGuests);
@@ -465,7 +478,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       throw error;
     }
-  }, [guests]);
+  }, [guests, userName]);
 
   const deleteGuest = useCallback(async (id: number): Promise<void> => {
     // 1. Backup für Undo
@@ -569,7 +582,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     console.log('🔍 [DataContext] createBooking aufgerufen mit:', data);
     try {
       // 1. Backend Create (Auto-Sync zu Turso erfolgt im Backend)
-      const booking = await invoke<Booking>('create_booking_pg', data);
+      const booking = await invoke<Booking>('create_booking_pg', { ...data, currentUser: userName });
       console.log('✅ [DataContext] Buchung erstellt:', booking);
       console.log('📅 [DataContext] checkout_date:', booking.checkout_date);
 
@@ -607,7 +620,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Kein Rollback nötig - Booking wurde noch nicht hinzugefügt
       throw error;
     }
-  }, []);
+  }, [userName]);
 
   const updateBooking = useCallback(async (id: number, data: any): Promise<Booking> => {
     console.log('🔍 [DataContext.updateBooking] START');
@@ -688,6 +701,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       // Entferne expectedUpdatedAt aus sanitizedData um Konflikte zu vermeiden
       delete invokePayload.expectedUpdatedAt;
       invokePayload.expectedUpdatedAt = expectedTimestamp;
+      invokePayload.currentUser = userName; // Add audit user
       console.log('📤 [DataContext] Calling invoke with:');
       console.log('  payment_recipient_id:', invokePayload.payment_recipient_id);
       console.log('  reservierungsnummer:', invokePayload.reservierungsnummer);
@@ -696,8 +710,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       const booking = await invoke<Booking>('update_booking_pg', invokePayload);
 
-      // WICHTIG: Server-Response (mit neuem updated_at) in State übernehmen
+      // WICHTIG: Server-Response (mit neuem updated_at UND PREISEN) in State übernehmen
       // Das verhindert Optimistic Locking Konflikte bei nachfolgenden Updates
+      // Backend hat Preise automatisch neu berechnet, wenn Daten/Zimmer/Gast geändert wurden
       // ABER: Backend-Response enthält keine Services/Discounts, daher beibehalten!
       setBookings(prev => prev.map(b => {
         if (b.id === id) {
@@ -709,6 +724,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
         }
         return b;
       }));
+
+      console.log('✅ [DataContext] Booking updated with prices:', {
+        id,
+        gesamtpreis: booking.gesamtpreis,
+        grundpreis: booking.grundpreis,
+      });
 
       // 4. AUTO-SYNC zu Turso (falls checkout_date ODER checkin_date geändert wurde)
       // FIX: Support both camelCase and snake_case (Backwards-Compatibility)
@@ -784,7 +805,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
       throw error;
     }
-  }, [bookings]);
+  }, [bookings, userName]);
 
   const deleteBooking = useCallback(async (id: number): Promise<void> => {
     // 1. Backup für Rollback UND Undo
@@ -812,9 +833,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [bookings]);
 
   // Command Pattern: Update Booking Status (INSTANT UNDO/REDO!)
-  const updateBookingStatus = useCallback(async (id: number, status: string): Promise<void> => {
+  const updateBookingStatus = useCallback(async (id: number, status: string): Promise<Booking> => {
     const oldBooking = bookings.find(b => b.id === id);
-    if (!oldBooking) return;
+    if (!oldBooking) throw new Error('Booking not found');
 
     // Create and execute command (INSTANT UI update!)
     const command = new UpdateBookingStatusCommand(
@@ -826,8 +847,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     commandManager.executeCommand(command);
 
     try {
-      // Backend sync (fire-and-forget, runs in background)
-      await invoke('update_booking_status_pg', { id: id, status: status });
+      // Backend sync with updated booking response
+      const updatedBooking = await invoke<Booking>('update_booking_status_pg', { id: id, status: status });
+
+      // Update state with backend response (ensure consistency)
+      setBookings(prev => prev.map(b => b.id === id ? updatedBooking : b));
 
       // 🔥 2-SCHRITT SYNC zu Turso (Status-Änderung, z.B. Stornierung)
       // Bei Status-Änderung (reserviert → storniert oder umgekehrt) müssen Tasks neu berechnet werden
@@ -862,6 +886,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
             toast.error('❌ Putzplan-Sync fehlgeschlagen', { id: syncToast });
           });
       }
+
+      return updatedBooking; // PHASE 1 FIX: Return updated booking
     } catch (error) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();
@@ -871,9 +897,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [bookings]);
 
   // Command Pattern: Update Booking Payment (INSTANT UNDO/REDO!)
-  const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string): Promise<void> => {
+  const updateBookingPayment = useCallback(async (id: number, isPaid: boolean, zahlungsmethode?: string, paymentDate?: string): Promise<Booking> => {
     const oldBooking = bookings.find(b => b.id === id);
-    if (!oldBooking) return;
+    if (!oldBooking) throw new Error('Booking not found');
 
     // Verwende das übergebene Datum, oder falls nicht vorhanden, heutiges Datum
     const newPaidAt = isPaid ? (paymentDate || new Date().toISOString().split('T')[0]) : null;
@@ -893,18 +919,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
     commandManager.executeCommand(command);
 
     try {
-      // Backend sync (fire-and-forget, runs in background)
-      await invoke('update_booking_payment_pg', {
+      // Backend sync with updated booking response
+      const updatedBooking = await invoke<Booking>('update_booking_payment_pg', {
         id: id,
         bezahlt: isPaid,
         zahlungsmethode: newMethod,
         bezahltAm: newPaidAt  // NEU: Datum an Backend senden
       });
 
-      // ✅ REMINDER BADGE UPDATE: Trigger Bell-Icon Count Refresh (only when marking as paid)
-      if (isPaid) {
-        window.dispatchEvent(new CustomEvent('reminder-updated'));
-      }
+      // Update state with backend response (ensure consistency)
+      setBookings(prev => prev.map(b => b.id === id ? updatedBooking : b));
+
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+
+      return updatedBooking; // PHASE 1 FIX: Return updated booking
     } catch (error) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();
@@ -914,9 +942,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [bookings]);
 
   // Mark Invoice as Sent (Optimistic Update)
-  const markInvoiceSent = useCallback(async (id: number, emailAddress: string): Promise<void> => {
+  const markInvoiceSent = useCallback(async (id: number, emailAddress: string): Promise<Booking> => {
     const oldBooking = bookings.find(b => b.id === id);
-    if (!oldBooking) return;
+    if (!oldBooking) throw new Error('Booking not found');
 
     const sentAt = new Date().toISOString();
 
@@ -930,13 +958,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
     ));
 
     try {
-      // Backend sync
-      await invoke('mark_invoice_sent_command', {
+      // Backend sync with updated booking response
+      const updatedBooking = await invoke<Booking>('mark_invoice_sent_command', {
         bookingId: id,
         emailAddress
       });
 
+      // Update state with backend response (ensure consistency)
+      setBookings(prev => prev.map(b => b.id === id ? updatedBooking : b));
+
       toast.success('✅ Rechnung als versendet markiert');
+
+      return updatedBooking; // PHASE 1/2 FIX: Return updated booking
     } catch (error) {
       // Rollback bei Fehler
       setBookings(prev => prev.map(b =>
@@ -978,6 +1011,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       console.error('❌ [DataContext] Fehler beim Neuladen der Buchung:', error);
       throw error;
     }
+  }, []);
+
+  // Sync Booking from Backend Response (no additional backend call)
+  // Used after TapeChart drag & drop to immediately update context with backend response
+  const syncBookingFromBackend = useCallback((booking: Booking) => {
+    console.log('🔄 [DataContext] syncBookingFromBackend:', booking.id);
+    setBookings(prev => prev.map(b => b.id === booking.id ? booking : b));
   }, []);
 
   // Event Listener: Refresh invoice status after email send
@@ -1111,6 +1151,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     updateBookingPayment,
     markInvoiceSent,
     reloadBooking,
+    syncBookingFromBackend,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -4,9 +4,11 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { Toaster } from 'react-hot-toast';
 import toast from 'react-hot-toast';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import Lottie from 'lottie-react';
 import { DataProvider, useData } from './context/DataContext';
 import { OnlineProvider } from './context/OnlineContext';
+import { UserProvider } from './context/UserContext';
 import OfflineBanner from './components/OfflineBanner';
 import TapeChart from './components/TapeChart';
 import BookingList from './components/BookingManagement/BookingList';
@@ -68,6 +70,13 @@ interface BookingWithDetails {
 
 type Tab = 'dashboard' | 'bookings' | 'guests' | 'rooms' | 'emails' | 'templates' | 'statistics' | 'cleaning' | 'reminders';
 
+interface DbChangeEvent {
+  table: string;
+  action: 'INSERT' | 'UPDATE' | 'DELETE';
+  id: number;
+  timestamp: string;
+}
+
 function AppContent() {
   // NORMALIZED STATE: Get guestMap for O(1) lookups
   const { rooms, bookings, loading, refreshAll, updateBookingStatus, guestMap } = useData(); // Use Context directly!
@@ -106,24 +115,59 @@ function AppContent() {
     return () => clearInterval(interval);
   }, []);
 
-  // Lade urgent reminder count beim Mount und refresh alle 5 Minuten
+  // Lade urgent reminder count beim Mount (initial load)
   useEffect(() => {
     loadUrgentReminderCount();
-
-    const interval = setInterval(() => {
-      loadUrgentReminderCount();
-    }, 5 * 60 * 1000); // 5 Minuten
-
-    return () => clearInterval(interval);
   }, []);
 
-  // Event Listener für Reminder Updates (wenn Reminder als erledigt markiert wird)
+  // Real-Time Listener für Reminder-Änderungen (PostgreSQL NOTIFY + reminder-completed Event)
   useEffect(() => {
-    const handleReminderUpdate = () => {
-      loadUrgentReminderCount();
+    console.log('🔧 [DEBUG App] Setting up reminder listeners...');
+    let dbChangeUnlisten: UnlistenFn | null = null;
+    let reminderCompletedUnlisten: UnlistenFn | null = null;
+
+    const setupListeners = async () => {
+      try {
+        console.log('🔧 [DEBUG App] Importing @tauri-apps/api/event...');
+        const { listen } = await import('@tauri-apps/api/event');
+        console.log('🔧 [DEBUG App] listen() imported successfully');
+
+        // Listener 1: PostgreSQL NOTIFY (db-change)
+        dbChangeUnlisten = await listen<DbChangeEvent>('db-change', (event) => {
+          console.log('🔧 [DEBUG App] db-change event received!', event.payload);
+          const { table, action, id } = event.payload;
+
+          // Log ALL events for debugging
+          console.log(`🔧 [DEBUG App] Event details: table="${table}", action="${action}", id=${id}`);
+
+          // Nur bei Reminder-Änderungen Badge-Count neu laden
+          if (table === 'reminders') {
+            console.log(`📡 [Real-Time] ${action} Reminder #${id} → Badge wird aktualisiert`);
+            console.log('🔧 [DEBUG App] Calling loadUrgentReminderCount()...');
+            loadUrgentReminderCount();
+          } else {
+            console.log(`🔧 [DEBUG App] Ignoring event for table: ${table}`);
+          }
+        });
+        console.log('✅ [App] Reminder NOTIFY listener (db-change) registriert');
+
+        // Listener 2: Backend Event (reminder-completed) - PHASE 1 FIX
+        reminderCompletedUnlisten = await listen('reminder-completed', (event: any) => {
+          console.log('✅ [App] reminder-completed Event empfangen:', event.payload);
+          loadUrgentReminderCount(); // Sofort Badge neu laden
+        });
+        console.log('✅ [App] Reminder Event listener (reminder-completed) registriert');
+      } catch (e) {
+        console.error('❌ [App] Fehler beim Registrieren der Reminder-Listeners:', e);
+      }
     };
-    window.addEventListener('reminder-updated', handleReminderUpdate);
-    return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
+
+    setupListeners();
+
+    return () => {
+      if (dbChangeUnlisten) dbChangeUnlisten();
+      if (reminderCompletedUnlisten) reminderCompletedUnlisten();
+    };
   }, []);
 
   // Auto-Update Check beim App-Start
@@ -244,11 +288,16 @@ function AppContent() {
   }, []);
 
   const loadUrgentReminderCount = async () => {
+    console.log('🔧 [DEBUG App] loadUrgentReminderCount() called');
     try {
+      console.log('🔧 [DEBUG App] Invoking get_active_reminders_pg...');
       const reminders = await invoke<any[]>('get_active_reminders_pg');
+      console.log('🔧 [DEBUG App] Received reminders:', reminders.length, 'reminders');
+      console.log('🔧 [DEBUG App] Old badge count:', urgentReminderCount, '→ New:', reminders.length);
       setUrgentReminderCount(reminders.length);
+      console.log('✅ [DEBUG App] Badge count updated to:', reminders.length);
     } catch (error) {
-      console.error('Fehler beim Laden der dringenden Erinnerungen:', error);
+      console.error('❌ [DEBUG App] Fehler beim Laden der dringenden Erinnerungen:', error);
     }
   };
 
@@ -691,11 +740,12 @@ function App() {
   }, []);
 
   return (
-    <OnlineProvider>
-      <DataProvider>
-        <OfflineBanner />
-        <AppContent />
-        <Toaster
+    <UserProvider>
+      <OnlineProvider>
+        <DataProvider>
+          <OfflineBanner />
+          <AppContent />
+          <Toaster
           position="bottom-right"
           toastOptions={{
             duration: 4000,
@@ -735,8 +785,9 @@ function App() {
 
         {/* DevTools with Pool Stats Monitoring - nur wenn aktiviert */}
         {showDevTools && <DevTools />}
-      </DataProvider>
-    </OnlineProvider>
+        </DataProvider>
+      </OnlineProvider>
+    </UserProvider>
   );
 }
 

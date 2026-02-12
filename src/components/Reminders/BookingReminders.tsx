@@ -98,7 +98,7 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
   const handleCreateReminder = async (data: CreateReminderData) => {
     try {
-      await invoke('create_reminder_pg', {
+      const newReminder = await invoke<Reminder>('create_reminder_pg', {
         bookingId: data.booking_id,
         reminderType: data.reminder_type,
         title: data.title,
@@ -106,9 +106,12 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
         dueDate: data.due_date,
         priority: data.priority,
       });
-      await loadReminders();
+
+      // PHASE 2 FIX: Optimistic Update - sofort zu State hinzufügen
+      setReminders(prev => [...prev, newReminder]);
       setShowCreateDialog(false);
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+      // LISTEN/NOTIFY updated auch andere Tabs/Instanzen (kein Full Reload nötig)
     } catch (error) {
       console.error('Fehler beim Erstellen der Erinnerung:', error);
       alert(`Fehler beim Erstellen der Erinnerung: ${error}`);
@@ -117,16 +120,19 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
 
   const handleUpdateReminder = async (id: number, data: UpdateReminderData) => {
     try {
-      await invoke('update_reminder_pg', {
+      const updatedReminder = await invoke<Reminder>('update_reminder_pg', {
         id,
         title: data.title,
         description: data.description || null,
         dueDate: data.due_date,
         priority: data.priority,
       });
-      await loadReminders();
+
+      // PHASE 2 FIX: Optimistic Update - sofort State updaten
+      setReminders(prev => prev.map(r => r.id === id ? updatedReminder : r));
       setEditingReminder(null);
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+      // LISTEN/NOTIFY updated auch andere Tabs/Instanzen (kein Full Reload nötig)
     } catch (error) {
       console.error('Fehler beim Aktualisieren der Erinnerung:', error);
       alert(`Fehler beim Aktualisieren der Erinnerung: ${error}`);
@@ -134,50 +140,60 @@ export default function BookingReminders({ bookingId }: BookingRemindersProps) {
   };
 
   const handleMarkCompleted = async (id: number) => {
-    // OPTIMISTIC UPDATE (2025 Best Practice)
-    // 1. Sofort Event dispatchen für Badge-Update (KEIN await!)
-    window.dispatchEvent(new CustomEvent('reminder-updated'));
-
-    // 2. Optimistisch lokales State updaten
+    // PHASE 2 FIX: Optimistic Update ohne Full Reload
+    // 1. Optimistisch lokales State updaten
     setReminders(prev => prev.map(r =>
       r.id === id ? { ...r, is_completed: 1 } : r
     ));
 
     try {
-      // 3. Backend Update
+      // 2. Backend Update
       await invoke('complete_reminder_pg', { id, completed: true });
-
-      // 4. Final refresh für Konsistenz
-      await loadReminders();
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+      // LISTEN/NOTIFY updated auch andere Tabs/Instanzen (kein Full Reload nötig)
     } catch (error) {
       console.error('Fehler beim Markieren der Erinnerung:', error);
 
-      // 5. Rollback bei Fehler
+      // 3. Rollback bei Fehler - nur bei Fehler reloaden!
       await loadReminders();
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
     }
   };
 
   const handleMarkUncompleted = async (id: number) => {
+    // PHASE 2 FIX: Optimistic Update
+    setReminders(prev => prev.map(r =>
+      r.id === id ? { ...r, is_completed: 0 } : r
+    ));
+
     try {
       await invoke('complete_reminder_pg', { id, completed: false });
-      await loadReminders();
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+      // LISTEN/NOTIFY updated auch andere Tabs/Instanzen (kein Full Reload nötig)
     } catch (error) {
       console.error('Fehler beim Markieren der Erinnerung:', error);
+      // Rollback bei Fehler
+      await loadReminders();
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!confirm('Erinnerung wirklich löschen?')) return;
 
+    // PHASE 2 FIX: Optimistic Update - sofort aus UI entfernen
+    const deletedReminder = reminders.find(r => r.id === id);
+    setReminders(prev => prev.filter(r => r.id !== id));
+
     try {
       await invoke('delete_reminder_pg', { id });
-      await loadReminders();
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
+      // LISTEN/NOTIFY updated auch andere Tabs/Instanzen (kein Full Reload nötig)
     } catch (error) {
       console.error('Fehler beim Löschen der Erinnerung:', error);
       alert(`Fehler beim Löschen der Erinnerung: ${error}`);
+      // Rollback bei Fehler
+      if (deletedReminder) {
+        setReminders(prev => [...prev, deletedReminder]);
+      }
     }
   };
 
