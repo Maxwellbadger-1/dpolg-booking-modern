@@ -12,6 +12,7 @@ impl EmailLogRepository {
                 "SELECT id, booking_id, guest_id, template_name, recipient_email,
                         subject, status, error_message, sent_at::text as sent_at
                  FROM email_logs
+                 WHERE sent_at IS NOT NULL
                  ORDER BY sent_at DESC",
                 &[],
             )

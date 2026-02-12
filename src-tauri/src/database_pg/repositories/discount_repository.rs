@@ -196,6 +196,31 @@ impl DiscountRepository {
         Ok(row.get("count"))
     }
 
+    /// Update calculated_amount for a discount (used during price recalculation)
+    pub async fn update_calculated_amount(
+        pool: &DbPool,
+        discount_id: i64,
+        calculated_amount: f64,
+    ) -> DbResult<()> {
+        let client = pool.get().await?;
+
+        let rows_affected = client
+            .execute(
+                "UPDATE discounts SET calculated_amount = $1 WHERE id = $2",
+                &[&calculated_amount, &discount_id],
+            )
+            .await?;
+
+        if rows_affected == 0 {
+            return Err(crate::database_pg::DbError::NotFound(format!(
+                "Discount with ID {} not found",
+                discount_id
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Run migration to add calculated_amount column
     pub async fn run_migration(pool: &DbPool) -> DbResult<String> {
         let client = pool.get().await?;

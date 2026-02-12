@@ -16,7 +16,7 @@ impl GuestRepository {
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,
                         rechnungs_email, marketing_einwilligung, leitweg_id,
-                        kostenstelle, tags, automail, automail_sprache
+                        kostenstelle, tags, automail, automail_sprache, created_by, updated_by
                  FROM guests
                  ORDER BY nachname, vorname",
                 &[],
@@ -39,7 +39,7 @@ impl GuestRepository {
                         fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                         identifikationsnummer, debitorenkonto, kennzeichen,
                         rechnungs_email, marketing_einwilligung, leitweg_id,
-                        kostenstelle, tags, automail, automail_sprache
+                        kostenstelle, tags, automail, automail_sprache, created_by, updated_by
                  FROM guests
                  WHERE id = $1",
                 &[&id],
@@ -88,6 +88,7 @@ impl GuestRepository {
         tags: Option<String>,
         automail: Option<bool>,
         automail_sprache: Option<String>,
+        created_by: Option<String>,
     ) -> DbResult<Guest> {
         let client = pool.get().await?;
 
@@ -101,12 +102,12 @@ impl GuestRepository {
                     fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                     identifikationsnummer, debitorenkonto, kennzeichen,
                     rechnungs_email, marketing_einwilligung, leitweg_id,
-                    kostenstelle, tags, automail, automail_sprache, created_at
+                    kostenstelle, tags, automail, automail_sprache, created_by, updated_by, created_at
                  ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
                     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
-                    $31, $32, $33, $34, CURRENT_TIMESTAMP
+                    $31, $32, $33, $34, $35, $35, CURRENT_TIMESTAMP
                  ) RETURNING id, vorname, nachname, email, telefon, dpolg_mitglied,
                              strasse, plz, ort, mitgliedsnummer, notizen, beruf,
                              bundesland, dienststelle, created_at::text as created_at, anrede, geschlecht,
@@ -114,7 +115,7 @@ impl GuestRepository {
                              fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                              identifikationsnummer, debitorenkonto, kennzeichen,
                              rechnungs_email, marketing_einwilligung, leitweg_id,
-                             kostenstelle, tags, automail, automail_sprache",
+                             kostenstelle, tags, automail, automail_sprache, created_by, updated_by",
                 &[
                     &vorname, &nachname, &email, &telefon, &dpolg_mitglied,
                     &strasse, &plz, &ort, &mitgliedsnummer, &notizen, &beruf,
@@ -123,7 +124,7 @@ impl GuestRepository {
                     &fax, &geburtsdatum, &geburtsort, &sprache, &nationalitaet,
                     &identifikationsnummer, &debitorenkonto, &kennzeichen,
                     &rechnungs_email, &marketing_einwilligung, &leitweg_id,
-                    &kostenstelle, &tags, &automail, &automail_sprache,
+                    &kostenstelle, &tags, &automail, &automail_sprache, &created_by,
                 ],
             )
             .await?;
@@ -170,6 +171,7 @@ impl GuestRepository {
         tags: Option<String>,
         automail: Option<bool>,
         automail_sprache: Option<String>,
+        updated_by: Option<String>,
     ) -> DbResult<Guest> {
         let client = pool.get().await?;
 
@@ -187,7 +189,7 @@ impl GuestRepository {
                     debitorenkonto = $27, kennzeichen = $28, rechnungs_email = $29,
                     marketing_einwilligung = $30, leitweg_id = $31,
                     kostenstelle = $32, tags = $33, automail = $34,
-                    automail_sprache = $35
+                    automail_sprache = $35, updated_by = $36
                  WHERE id = $1
                  RETURNING id, vorname, nachname, email, telefon, dpolg_mitglied,
                            strasse, plz, ort, mitgliedsnummer, notizen, beruf,
@@ -196,7 +198,7 @@ impl GuestRepository {
                            fax, geburtsdatum, geburtsort, sprache, nationalitaet,
                            identifikationsnummer, debitorenkonto, kennzeichen,
                            rechnungs_email, marketing_einwilligung, leitweg_id,
-                           kostenstelle, tags, automail, automail_sprache",
+                           kostenstelle, tags, automail, automail_sprache, created_by, updated_by",
                 &[
                     &id, &vorname, &nachname, &email, &telefon, &dpolg_mitglied,
                     &strasse, &plz, &ort, &mitgliedsnummer, &notizen, &beruf,
@@ -205,7 +207,7 @@ impl GuestRepository {
                     &fax, &geburtsdatum, &geburtsort, &sprache, &nationalitaet,
                     &identifikationsnummer, &debitorenkonto, &kennzeichen,
                     &rechnungs_email, &marketing_einwilligung, &leitweg_id,
-                    &kostenstelle, &tags, &automail, &automail_sprache,
+                    &kostenstelle, &tags, &automail, &automail_sprache, &updated_by,
                 ],
             )
             .await

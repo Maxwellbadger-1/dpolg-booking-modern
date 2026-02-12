@@ -18,7 +18,7 @@ impl RoomRepository {
             .query(
                 "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                        schluesselcode, street_address, postal_code, city, notizen
+                        schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by
                  FROM rooms
                  ORDER BY name",
                 &[],
@@ -38,7 +38,7 @@ impl RoomRepository {
             .query_one(
                 "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                        schluesselcode, street_address, postal_code, city, notizen
+                        schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by
                  FROM rooms
                  WHERE id = $1",
                 &[&id],
@@ -70,6 +70,7 @@ impl RoomRepository {
         postal_code: Option<String>,
         city: Option<String>,
         notizen: Option<String>,
+        created_by: Option<String>,
     ) -> DbResult<Room> {
         let client = pool.get().await?;
 
@@ -78,11 +79,11 @@ impl RoomRepository {
                 "INSERT INTO rooms (
                     name, gebaeude_typ, capacity,
                     nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                    schluesselcode, street_address, postal_code, city, notizen
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
                 RETURNING id, name, gebaeude_typ, capacity,
                          nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                         schluesselcode, street_address, postal_code, city, notizen",
+                         schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by",
                 &[
                     &name,
                     &gebaeude_typ,
@@ -96,6 +97,7 @@ impl RoomRepository {
                     &postal_code,
                     &city,
                     &notizen,
+                    &created_by,
                 ],
             )
             .await?;
@@ -119,6 +121,7 @@ impl RoomRepository {
         postal_code: Option<String>,
         city: Option<String>,
         notizen: Option<String>,
+        updated_by: Option<String>,
     ) -> DbResult<Room> {
         let client = pool.get().await?;
 
@@ -136,11 +139,12 @@ impl RoomRepository {
                     street_address = $10,
                     postal_code = $11,
                     city = $12,
-                    notizen = $13
+                    notizen = $13,
+                    updated_by = $14
                  WHERE id = $1
                  RETURNING id, name, gebaeude_typ, capacity,
                           nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                          schluesselcode, street_address, postal_code, city, notizen",
+                          schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by",
                 &[
                     &id,
                     &name,
@@ -155,6 +159,7 @@ impl RoomRepository {
                     &postal_code,
                     &city,
                     &notizen,
+                    &updated_by,
                 ],
             )
             .await
@@ -194,7 +199,7 @@ impl RoomRepository {
             .query(
                 "SELECT id, name, gebaeude_typ, capacity,
                         nebensaison_preis, hauptsaison_preis, endreinigung, ort,
-                        schluesselcode, street_address, postal_code, city, notizen
+                        schluesselcode, street_address, postal_code, city, notizen, created_by, updated_by
                  FROM rooms
                  WHERE name ILIKE $1 OR ort ILIKE $1 OR gebaeude_typ ILIKE $1
                  ORDER BY name",

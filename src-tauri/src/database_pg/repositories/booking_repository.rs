@@ -15,7 +15,8 @@ impl BookingRepository {
                         anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied, NULL::double precision as credit_used
+                        ist_dpolg_mitglied, NULL::double precision as credit_used,
+                        created_by, updated_by
                  FROM bookings
                  ORDER BY checkin_date DESC",
                 &[],
@@ -37,7 +38,8 @@ impl BookingRepository {
                         anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied, NULL::double precision as credit_used
+                        ist_dpolg_mitglied, NULL::double precision as credit_used,
+                        created_by, updated_by
                  FROM bookings
                  WHERE id = $1",
                 &[&id],
@@ -111,6 +113,7 @@ impl BookingRepository {
         payment_recipient_id: Option<i32>,
         putzplan_checkout_date: Option<String>,
         ist_dpolg_mitglied: Option<bool>,
+        created_by: Option<String>,
     ) -> DbResult<Booking> {
         let client = pool.get().await?;
 
@@ -123,18 +126,18 @@ impl BookingRepository {
                     anzahl_naechte, bezahlt, bezahlt_am, zahlungsmethode,
                     mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                     ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                    ist_dpolg_mitglied, created_at, updated_at
+                    ist_dpolg_mitglied, created_by, updated_by, created_at, updated_at
                  ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    $21, $22, $23, $24, $25, $25, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                  ) RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
                              anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                              anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
                              anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                              mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                              ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                             ist_dpolg_mitglied",
+                             ist_dpolg_mitglied, NULL::double precision as credit_used, created_by, updated_by",
                 &[
                     &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
                     &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
@@ -142,7 +145,7 @@ impl BookingRepository {
                     &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
                     &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
                     &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
-                    &ist_dpolg_mitglied,
+                    &ist_dpolg_mitglied, &created_by,
                 ],
             )
             .await?;
@@ -182,6 +185,7 @@ impl BookingRepository {
         payment_recipient_id: Option<i32>,
         putzplan_checkout_date: Option<String>,
         ist_dpolg_mitglied: Option<bool>,
+        updated_by: Option<String>,  // ← NEW: Audit trail
         expected_updated_at: Option<String>,  // ← NEW: Optimistic Locking parameter
     ) -> DbResult<Booking> {
         let client = pool.get().await?;
@@ -201,8 +205,8 @@ impl BookingRepository {
                         rechnung_versendet_am = $20, rechnung_versendet_an = $21,
                         ist_stiftungsfall = $22, payment_recipient_id = $23,
                         putzplan_checkout_date = $24, ist_dpolg_mitglied = $25,
-                        updated_at = CURRENT_TIMESTAMP
-                     WHERE id = $1 AND updated_at = $26",  // ← VERSION CHECK!
+                        updated_by = $26, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $1 AND updated_at = $27",  // ← VERSION CHECK!
                     &[
                         &id, &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
                         &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
@@ -210,7 +214,7 @@ impl BookingRepository {
                         &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
                         &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
                         &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
-                        &ist_dpolg_mitglied, &expected_ts,
+                        &ist_dpolg_mitglied, &updated_by, &expected_ts,
                     ],
                 )
                 .await?;
@@ -239,7 +243,7 @@ impl BookingRepository {
                         rechnung_versendet_am = $20, rechnung_versendet_an = $21,
                         ist_stiftungsfall = $22, payment_recipient_id = $23,
                         putzplan_checkout_date = $24, ist_dpolg_mitglied = $25,
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_by = $26, updated_at = CURRENT_TIMESTAMP
                      WHERE id = $1
                      RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
                                anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
@@ -247,7 +251,7 @@ impl BookingRepository {
                                anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                                mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                                ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                               ist_dpolg_mitglied",
+                               ist_dpolg_mitglied, NULL::double precision as credit_used, created_by, updated_by",
                     &[
                         &id, &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
                         &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
@@ -255,7 +259,7 @@ impl BookingRepository {
                         &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
                         &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
                         &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
-                        &ist_dpolg_mitglied,
+                        &ist_dpolg_mitglied, &updated_by,
                     ],
                 )
                 .await
@@ -295,7 +299,7 @@ impl BookingRepository {
                         anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied
+                        ist_dpolg_mitglied, NULL::double precision as credit_used, created_by, updated_by
                  FROM bookings
                  WHERE room_id = $1
                  ORDER BY checkin_date DESC",
@@ -318,7 +322,7 @@ impl BookingRepository {
                         anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                         mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                         ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                        ist_dpolg_mitglied
+                        ist_dpolg_mitglied, NULL::double precision as credit_used, created_by, updated_by
                  FROM bookings
                  WHERE guest_id = $1
                  ORDER BY checkin_date DESC",
@@ -507,6 +511,7 @@ impl BookingRepository {
         payment_recipient_id: Option<i32>,
         putzplan_checkout_date: Option<String>,
         ist_dpolg_mitglied: Option<bool>,
+        created_by: Option<String>,
     ) -> DbResult<Booking> {
         // 1. Get connection from pool
         let mut client = pool.get().await?;
@@ -547,18 +552,18 @@ impl BookingRepository {
                     anzahl_naechte, bezahlt, bezahlt_am, zahlungsmethode,
                     mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                     ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                    ist_dpolg_mitglied, created_at, updated_at
+                    ist_dpolg_mitglied, created_by, updated_by, created_at, updated_at
                  ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                    $21, $22, $23, $24, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    $21, $22, $23, $24, $25, $25, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                  ) RETURNING id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
                              anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
                              anzahl_begleitpersonen, grundpreis, services_preis, rabatt_preis,
                              anzahl_naechte, updated_at::text as updated_at, bezahlt, bezahlt_am, zahlungsmethode,
                              mahnung_gesendet_am, rechnung_versendet_am, rechnung_versendet_an,
                              ist_stiftungsfall, payment_recipient_id, putzplan_checkout_date,
-                             ist_dpolg_mitglied",
+                             ist_dpolg_mitglied, NULL::double precision as credit_used, created_by, updated_by",
                 &[
                     &room_id, &guest_id, &reservierungsnummer, &checkin_date, &checkout_date,
                     &anzahl_gaeste, &status, &gesamtpreis, &bemerkungen,
@@ -566,11 +571,15 @@ impl BookingRepository {
                     &anzahl_naechte, &bezahlt, &bezahlt_am, &zahlungsmethode,
                     &mahnung_gesendet_am, &rechnung_versendet_am, &rechnung_versendet_an,
                     &ist_stiftungsfall, &payment_recipient_id, &putzplan_checkout_date,
-                    &ist_dpolg_mitglied,
+                    &ist_dpolg_mitglied, &created_by,
                 ],
             )
             .await
-            .map_err(|e| crate::database_pg::DbError::QueryError(format!("Insert failed: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("🔍 [DEBUG] PostgreSQL INSERT Error: {:?}", e);
+                eprintln!("🔍 [DEBUG] Error details: {}", e);
+                crate::database_pg::DbError::QueryError(format!("Insert failed: {}", e))
+            })?;
 
         // 5. Commit transaction
         transaction.commit().await

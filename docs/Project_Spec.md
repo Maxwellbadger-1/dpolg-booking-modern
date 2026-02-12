@@ -86,6 +86,38 @@ Buchungsverwaltungssystem für das Gästehaus der Stiftung der Deutschen Polizei
 - **Invoice:** Verwendet immer gespeicherte Preise aus Buchung
 - **Auto-Update (v1.9.0):** Backend berechnet Preise automatisch neu bei Änderungen von Daten/Zimmer/Gast
 
+**Preisberechnung Details:**
+
+*Preise pro Zimmer, nicht pro Person:*
+- `anzahl_gaeste` ist **nicht preisrelevant** für die aktuelle Implementierung
+- Ein Zimmer kostet denselben Preis unabhängig von der Gästeanzahl
+- Gästeanzahl wird nur für Kapazitätsprüfung verwendet
+- Änderung der `anzahl_gaeste` triggert **keine** automatische Neuberechnung
+
+*Two-Pass Algorithmus:*
+1. **Pass 1:** Festbeträge + prozentuale Services auf `overnight_price`
+2. **Pass 2:** Prozentuale Services auf `total_price` (basierend auf Pass 1 Ergebnis)
+3. **Pass 3:** Rabatte mit konfigurierbarer Basis
+
+*Services vs. Rabatte - Unterschiedliche Basis-Logik:*
+- **Services:** Jeder Service hat individuelles `applies_to` Feld (`overnight_price` oder `total_price`)
+- **Rabatte:** Alle Rabatte teilen globales `rabatt_basis` Setting (in Einstellungen konfigurierbar)
+- **Grund:** Services sind unterschiedlich in ihrer Natur, Rabatte sollen konsistent berechnet werden
+
+*Automatische Neuberechnung Trigger:*
+- **Datum-Änderung:** Check-in oder Check-out → neue Anzahl Nächte
+- **Zimmer-Änderung:** Neuer Zimmerpreis + neue Endreinigung
+- **Gast-Änderung:** Neuer DPolG-Status → DPolG-Auto-Rabatt aktualisiert
+- **Festbeträge:** Bleiben unverändert bei Neuberechnung
+- **Prozentuale Werte:** Werden mit neuen Basiswerten neu berechnet
+
+*Endreinigung Safeguards:*
+- Automatisches Hinzufügen aus `room.endreinigung` nur wenn **nicht** bereits als Service vorhanden
+- Verhindert Doppelzählung wenn User manuell "Endreinigung" Service hinzufügt
+- Safeguards in allen Berechnungsfunktionen implementiert
+
+**Siehe auch:** [docs/PRICING_LOGIC.md](PRICING_LOGIC.md) für detaillierte technische Dokumentation
+
 ### FR-005: Kommunikation
 
 | ID | Anforderung | Priorität | Status |

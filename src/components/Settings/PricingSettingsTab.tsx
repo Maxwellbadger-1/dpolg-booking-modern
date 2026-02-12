@@ -227,9 +227,13 @@ export default function PricingSettingsTab() {
 
             {/* Rabatt-Basis */}
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-3">
+              <label className="block text-sm font-medium text-slate-300 mb-2">
                 Rabatt gilt für
               </label>
+              <p className="text-xs text-slate-400 mb-3">
+                Diese Einstellung gilt für <strong>alle prozentualen Rabatte</strong> (manuell und DPolG-Auto-Rabatt).
+                Hinweis: Services haben ein eigenes "Anwenden auf" Feld pro Service.
+              </p>
               <div className="space-y-3">
                 <label className="flex items-start gap-3 p-3 bg-slate-600/50 rounded-lg cursor-pointer hover:bg-slate-600 transition-colors">
                   <input

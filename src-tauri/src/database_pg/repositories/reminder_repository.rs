@@ -112,6 +112,37 @@ impl ReminderRepository {
         Ok(Reminder::from(row))
     }
 
+    pub async fn mark_completed(pool: &DbPool, id: i32, completed: bool) -> DbResult<Reminder> {
+        println!("🔧 [DEBUG ReminderRepo] mark_completed: id={}, completed={}", id, completed);
+        let client = pool.get().await?;
+
+        let sql = if completed {
+            "UPDATE reminders SET
+                is_completed = TRUE, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING id, booking_id, reminder_type, title, description, due_date,
+                       priority, is_completed, completed_at::text as completed_at, is_snoozed, snoozed_until::text as snoozed_until,
+                       created_at::text as created_at, updated_at::text as updated_at"
+        } else {
+            "UPDATE reminders SET
+                is_completed = FALSE, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING id, booking_id, reminder_type, title, description, due_date,
+                       priority, is_completed, completed_at::text as completed_at, is_snoozed, snoozed_until::text as snoozed_until,
+                       created_at::text as created_at, updated_at::text as updated_at"
+        };
+
+        println!("🔧 [DEBUG ReminderRepo] Executing SQL: {}", sql);
+        let row = client.query_one(sql, &[&id]).await.map_err(|e| {
+            eprintln!("❌ [DEBUG ReminderRepo] SQL error: {}", e);
+            crate::database_pg::DbError::NotFound(format!("Reminder {} not found", id))
+        })?;
+
+        println!("✅ [DEBUG ReminderRepo] Reminder #{} updated successfully", id);
+        println!("🔧 [DEBUG ReminderRepo] UPDATE trigger should fire PostgreSQL NOTIFY now...");
+        Ok(Reminder::from(row))
+    }
+
     pub async fn snooze(pool: &DbPool, id: i32, snoozed_until: String) -> DbResult<Reminder> {
         let client = pool.get().await?;
         let row = client.query_one(

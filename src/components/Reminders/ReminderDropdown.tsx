@@ -40,8 +40,7 @@ export default function ReminderDropdown({ isOpen, onClose, onReminderClick, onV
       await invoke('complete_reminder_pg', { id, completed: true });
       // Reload reminders
       await loadUrgentReminders();
-      // Trigger refresh für Badge count
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert (Migration 018)
     } catch (error) {
       console.error('Fehler beim Markieren der Erinnerung:', error);
     }

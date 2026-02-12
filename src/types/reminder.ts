@@ -16,15 +16,6 @@ export interface Reminder {
   updated_at: string;
 }
 
-export interface ReminderSettings {
-  id: number;
-  auto_reminder_incomplete_data: boolean;
-  auto_reminder_payment: boolean;
-  auto_reminder_checkin: boolean;
-  auto_reminder_invoice: boolean;
-  updated_at: string;
-}
-
 export interface CreateReminderData {
   booking_id?: number | null;
   reminder_type: Reminder['reminder_type'];

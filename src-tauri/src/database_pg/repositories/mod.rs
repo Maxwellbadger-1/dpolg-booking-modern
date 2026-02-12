@@ -21,6 +21,7 @@ pub mod payment_settings_repository;
 pub mod guest_credit_repository;
 pub mod cleaning_task_repository;
 pub mod scheduled_email_repository;
+pub mod lock_repository;
 
 pub use room_repository::RoomRepository;
 pub use guest_repository::GuestRepository;
@@ -42,5 +43,6 @@ pub use payment_settings_repository::PaymentSettingsRepository;
 pub use guest_credit_repository::GuestCreditRepository;
 pub use cleaning_task_repository::CleaningTaskRepository;
 pub use scheduled_email_repository::ScheduledEmailRepository;
+pub use lock_repository::LockRepository;
 
 // More repositories will be added as needed

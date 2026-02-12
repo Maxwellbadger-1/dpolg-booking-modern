@@ -3,6 +3,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use tauri::Emitter; // Für app.emit() Events
 use crate::config::AppConfig;
 use crate::database_pg::{
     self,
@@ -25,6 +26,7 @@ use crate::database_pg::{
         email_template_repository::EmailTemplateRepository,
         notification_settings_repository::NotificationSettingsRepository,
         payment_settings_repository::PaymentSettingsRepository,
+        lock_repository::LockRepository,
     },
 };
 use crate::turso_sync;
@@ -556,15 +558,19 @@ async fn update_booking_pg(
     println!("update_booking_pg called: id={}, optimistic_locking={}",
              id, expected_updated_at.is_some());
 
-    // 1. Update booking in PostgreSQL (trigger will auto-update cleaning tasks)
+    // 1. Load old booking for comparison (to detect price-relevant changes)
+    let old_booking = BookingRepository::get_by_id(&pool, id).await
+        .map_err(|e| format!("Failed to load booking for comparison: {}", e))?;
+
+    // 2. Update booking in PostgreSQL (trigger will auto-update cleaning tasks)
     let booking = match BookingRepository::update(
         &pool,
         id,
         room_id,
         guest_id,
         reservierungsnummer,
-        checkin_date,
-        checkout_date,
+        checkin_date.clone(),
+        checkout_date.clone(),
         anzahl_gaeste,
         status,
         gesamtpreis,
@@ -603,14 +609,39 @@ async fn update_booking_pg(
         }
     };
 
-    // 2. Sync updated cleaning tasks to Turso (mobile app)
+    // 3. Sync updated cleaning tasks to Turso (mobile app)
     println!("🔄 Auto-syncing updated cleaning tasks to Turso for booking {}", id);
     if let Err(e) = turso_sync::sync_booking_tasks_to_turso(&pool, id).await {
         eprintln!("⚠️ Failed to sync cleaning tasks to Turso: {}", e);
         // Don't fail the booking update - mobile sync can be retried later
     }
 
-    Ok(booking)
+    // 4. Automatic price recalculation if price-relevant fields changed
+    // NOTE: anzahl_gaeste is NOT checked because guest count is not price-relevant
+    // in this system. Room prices are per-room, not per-person. If per-person
+    // pricing is added in the future (e.g., price_type="per_person"),
+    // anzahl_gaeste must be added to this condition.
+    let needs_price_recalc = checkin_date != old_booking.checkin_date
+        || checkout_date != old_booking.checkout_date
+        || room_id != old_booking.room_id
+        || guest_id != old_booking.guest_id;
+
+    if needs_price_recalc {
+        println!("💰 Auto-recalculating prices for booking {} (price-relevant fields changed)", id);
+        if let Err(e) = recalculate_and_save_booking_prices(&pool, id).await {
+            eprintln!("⚠️ Failed to recalculate prices: {}", e);
+            // Don't fail the booking update - prices can be manually corrected
+        }
+
+        // Reload booking to get updated prices in response
+        let updated_booking_with_prices = BookingRepository::get_by_id(&pool, id).await
+            .map_err(|e| format!("Failed to reload booking with updated prices: {}", e))?;
+
+        Ok(updated_booking_with_prices)
+    } else {
+        println!("⏭️ Skipping price recalculation for booking {} (no price-relevant changes)", id);
+        Ok(booking)
+    }
 }
 
 // ============================================================================
@@ -662,17 +693,103 @@ async fn get_scheduler_interval(pool: &DbPool) -> Result<u64, String> {
     Ok(settings.scheduler_interval_hours.unwrap_or(1) as u64)
 }
 
+/// Erstellt geplante Zahlungserinnerungen für überfällige Buchungen
+async fn schedule_payment_reminders(pool: &DbPool) -> Result<(), String> {
+    use crate::database_pg::repositories::NotificationSettingsRepository;
+
+    let client = pool.get().await.map_err(|e| e.to_string())?;
+
+    // 1. Lade Notification Settings
+    let settings = NotificationSettingsRepository::get(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Prüfe ob aktiviert
+    if !settings.payment_reminders_enabled.unwrap_or(false) {
+        return Ok(());
+    }
+
+    let after_days = settings.payment_reminder_after_days.unwrap_or(14) as i32;
+    let repeat_days = settings.payment_reminder_repeat_days.unwrap_or(14) as i32;
+
+    // 2. Query: Finde unbezahlte Buchungen älter als X Tage
+    let sql = "
+        SELECT b.id, b.guest_id, g.email, b.reservierungsnummer
+        FROM bookings b
+        JOIN guests g ON b.guest_id = g.id
+        WHERE b.payment_status IN ('ausstehend', 'teilweise_bezahlt')
+          AND b.checkout_date < (CURRENT_DATE - INTERVAL '1 day' * $1)
+          AND b.id NOT IN (
+              -- Bereits Erinnerung in letzten X Tagen geschickt?
+              SELECT DISTINCT se.booking_id
+              FROM scheduled_emails se
+              WHERE se.template_name = 'payment_reminder'
+                AND se.status IN ('sent', 'pending')
+                AND se.scheduled_for > (NOW() - INTERVAL '1 day' * $2)
+          )
+    ";
+
+    let rows = client.query(sql, &[&after_days, &repeat_days]).await
+        .map_err(|e| format!("Payment reminder query failed: {}", e))?;
+
+    // 3. Erstelle scheduled_emails Einträge
+    for row in &rows {
+        let booking_id: i32 = row.get("id");
+        let guest_id: i32 = row.get("guest_id");
+        let email: String = row.get("email");
+        let reservierungsnummer: String = row.get("reservierungsnummer");
+
+        let subject = format!("Stiftung DPolG - Zahlungserinnerung – Rechnung {}", reservierungsnummer);
+
+        // INSERT mit ON CONFLICT
+        let insert_sql = "
+            INSERT INTO scheduled_emails (
+                booking_id, guest_id, template_name, recipient_email,
+                subject, scheduled_for, status
+            )
+            VALUES ($1, $2, 'payment_reminder', $3, $4, NOW(), 'pending')
+            ON CONFLICT (booking_id, template_name, status)
+            DO NOTHING
+        ";
+
+        client.execute(insert_sql, &[&booking_id, &guest_id, &email, &subject])
+            .await
+            .map_err(|e| format!("Failed to schedule payment reminder: {}", e))?;
+
+        println!("📧 [Payment Reminder] Scheduled for booking {} (guest {})", booking_id, guest_id);
+    }
+
+    if !rows.is_empty() {
+        println!("📧 [Payment Reminder] Scheduled {} payment reminders", rows.len());
+    }
+
+    Ok(())
+}
+
 /// Run email check (same logic as trigger_email_check command)
 async fn run_email_check(pool: &DbPool) -> Result<String, String> {
     use crate::database_pg::repositories::ScheduledEmailRepository;
     use crate::database_pg::repositories::EmailLogRepository;
+    use crate::database_pg::repositories::NotificationSettingsRepository;
+
+    // Schedule payment reminders for overdue bookings
+    if let Err(e) = schedule_payment_reminders(pool).await {
+        eprintln!("⚠️ [Email Scheduler] Payment reminder scheduling failed: {}", e);
+        // Continue with email sending even if scheduling fails
+    }
 
     let pending = ScheduledEmailRepository::get_pending(pool)
         .await
         .map_err(|e| format!("Failed to get pending emails: {}", e))?;
 
+    // Load current notification settings for safety check
+    let settings = NotificationSettingsRepository::get(pool)
+        .await
+        .map_err(|e| format!("Failed to get notification settings: {}", e))?;
+
     let mut sent_count = 0;
     let mut failed_count = 0;
+    let mut cancelled_count = 0;
 
     for scheduled_email in pending {
         // Check if email is due
@@ -681,6 +798,21 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
             .unwrap_or_else(|_| now);
 
         if scheduled_for > now {
+            continue;
+        }
+
+        // Safety check: Is the feature still enabled?
+        let should_send = match scheduled_email.template_name.as_str() {
+            "booking_reminder" => settings.checkin_reminders_enabled.unwrap_or(false),
+            "payment_reminder" => settings.payment_reminders_enabled.unwrap_or(false),
+            _ => true, // Other templates always send
+        };
+
+        if !should_send {
+            println!("⚠️ [Scheduler] Skipping email {} - feature '{}' disabled in settings",
+                     scheduled_email.id, scheduled_email.template_name);
+            let _ = ScheduledEmailRepository::update_status(pool, scheduled_email.id, "cancelled").await;
+            cancelled_count += 1;
             continue;
         }
 
@@ -727,7 +859,15 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
         }
     }
 
-    Ok(format!("{} versendet, {} fehlgeschlagen", sent_count, failed_count))
+    let mut message = format!("{} versendet", sent_count);
+    if failed_count > 0 {
+        message.push_str(&format!(", {} fehlgeschlagen", failed_count));
+    }
+    if cancelled_count > 0 {
+        message.push_str(&format!(", {} storniert", cancelled_count));
+    }
+
+    Ok(message)
 }
 
 // ============================================================================
@@ -737,7 +877,17 @@ async fn run_email_check(pool: &DbPool) -> Result<String, String> {
 pub fn run_pg() {
     // Load configuration from environment
     let config = AppConfig::from_env();
-    let db_url_for_listener = config.database_url(); // Clone for LISTEN/NOTIFY listener
+
+    // IMPORTANT: Listener MUST connect directly to PostgreSQL (port 5432), NOT through PgBouncer (port 6432)
+    // because LISTEN/NOTIFY requires a persistent session connection
+    let db_url_for_listener = format!(
+        "postgres://{}:{}@{}:{}/{}",
+        "dpolg_admin",
+        "DPolG2025SecureBooking",
+        "141.147.3.123",
+        5432, // Direct PostgreSQL port (NOT 6432 PgBouncer!)
+        "dpolg_booking"
+    );
 
     println!("🚀 Starting DPolG Booking System (PostgreSQL Edition)");
     println!("   Environment: {:?}", config.environment);
@@ -1026,7 +1176,6 @@ pub fn run_pg() {
             get_guest_credit_transactions,
             get_recent_email_logs_command,
             get_recent_transactions_command,
-            get_reminder_settings_command,
             get_scheduled_emails,
             debug_scheduled_emails_pg,
             list_backups_command,
@@ -1040,7 +1189,6 @@ pub fn run_pg() {
             open_putzplan_folder,
             restore_backup_command,
             save_backup_settings_command,
-            save_reminder_settings_command,
             send_cancellation_email_command,
             send_invoice_email_command,
             send_reminder_email_command,
@@ -1055,6 +1203,18 @@ pub fn run_pg() {
             get_booking_credit_usage,
             get_email_logs_command,
             clear_email_logs_command,
+
+            // Audit Log (Change History)
+            get_audit_log_pg,
+            get_booking_audit_log_pg,
+
+            // Advisory Locks (Presence System)
+            acquire_booking_lock_pg,
+            release_booking_lock_pg,
+            update_lock_heartbeat_pg,
+            get_all_active_locks_pg,
+            get_booking_lock_pg,
+            release_all_user_locks_pg,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1485,7 +1645,7 @@ async fn update_booking_dates_and_room_pg(
     })?;
 
     // 1. Update booking with atomic availability check (prevents double bookings)
-    let updated_booking = BookingRepository::update_dates_with_availability_check(
+    let _updated_booking = BookingRepository::update_dates_with_availability_check(
         &pool,
         id,
         room_id,
@@ -1511,7 +1671,18 @@ async fn update_booking_dates_and_room_pg(
         // Don't fail the booking update - mobile sync can be retried later
     }
 
-    Ok(updated_booking)
+    // 3. Automatic price recalculation after date/room change
+    println!("💰 Auto-recalculating prices for booking {}", id);
+    if let Err(e) = recalculate_and_save_booking_prices(&pool, id).await {
+        eprintln!("⚠️ Failed to recalculate prices: {}", e);
+        // Don't fail the booking update - prices can be manually corrected
+    }
+
+    // 4. Reload booking to get updated prices in response
+    let updated_booking_with_prices = BookingRepository::get_by_id(&pool, id).await
+        .map_err(|e| format!("Failed to reload booking with updated prices: {}", e))?;
+
+    Ok(updated_booking_with_prices)
 }
 
 // ============================================================================
@@ -1782,7 +1953,8 @@ async fn calculate_full_booking_price_pg(
     }
 
     // Add Endreinigung (cleaning fee) from room if it exists AND not already in services
-    // This prevents double-counting when services already include Endreinigung from DB
+    // SAFEGUARD: This prevents double-counting when user manually adds "Endreinigung" service
+    // The check is case-insensitive and matches "endreinigung" or "cleaning" in service name
     let has_endreinigung = services_list.iter()
         .any(|s| s.service_name.to_lowercase().contains("endreinigung") || s.service_name.to_lowercase().contains("cleaning"));
 
@@ -2117,6 +2289,349 @@ async fn calculate_batch_booking_prices_pg(
     Ok(results)
 }
 
+/// Helper: Recalculate and update price snapshot for a booking
+/// Called automatically when booking dates/room/guest change
+async fn recalculate_and_save_booking_prices(
+    pool: &DbPool,
+    booking_id: i32,
+) -> Result<(), String> {
+    use crate::database_pg::repositories::{
+        BookingRepository, GuestRepository, RoomRepository, AdditionalServiceRepository, DiscountRepository, PricingSettingsRepository
+    };
+    use chrono::{NaiveDate, Datelike};
+
+    println!("💰 [PRICE RECALC] Recalculating prices for booking {}", booking_id);
+
+    // 1. Load booking
+    let booking = BookingRepository::get_by_id(pool, booking_id).await
+        .map_err(|e| format!("Failed to load booking: {}", e))?;
+
+    // 2. Load guest (for DPolG member status)
+    let guest = GuestRepository::get_by_id(pool, booking.guest_id).await
+        .map_err(|e| format!("Failed to load guest: {}", e))?;
+
+    // 3. Load services and discounts
+    let services = AdditionalServiceRepository::get_by_booking(pool, booking_id as i64).await
+        .map_err(|e| format!("Failed to load services: {}", e))?;
+    let discounts = DiscountRepository::get_by_booking(pool, booking_id as i64).await
+        .map_err(|e| format!("Failed to load discounts: {}", e))?;
+
+    println!("🔍 [DEBUG] Loaded {} discounts from DB:", discounts.len());
+    for d in &discounts {
+        println!("  - ID: {}, Name: '{}', Type: {}, Value: {}, calculated_amount: {:?}",
+                 d.id, d.discount_name, d.discount_type, d.discount_value, d.calculated_amount);
+    }
+
+    // 4. Convert to ServiceInput and DiscountInput
+    let service_inputs: Vec<ServiceInput> = services.iter().map(|s| ServiceInput {
+        service_name: s.service_name.clone(),
+        price_type: s.price_type.clone(),
+        original_value: s.original_value,
+        applies_to: s.applies_to.clone(),
+    }).collect();
+
+    let discount_inputs: Vec<DiscountInput> = discounts.iter().map(|d| DiscountInput {
+        discount_name: d.discount_name.clone(),
+        price_type: d.discount_type.clone(),
+        original_value: d.discount_value,
+        applies_to: "total_price".to_string(),
+    }).collect();
+
+    // 5. Calculate prices using the batch calculation logic (reuse existing logic)
+    // This is a simplified version that reuses the batch calculation approach
+    let pricing_settings = PricingSettingsRepository::get(pool)
+        .await
+        .unwrap_or_else(|_| database_pg::PricingSettings {
+            id: 1,
+            hauptsaison_aktiv: Some(false),
+            hauptsaison_start: Some("06-01".to_string()),
+            hauptsaison_ende: Some("08-31".to_string()),
+            mitglieder_rabatt_aktiv: Some(false),
+            mitglieder_rabatt_prozent: Some(15.0),
+            rabatt_basis: Some("zimmerpreis".to_string()),
+            updated_at: None,
+        });
+
+    let checkin_date = NaiveDate::parse_from_str(&booking.checkin_date, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid check-in date: {}", e))?;
+    let checkout_date = NaiveDate::parse_from_str(&booking.checkout_date, "%Y-%m-%d")
+        .map_err(|e| format!("Invalid check-out date: {}", e))?;
+    let nights = (checkout_date - checkin_date).num_days() as i32;
+
+    if nights <= 0 {
+        return Err("Check-out must be after check-in".to_string());
+    }
+
+    // 5. Load room for current prices
+    let room = RoomRepository::get_by_id(pool, booking.room_id).await
+        .map_err(|e| format!("Failed to load room: {}", e))?;
+
+    // 6. Calculate base price with per-night season logic
+    let nebensaison_price = room.nebensaison_preis.unwrap_or(0.0);
+    let hauptsaison_price = room.hauptsaison_preis.unwrap_or(nebensaison_price);
+
+    let base_price = if pricing_settings.hauptsaison_aktiv.unwrap_or(false) {
+        let start_str = pricing_settings.hauptsaison_start.clone().unwrap_or("06-01".to_string());
+        let ende_str = pricing_settings.hauptsaison_ende.clone().unwrap_or("08-31".to_string());
+
+        let mut total = 0.0;
+        for offset in 0..nights {
+            let night_date = checkin_date + chrono::Duration::days(offset as i64);
+            let night_mmdd = format!("{:02}-{:02}", night_date.month(), night_date.day());
+
+            let is_hs = if start_str > ende_str {
+                night_mmdd >= start_str || night_mmdd <= ende_str
+            } else {
+                night_mmdd >= start_str && night_mmdd <= ende_str
+            };
+
+            if is_hs {
+                total += hauptsaison_price;
+            } else {
+                total += nebensaison_price;
+            }
+        }
+        total
+    } else {
+        nebensaison_price * nights as f64
+    };
+
+    println!("📊 [PRICE RECALC] Base price calculated: {:.2}€ for {} nights (NS: {:.2}€, HS: {:.2}€)",
+             base_price, nights, nebensaison_price, hauptsaison_price);
+
+    // 7. Calculate services (Two-Pass Algorithm)
+    let mut first_pass_total = 0.0;
+
+    // Pass 1: Fixed services and services that apply to overnight_price
+    for s in &service_inputs {
+        if s.price_type == "fixed" || s.applies_to == "overnight_price" {
+            let calculated = if s.price_type == "percent" {
+                base_price * (s.original_value / 100.0)
+            } else {
+                s.original_value
+            };
+            first_pass_total += calculated;
+        }
+    }
+
+    // 8. Add cleaning fee from room if not in services (consistency with calculate_full_booking_price_pg)
+    let has_endreinigung = service_inputs.iter()
+        .any(|s| s.service_name.to_lowercase().contains("endreinigung")
+              || s.service_name.to_lowercase().contains("cleaning"));
+
+    if !has_endreinigung {
+        if let Some(endreinigung) = room.endreinigung {
+            if endreinigung > 0.0 {
+                first_pass_total += endreinigung;
+                println!("💶 [PRICE RECALC] Added cleaning fee: {:.2}€", endreinigung);
+            }
+        }
+    }
+
+    // Pass 2: Percent services that apply to total_price
+    let total_price_base = base_price + first_pass_total;
+    for s in &service_inputs {
+        if s.price_type == "percent" && s.applies_to == "total_price" {
+            first_pass_total += total_price_base * (s.original_value / 100.0);
+        }
+    }
+
+    let services_total = first_pass_total;
+
+    // 9. Calculate discounts - track calculations for DB update
+    let mut discounts_total = 0.0;
+    let subtotal_before_discount = base_price + services_total;
+    let mut discount_calculations = Vec::new();
+
+    // Load rabatt_basis for all percentage discounts
+    let rabatt_basis = pricing_settings.rabatt_basis.clone().unwrap_or("zimmerpreis".to_string());
+    let discount_base = if rabatt_basis == "gesamtpreis" {
+        subtotal_before_discount
+    } else {
+        base_price
+    };
+
+    println!("🔍 [DEBUG] Using rabatt_basis: '{}' for all percentage discounts", rabatt_basis);
+    println!("🔍 [DEBUG] Discount base amount: {:.2}€ (subtotal_before_discount: {:.2}€)", discount_base, subtotal_before_discount);
+    println!("🔍 [DEBUG] Calculating discounts:");
+
+    for d in &discount_inputs {
+        let calculated = if d.price_type == "percent" {
+            // Use same logic as Auto-DPolG: apply rabatt_basis setting
+            discount_base * (d.original_value / 100.0)
+        } else {
+            d.original_value
+        };
+        discounts_total += calculated;
+        discount_calculations.push((d.discount_name.clone(), calculated));
+        println!("  - '{}' ({}): {:.2}% = {:.2}€", d.discount_name, d.price_type, d.original_value, calculated);
+    }
+
+    // Apply automatic DPolG member discount
+    let mut auto_dpolg_discount: Option<(String, f64)> = None;
+    println!("🔍 [DEBUG] Auto DPolG check: is_member={}, rabatt_aktiv={}",
+             guest.dpolg_mitglied, pricing_settings.mitglieder_rabatt_aktiv.unwrap_or(false));
+
+    if guest.dpolg_mitglied && pricing_settings.mitglieder_rabatt_aktiv.unwrap_or(false) {
+        let rabatt_prozent = pricing_settings.mitglieder_rabatt_prozent.unwrap_or(15.0);
+        let rabatt_basis = pricing_settings.rabatt_basis.clone().unwrap_or("zimmerpreis".to_string());
+
+        let rabatt_base = if rabatt_basis == "gesamtpreis" {
+            subtotal_before_discount
+        } else {
+            base_price
+        };
+
+        let auto_rabatt = rabatt_base * (rabatt_prozent / 100.0);
+
+        let has_dpolg_rabatt = discount_inputs.iter()
+            .any(|d| d.discount_name.to_lowercase().contains("dpolg")
+                  || d.discount_name.to_lowercase().contains("mitglieder"));
+
+        println!("🔍 [DEBUG] Auto DPolG: basis={}, base={:.2}€, prozent={:.2}%, calculated={:.2}€, already_has_dpolg={}",
+                 rabatt_basis, rabatt_base, rabatt_prozent, auto_rabatt, has_dpolg_rabatt);
+
+        if !has_dpolg_rabatt && auto_rabatt > 0.0 {
+            discounts_total += auto_rabatt;
+            let discount_name = format!("DPolG Mitgliederrabatt ({}%)", rabatt_prozent as i32);
+            auto_dpolg_discount = Some((discount_name.clone(), auto_rabatt));
+            discount_calculations.push((discount_name.clone(), auto_rabatt));
+            println!("  ✅ Adding auto DPolG discount: '{}' = {:.2}€", discount_name, auto_rabatt);
+        }
+    }
+
+    let total = base_price + services_total - discounts_total;
+
+    println!("📊 [PRICE RECALC] Calculated: base={:.2}€, services={:.2}€, discounts={:.2}€, total={:.2}€, nights={}",
+             base_price, services_total, discounts_total, total, nights);
+
+    // 10. Update booking with new prices (raw SQL to avoid circular dependencies)
+    let client = pool.get().await
+        .map_err(|e| format!("Failed to get DB connection: {}", e))?;
+
+    client.execute(
+        "UPDATE bookings SET
+            grundpreis = $1,
+            services_preis = $2,
+            rabatt_preis = $3,
+            gesamtpreis = $4,
+            anzahl_naechte = $5,
+            updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6",
+        &[
+            &base_price,
+            &services_total,
+            &discounts_total,
+            &total,
+            &nights,
+            &booking_id,
+        ],
+    ).await.map_err(|e| format!("Failed to update prices: {}", e))?;
+
+    println!("✅ [PRICE RECALC] Prices saved to bookings table for booking {}", booking_id);
+
+    // 11. Update calculated_amount for each discount in database
+    println!("🔍 [DEBUG] Starting discount calculated_amount updates ({} discounts)...", discount_calculations.len());
+    let booking_id_i64 = booking_id as i64;  // Cast to i64 for PostgreSQL queries
+
+    for (discount_name, calculated_amount) in &discount_calculations {
+        println!("  🔄 Processing: '{}' = {:.2}€", discount_name, calculated_amount);
+        // Skip auto DPolG discount - handle separately
+        if let Some((auto_name, _)) = &auto_dpolg_discount {
+            if discount_name == auto_name {
+                println!("    ⏭️  Skipping auto DPolG (handled separately)");
+                continue;
+            }
+        }
+
+        // Find discount ID by name
+        println!("    🔎 Searching for discount in DB: booking_id={}, name='{}'", booking_id, discount_name);
+        let discount_row = client.query_opt(
+            "SELECT id FROM discounts WHERE booking_id = $1 AND discount_name = $2",
+            &[&booking_id_i64, discount_name],
+        ).await.map_err(|e| format!("Failed to query discount: {}", e))?;
+
+        if let Some(row) = discount_row {
+            let discount_id: i64 = row.get(0);  // discounts.id is BIGINT (i64)
+            println!("    ✅ Found discount ID: {}", discount_id);
+
+            let rows_affected = client.execute(
+                "UPDATE discounts SET calculated_amount = $1 WHERE id = $2",
+                &[calculated_amount, &discount_id],
+            ).await.map_err(|e| format!("Failed to update discount calculated_amount: {}", e))?;
+
+            println!("    💾 UPDATE executed: {} rows affected", rows_affected);
+            println!("📊 [PRICE RECALC] Updated discount '{}' (ID: {}) calculated_amount to {:.2}€", discount_name, discount_id, calculated_amount);
+        } else {
+            println!("    ⚠️  WARNING: Discount '{}' NOT FOUND in DB for booking {}", discount_name, booking_id);
+        }
+    }
+
+    // 12. Handle automatic DPolG discount - insert or update in DB
+    if let Some((discount_name, calculated_amount)) = auto_dpolg_discount {
+        println!("🔍 [DEBUG] Handling auto DPolG discount in DB: '{}' = {:.2}€", discount_name, calculated_amount);
+        let rabatt_prozent = pricing_settings.mitglieder_rabatt_prozent.unwrap_or(15.0);
+
+        // Check if auto discount already exists
+        let existing = client.query_opt(
+            "SELECT id FROM discounts WHERE booking_id = $1 AND discount_name = $2",
+            &[&booking_id_i64, &discount_name],
+        ).await.map_err(|e| format!("Failed to query auto discount: {}", e))?;
+
+        if let Some(row) = existing {
+            // Update existing
+            let discount_id: i64 = row.get(0);  // discounts.id is BIGINT (i64)
+            println!("  ✅ Auto DPolG discount exists in DB (ID: {}), updating...", discount_id);
+
+            let rows_affected = client.execute(
+                "UPDATE discounts SET calculated_amount = $1, discount_value = $2 WHERE id = $3",
+                &[&calculated_amount, &rabatt_prozent, &discount_id],
+            ).await.map_err(|e| format!("Failed to update auto discount: {}", e))?;
+
+            println!("  💾 UPDATE executed: {} rows affected", rows_affected);
+            println!("📊 [PRICE RECALC] Updated auto DPolG discount (ID: {}) calculated_amount to {:.2}€", discount_id, calculated_amount);
+        } else {
+            // Insert new auto discount
+            println!("  ➕ Auto DPolG discount NOT in DB, inserting new...");
+
+            let rows_affected = client.execute(
+                "INSERT INTO discounts (booking_id, discount_name, discount_type, discount_value, calculated_amount)
+                 VALUES ($1, $2, 'percent', $3, $4)",
+                &[&booking_id_i64, &discount_name, &rabatt_prozent, &calculated_amount],
+            ).await.map_err(|e| format!("Failed to insert auto discount: {}", e))?;
+
+            println!("  💾 INSERT executed: {} rows affected", rows_affected);
+            println!("📊 [PRICE RECALC] Created auto DPolG discount with calculated_amount {:.2}€", calculated_amount);
+        }
+    } else {
+        println!("🔍 [DEBUG] No auto DPolG discount to handle (either not member or already has manual DPolG discount)");
+    }
+
+    println!("✅ [PRICE RECALC] All prices and discounts updated for booking {}", booking_id);
+
+    // 13. VERIFICATION: Re-read discounts from DB to verify they were updated
+    println!("\n🔍 [DEBUG VERIFICATION] Re-reading discounts from DB to verify updates...");
+    let verification_rows = client.query(
+        "SELECT id, discount_name, discount_type, discount_value, calculated_amount
+         FROM discounts
+         WHERE booking_id = $1
+         ORDER BY id",
+        &[&booking_id_i64],
+    ).await.map_err(|e| format!("Failed to verify discounts: {}", e))?;
+
+    for row in verification_rows {
+        let id: i64 = row.get(0);  // discounts.id is BIGINT (i64)
+        let name: String = row.get(1);
+        let dtype: String = row.get(2);
+        let value: f64 = row.get(3);
+        let calc: Option<f64> = row.get(4);
+        println!("  ✓ ID: {}, Name: '{}', Type: {}, Value: {}, calculated_amount: {:?}",
+                 id, name, dtype, value, calc);
+    }
+
+    Ok(())
+}
+
 /// TODO: Implement room availability check with PostgreSQL
 #[tauri::command]
 async fn check_room_availability_pg(
@@ -2408,18 +2923,65 @@ async fn update_reminder_pg(
 }
 
 #[tauri::command]
-async fn complete_reminder_pg(pool: State<'_, DbPool>, id: i32) -> Result<database_pg::Reminder, String> {
-    ReminderRepository::complete(&pool, id).await.map_err(|e| e.to_string())
+async fn complete_reminder_pg(
+    app: tauri::AppHandle,
+    pool: State<'_, DbPool>,
+    id: i32,
+    completed: bool
+) -> Result<database_pg::Reminder, String> {
+    println!("🔧 [Backend] complete_reminder_pg called: id={}, completed={}", id, completed);
+
+    let result = ReminderRepository::mark_completed(&pool, id, completed).await.map_err(|e| {
+        eprintln!("❌ [Backend] Error completing reminder: {}", e);
+        e.to_string()
+    })?;
+
+    println!("✅ [Backend] Reminder #{} marked as completed={}", id, completed);
+
+    // Emit event für Frontend Badge-Update (einfacher als LISTEN/NOTIFY)
+    if let Err(e) = app.emit("reminder-completed", serde_json::json!({
+        "id": id,
+        "completed": completed
+    })) {
+        eprintln!("⚠️ [Backend] Failed to emit reminder-completed event: {}", e);
+    } else {
+        println!("✅ [Backend] Emitted reminder-completed event for Badge update");
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
-async fn snooze_reminder_pg(pool: State<'_, DbPool>, id: i32, snoozed_until: String) -> Result<database_pg::Reminder, String> {
-    ReminderRepository::snooze(&pool, id, snoozed_until).await.map_err(|e| e.to_string())
+async fn snooze_reminder_pg(
+    app: tauri::AppHandle,
+    pool: State<'_, DbPool>,
+    id: i32,
+    snoozed_until: String
+) -> Result<database_pg::Reminder, String> {
+    let result = ReminderRepository::snooze(&pool, id, snoozed_until).await.map_err(|e| e.to_string())?;
+
+    // Emit event für Frontend Badge-Update
+    if let Err(e) = app.emit("reminder-snoozed", serde_json::json!({"id": id})) {
+        eprintln!("⚠️ [Backend] Failed to emit reminder-snoozed event: {}", e);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
-async fn delete_reminder_pg(pool: State<'_, DbPool>, id: i32) -> Result<(), String> {
-    ReminderRepository::delete(&pool, id).await.map_err(|e| e.to_string())
+async fn delete_reminder_pg(
+    app: tauri::AppHandle,
+    pool: State<'_, DbPool>,
+    id: i32
+) -> Result<(), String> {
+    ReminderRepository::delete(&pool, id).await.map_err(|e| e.to_string())?;
+
+    // Emit event für Frontend Badge-Update
+    if let Err(e) = app.emit("reminder-deleted", serde_json::json!({"id": id})) {
+        eprintln!("⚠️ [Backend] Failed to emit reminder-deleted event: {}", e);
+    }
+
+    Ok(())
 }
 
 // ============================================================================
@@ -2839,8 +3401,44 @@ async fn update_notification_settings_pg(
     pool: State<'_, DbPool>,
     settings: database_pg::NotificationSettings,
 ) -> Result<database_pg::NotificationSettings, String> {
-    NotificationSettingsRepository::update(&pool, &settings)
-        .await.map_err(|e| e.to_string())
+    // 1. Update Settings
+    let result = NotificationSettingsRepository::update(&pool, &settings)
+        .await.map_err(|e| e.to_string())?;
+
+    // 2. Cancel geplante E-Mails wenn Features deaktiviert wurden
+    let pool_conn = pool.get().await.map_err(|e| e.to_string())?;
+
+    // Cancel Check-in Reminders wenn deaktiviert
+    if !settings.checkin_reminders_enabled.unwrap_or(false) {
+        let cancelled_count = pool_conn.execute(
+            "UPDATE scheduled_emails
+             SET status = 'cancelled'
+             WHERE template_name = 'booking_reminder'
+             AND status = 'pending'",
+            &[]
+        ).await.map_err(|e| e.to_string())?;
+
+        if cancelled_count > 0 {
+            println!("📧 Cancelled {} pending check-in reminder emails (setting disabled)", cancelled_count);
+        }
+    }
+
+    // Cancel Payment Reminders wenn deaktiviert
+    if !settings.payment_reminders_enabled.unwrap_or(false) {
+        let cancelled_count = pool_conn.execute(
+            "UPDATE scheduled_emails
+             SET status = 'cancelled'
+             WHERE template_name = 'payment_reminder'
+             AND status = 'pending'",
+            &[]
+        ).await.map_err(|e| e.to_string())?;
+
+        if cancelled_count > 0 {
+            println!("📧 Cancelled {} pending payment reminder emails (setting disabled)", cancelled_count);
+        }
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -3025,6 +3623,8 @@ async fn get_updates_since(
     let client = pool.get().await.map_err(|e| format!("Database error: {}", e))?;
 
     // Get all bookings updated since timestamp
+    println!("🔍 [POLL DEBUG] Query: updated_at > '{}'", since_timestamp);
+
     let bookings_query = "
         SELECT id, room_id, guest_id, reservierungsnummer, checkin_date, checkout_date,
                anzahl_gaeste, status, gesamtpreis, bemerkungen, created_at::text as created_at,
@@ -3047,6 +3647,13 @@ async fn get_updates_since(
         .into_iter()
         .map(database_pg::Booking::from)
         .collect();
+
+    println!("🔍 [POLL DEBUG] Found {} bookings", bookings.len());
+    if !bookings.is_empty() {
+        for b in &bookings {
+            println!("   📦 Booking {} updated_at: {:?}", b.id, b.updated_at);
+        }
+    }
 
     // Guests table has no updated_at column, so we can't track changes
     // Return empty vector - guests rarely change and full refresh handles updates
@@ -4987,29 +5594,6 @@ async fn get_recent_transactions_command(
     Ok(transactions)
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReminderSettings {
-    auto_send_confirmation: bool,
-    days_before_checkin: i32,
-    auto_send_reminder: bool,
-}
-
-#[tauri::command]
-async fn get_reminder_settings_command(pool: State<'_, DbPool>) -> Result<ReminderSettings, String> {
-    println!("📧 Loading reminder settings...");
-
-    // Load notification settings from database
-    let settings = NotificationSettingsRepository::get(&pool)
-        .await
-        .map_err(|e| format!("Fehler beim Laden der Einstellungen: {}", e))?;
-
-    Ok(ReminderSettings {
-        auto_send_confirmation: false, // TODO: Implement in notification_settings table
-        days_before_checkin: settings.payment_reminder_after_days.unwrap_or(3),
-        auto_send_reminder: settings.checkin_reminders_enabled.unwrap_or(false),
-    })
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -5026,45 +5610,14 @@ struct ScheduledEmail {
 
 #[tauri::command]
 async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEmail>, String> {
-    println!("╔═══════════════════════════════════════════════════════════");
-    println!("║ 📧 get_scheduled_emails BACKEND CALLED");
-    println!("╚═══════════════════════════════════════════════════════════");
+    println!("📧 get_scheduled_emails called");
 
-    println!("🔄 Step 1: Getting database client from pool...");
     let client = pool.get().await
         .map_err(|e| {
-            let err_msg = format!("❌ DATABASE POOL ERROR: {}", e);
-            println!("{}", err_msg);
-            err_msg
+            eprintln!("❌ Database pool error: {}", e);
+            format!("Database pool error: {}", e)
         })?;
-    println!("✅ Step 1: Database client obtained successfully");
 
-    // Debug: Count scheduled emails by status
-    println!("📊 DEBUG: Counting scheduled emails...");
-    let total_result = client.query_one("SELECT COUNT(*) as count FROM scheduled_emails", &[]).await;
-    match total_result {
-        Ok(row) => {
-            let total_count: i64 = row.get("count");
-            println!("   Total scheduled_emails in DB: {}", total_count);
-        }
-        Err(e) => println!("   ⚠️ Could not count total: {}", e)
-    }
-
-    let by_status_result = client.query(
-        "SELECT status, COUNT(*) as count FROM scheduled_emails GROUP BY status ORDER BY status", &[]
-    ).await;
-    match by_status_result {
-        Ok(rows) => {
-            for row in rows {
-                let status: String = row.get("status");
-                let count: i64 = row.get("count");
-                println!("   - Status '{}': {} emails", status, count);
-            }
-        }
-        Err(e) => println!("   ⚠️ Could not count by status: {}", e)
-    }
-
-    println!("🔄 Step 2: Executing SQL query...");
     let sql = "SELECT
                 se.booking_id,
                 b.reservierungsnummer,
@@ -5079,85 +5632,43 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
              JOIN bookings b ON se.booking_id = b.id
              JOIN guests g ON b.guest_id = g.id
              WHERE se.status IN ('pending', 'sent', 'failed', 'cancelled')
+               AND se.booking_id IS NOT NULL
              ORDER BY se.scheduled_for DESC";
-
-    println!("📝 SQL Query:");
-    println!("{}", sql);
 
     let rows = client
         .query(sql, &[])
         .await
         .map_err(|e| {
-            let err_msg = format!("❌ SQL QUERY ERROR: {}", e);
-            println!("{}", err_msg);
-            println!("🔍 Error details: {:?}", e);
-            err_msg
+            eprintln!("❌ SQL query error: {}", e);
+            format!("SQL query error: {}", e)
         })?;
 
-    println!("✅ Step 2: Query executed successfully");
-    println!("📊 Found {} rows in database", rows.len());
-
     if rows.is_empty() {
-        println!("⚠️  WARNING: No scheduled emails found in database");
-        println!("   Check if there are any rows with status='pending' in scheduled_emails table");
+        println!("⚠️  No scheduled emails found");
         return Ok(vec![]);
     }
 
-    println!("🔄 Step 3: Mapping rows to ScheduledEmail structs...");
-    let total_rows = rows.len();
     let result: Vec<ScheduledEmail> = rows
         .into_iter()
-        .enumerate()
-        .map(|(idx, row)| {
-            println!("  📧 Processing email {}/{}...", idx + 1, total_rows);
-
-            println!("    🔍 Extracting booking_id...");
+        .map(|row| {
             let booking_id: i32 = row.get("booking_id");
-            println!("    ✅ booking_id = {}", booking_id);
-
-            println!("    🔍 Extracting reservierungsnummer...");
             let reservierungsnummer: String = row.get("reservierungsnummer");
-            println!("    ✅ reservierungsnummer = {}", reservierungsnummer);
-
-            println!("    🔍 Extracting guest_name...");
             let guest_name: String = row.get("guest_name");
-            println!("    ✅ guest_name = {}", guest_name);
-
-            println!("    🔍 Extracting recipient_email...");
             let guest_email: String = row.get("recipient_email");
-            println!("    ✅ guest_email = {}", guest_email);
-
-            println!("    🔍 Extracting template_name...");
             let email_type: String = row.get("template_name");
-            println!("    ✅ email_type = {}", email_type);
-
-            println!("    🔍 Extracting scheduled_for...");
             let scheduled_for: String = row.get("scheduled_for");
-            println!("    ✅ scheduled_for = {}", scheduled_for);
-
-            println!("    🔍 Extracting check_in...");
             let check_in: String = row.get("check_in");
-            println!("    ✅ check_in = {}", check_in);
-
-            println!("    🔍 Extracting check_out...");
             let check_out: String = row.get("check_out");
-            println!("    ✅ check_out = {}", check_out);
-
-            println!("    🔍 Extracting status...");
             let status: String = row.get("status");
-            println!("    ✅ status = {}", status);
 
-            // Generate reason based on email type and dates
-            println!("    🔍 Generating reason from email_type...");
             let reason = match email_type.as_str() {
                 "reminder" => format!("Erinnerung 7 Tage vor Anreise ({})", check_in),
                 "payment_reminder" => format!("Zahlungserinnerung 14 Tage vor Anreise ({})", check_in),
                 "invoice" => format!("Rechnung nach Abreise ({})", check_out),
                 _ => format!("Geplanter Email-Versand"),
             };
-            println!("    ✅ reason = {}", reason);
 
-            let scheduled_email = ScheduledEmail {
+            ScheduledEmail {
                 booking_id: booking_id as i64,
                 reservierungsnummer,
                 guest_name,
@@ -5166,19 +5677,11 @@ async fn get_scheduled_emails(pool: State<'_, DbPool>) -> Result<Vec<ScheduledEm
                 scheduled_date: scheduled_for,
                 reason,
                 status,
-            };
-
-            println!("    ✅ ScheduledEmail struct created successfully");
-            scheduled_email
+            }
         })
         .collect();
 
-    println!("✅ Step 3: Successfully mapped all rows");
-    println!("📦 Returning {} ScheduledEmail objects to frontend", result.len());
-    println!("╔═══════════════════════════════════════════════════════════");
-    println!("║ ✅ get_scheduled_emails BACKEND COMPLETE");
-    println!("╚═══════════════════════════════════════════════════════════");
-
+    println!("✅ Loaded {} scheduled emails", result.len());
     Ok(result)
 }
 
@@ -5695,30 +6198,6 @@ async fn save_backup_settings_command(settings: BackupSettings) -> Result<(), St
     Ok(())
 }
 
-#[tauri::command]
-async fn save_reminder_settings_command(
-    pool: State<'_, DbPool>,
-    settings: ReminderSettings
-) -> Result<(), String> {
-    println!("📧 Saving reminder settings...");
-
-    // Load current notification settings
-    let mut current = NotificationSettingsRepository::get(&pool)
-        .await
-        .map_err(|e| format!("Fehler beim Laden der Einstellungen: {}", e))?;
-
-    // Update reminder-specific fields
-    current.checkin_reminders_enabled = Some(settings.auto_send_reminder);
-    current.payment_reminder_after_days = Some(settings.days_before_checkin);
-
-    // Save updated settings
-    NotificationSettingsRepository::update(&pool, &current)
-        .await
-        .map_err(|e| format!("Fehler beim Speichern: {}", e))?;
-
-    println!("✅ Reminder settings saved successfully");
-    Ok(())
-}
 
 /// Helper function to create SMTP transport from email config
 fn create_smtp_transport(
@@ -6583,5 +7062,147 @@ async fn clear_email_logs_command(
 
     println!("✅ Deleted {} old email logs", rows_deleted);
     Ok(rows_deleted as i64)
+}
+
+// ============================================================================
+// AUDIT LOG (Change History)
+// ============================================================================
+
+#[tauri::command]
+async fn get_audit_log_pg(
+    pool: State<'_, DbPool>,
+    table_name: Option<String>,
+    record_id: Option<i32>,
+    limit: Option<i64>,
+) -> Result<Vec<database_pg::AuditLog>, String> {
+    let client = pool.get().await
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let query = if let (Some(table), Some(id)) = (table_name, record_id) {
+        // Get audit log for specific record
+        client
+            .query(
+                "SELECT id, table_name, record_id, action, old_values, new_values, user_name, timestamp
+                 FROM audit_log
+                 WHERE table_name = $1 AND record_id = $2
+                 ORDER BY timestamp DESC
+                 LIMIT $3",
+                &[&table, &id, &limit.unwrap_or(100)],
+            )
+            .await
+    } else {
+        // Get all audit logs
+        client
+            .query(
+                "SELECT id, table_name, record_id, action, old_values, new_values, user_name, timestamp
+                 FROM audit_log
+                 ORDER BY timestamp DESC
+                 LIMIT $1",
+                &[&limit.unwrap_or(100)],
+            )
+            .await
+    };
+
+    let rows = query.map_err(|e| format!("Fehler beim Laden der Audit Logs: {}", e))?;
+
+    Ok(rows.into_iter().map(database_pg::AuditLog::from).collect())
+}
+
+#[tauri::command]
+async fn get_booking_audit_log_pg(
+    pool: State<'_, DbPool>,
+    booking_id: i32,
+) -> Result<Vec<database_pg::AuditLog>, String> {
+    let client = pool.get().await
+        .map_err(|e| format!("Datenbankfehler: {}", e))?;
+
+    let rows = client
+        .query(
+            "SELECT id, table_name, record_id, action, old_values, new_values, user_name, timestamp
+             FROM audit_log
+             WHERE table_name = 'bookings' AND record_id = $1
+             ORDER BY timestamp DESC",
+            &[&booking_id],
+        )
+        .await
+        .map_err(|e| format!("Fehler beim Laden der Buchungs-Historie: {}", e))?;
+
+    Ok(rows.into_iter().map(database_pg::AuditLog::from).collect())
+}
+
+// ============================================================================
+// ADVISORY LOCKS (Presence System)
+// ============================================================================
+
+#[tauri::command]
+async fn acquire_booking_lock_pg(
+    pool: State<'_, DbPool>,
+    booking_id: i32,
+    user_name: String,
+) -> Result<database_pg::ActiveLock, String> {
+    println!("🔒 User '{}' acquiring lock on booking #{}", user_name, booking_id);
+
+    LockRepository::acquire_lock(&pool, booking_id, user_name)
+        .await
+        .map_err(|e| {
+            match e {
+                database_pg::DbError::ConflictError(msg) => msg,
+                _ => format!("Fehler beim Sperren der Buchung: {}", e),
+            }
+        })
+}
+
+#[tauri::command]
+async fn release_booking_lock_pg(
+    pool: State<'_, DbPool>,
+    booking_id: i32,
+    user_name: String,
+) -> Result<(), String> {
+    println!("🔓 User '{}' releasing lock on booking #{}", user_name, booking_id);
+
+    LockRepository::release_lock(&pool, booking_id, user_name)
+        .await
+        .map_err(|e| format!("Fehler beim Entsperren der Buchung: {}", e))
+}
+
+#[tauri::command]
+async fn update_lock_heartbeat_pg(
+    pool: State<'_, DbPool>,
+    booking_id: i32,
+) -> Result<(), String> {
+    LockRepository::update_heartbeat(&pool, booking_id)
+        .await
+        .map_err(|e| format!("Fehler beim Aktualisieren des Heartbeats: {}", e))
+}
+
+#[tauri::command]
+async fn get_all_active_locks_pg(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<database_pg::ActiveLock>, String> {
+    LockRepository::get_all_locks(&pool)
+        .await
+        .map_err(|e| format!("Fehler beim Laden der aktiven Sperren: {}", e))
+}
+
+#[tauri::command]
+async fn get_booking_lock_pg(
+    pool: State<'_, DbPool>,
+    booking_id: i32,
+) -> Result<Option<database_pg::ActiveLock>, String> {
+    LockRepository::get_lock_for_booking(&pool, booking_id)
+        .await
+        .map_err(|e| format!("Fehler beim Prüfen der Sperre: {}", e))
+}
+
+#[tauri::command]
+async fn release_all_user_locks_pg(
+    pool: State<'_, DbPool>,
+    user_name: String,
+) -> Result<(), String> {
+    println!("🔓 Releasing all locks for user '{}'", user_name);
+
+    LockRepository::release_all_user_locks(&pool, user_name)
+        .await
+        .map_err(|e| format!("Fehler beim Entsperren aller Buchungen: {}", e))
 }
 

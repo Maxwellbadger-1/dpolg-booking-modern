@@ -11,6 +11,11 @@ export interface Room {
   streetAddress?: string;
   postalCode?: string;
   city?: string;
+  created_at?: string;
+  updated_at?: string;
+  // Audit Trail
+  created_by?: string;
+  updated_by?: string;
 }
 
 export interface Guest {
@@ -29,6 +34,10 @@ export interface Guest {
   bundesland?: string;
   dienststelle?: string;
   created_at?: string;
+  updated_at?: string;
+  // Audit Trail
+  created_by?: string;
+  updated_by?: string;
   // NEW: 21 additional fields from CSV import
   anrede?: string; // "Herr", "Frau"
   geschlecht?: string; // "männlich", "weiblich", "divers"
@@ -78,6 +87,10 @@ export interface Booking {
   // Putzplan: Alternatives Checkout-Datum (optional, falls abweichend)
   putzplan_checkout_date?: string | null;
   created_at?: string;
+  updated_at?: string;
+  // Audit Trail
+  created_by?: string;
+  updated_by?: string;
   // DPolG Mitglied (für Rabattberechnung)
   ist_dpolg_mitglied?: boolean;
   // Gast-Guthaben (für Rechnungen)

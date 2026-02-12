@@ -24,7 +24,7 @@ interface BookingChange {
 
 interface ChangeConfirmationDialogProps {
   change: BookingChange;
-  onConfirm: (sendEmail: boolean, createInvoice: boolean) => void;
+  onConfirm: (sendEmail: boolean, sendInvoice: boolean) => void;
   onDiscard: () => void;
 }
 
@@ -34,7 +34,7 @@ export default function ChangeConfirmationDialog({
   onDiscard,
 }: ChangeConfirmationDialogProps) {
   const [sendEmail, setSendEmail] = useState(true);
-  const [createInvoice, setCreateInvoice] = useState(true);
+  const [sendInvoice, setSendInvoice] = useState(true);
 
   const hasCheckinChanged = change.oldData.checkin_date !== change.newData.checkin_date;
   const hasCheckoutChanged = change.oldData.checkout_date !== change.newData.checkout_date;
@@ -210,8 +210,8 @@ export default function ChangeConfirmationDialog({
           <label className="flex items-center gap-3 p-3 bg-slate-700/30 rounded-lg cursor-pointer hover:bg-slate-700/50 transition-colors">
             <input
               type="checkbox"
-              checked={createInvoice}
-              onChange={(e) => setCreateInvoice(e.target.checked)}
+              checked={sendInvoice}
+              onChange={(e) => setSendInvoice(e.target.checked)}
               className="w-4 h-4 rounded border-slate-600 text-blue-600 focus:ring-blue-500"
             />
             <FileText className="w-5 h-5 text-purple-400" />
@@ -258,10 +258,10 @@ export default function ChangeConfirmationDialog({
             onClick={() => {
               console.log('═══════════════════════════════════════');
               console.log('💾 [ChangeConfirmationDialog] SAVE BUTTON CLICKED!');
-              console.log('📤 Calling onConfirm with:', { sendEmail, createInvoice });
+              console.log('📤 Calling onConfirm with:', { sendEmail, sendInvoice });
               console.log('📦 change object:', JSON.stringify(change, null, 2));
               console.log('═══════════════════════════════════════');
-              onConfirm(sendEmail, createInvoice);
+              onConfirm(sendEmail, sendInvoice);
             }}
             className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors shadow-lg"
           >

@@ -22,15 +22,6 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     loadReminders();
   }, []);
 
-  useEffect(() => {
-    // Event Listener für Reminder Updates
-    const handleReminderUpdate = () => {
-      loadReminders();
-    };
-    window.addEventListener('reminder-updated', handleReminderUpdate);
-    return () => window.removeEventListener('reminder-updated', handleReminderUpdate);
-  }, []);
-
   const loadReminders = async () => {
     try {
       setLoading(true);
@@ -56,7 +47,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
       });
       await loadReminders();
       setShowCreateDialog(false);
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert
     } catch (error) {
       console.error('Fehler beim Erstellen der Erinnerung:', error);
       alert(`Fehler beim Erstellen der Erinnerung: ${error}`);
@@ -74,7 +65,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
       });
       await loadReminders();
       setEditingReminder(null);
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert
     } catch (error) {
       console.error('Fehler beim Aktualisieren der Erinnerung:', error);
       alert(`Fehler beim Aktualisieren der Erinnerung: ${error}`);
@@ -85,30 +76,26 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
     console.log('✅ [RemindersView] handleMarkCompleted called', { id, completed });
 
     // OPTIMISTIC UPDATE (2025 Best Practice)
-    // 1. Sofort Event dispatchen für Badge-Update (KEIN await!)
-    window.dispatchEvent(new CustomEvent('reminder-updated'));
-
-    // 2. Optimistisch lokales State updaten
+    // 1. Optimistisch lokales State updaten
     console.log('⚡ [RemindersView] Optimistic update - setting allReminders');
     setAllReminders(prev => prev.map(r =>
       r.id === id ? { ...r, is_completed: completed ? 1 : 0 } : r
     ));
 
     try {
-      // 3. Backend Update
-      console.log('📤 [RemindersView] Calling backend mark_reminder_completed_command');
+      // 2. Backend Update (triggert PostgreSQL NOTIFY → Badge-Count Update automatisch)
+      console.log('📤 [RemindersView] Calling backend complete_reminder_pg');
       await invoke('complete_reminder_pg', { id, completed });
       console.log('✅ [RemindersView] Backend update successful');
 
-      // 4. Final refresh für Konsistenz
+      // 3. Final refresh für Konsistenz
       console.log('🔄 [RemindersView] Refreshing reminders from backend');
       await loadReminders();
     } catch (error) {
       console.error('❌ [RemindersView] Fehler beim Markieren der Erinnerung:', error);
 
-      // 5. Rollback bei Fehler
+      // 4. Rollback bei Fehler
       await loadReminders();
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
     }
   };
 
@@ -124,7 +111,7 @@ export default function RemindersView({ onNavigateToBooking }: RemindersViewProp
       await invoke('delete_reminder_pg', { id: deleteDialogReminder.id });
       await loadReminders();
       setDeleteDialogReminder(null);
-      window.dispatchEvent(new CustomEvent('reminder-updated'));
+      // Badge-Count wird automatisch via PostgreSQL NOTIFY aktualisiert
     } catch (error) {
       console.error('Fehler beim Löschen der Erinnerung:', error);
       alert(`Fehler beim Löschen der Erinnerung: ${error}`);

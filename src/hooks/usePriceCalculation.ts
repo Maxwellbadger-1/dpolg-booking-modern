@@ -112,6 +112,26 @@ export function usePriceCalculation(input: PriceCalculationInput | null) {
       return;
     }
 
+    // Validiere Datums-Strings vor Backend-Call
+    if (!input.checkin || !input.checkout ||
+        input.checkin === '' || input.checkout === '') {
+      setPriceBreakdown(null);
+      return;
+    }
+
+    // Validiere Datum-Format
+    try {
+      const checkinDate = new Date(input.checkin);
+      const checkoutDate = new Date(input.checkout);
+      if (isNaN(checkinDate.getTime()) || isNaN(checkoutDate.getTime())) {
+        setPriceBreakdown(null);
+        return;
+      }
+    } catch {
+      setPriceBreakdown(null);
+      return;
+    }
+
     // Cache-Check
     if (cacheKey) {
       const cached = cache.current.get(cacheKey);

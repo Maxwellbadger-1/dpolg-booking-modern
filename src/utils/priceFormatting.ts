@@ -59,9 +59,16 @@ export function formatServicePriceWithSymbol(service: PriceableService): { symbo
 }
 
 /**
- * Berechnet den tatsächlichen Preis eines Services in einer Buchung
- * Für prozentuale Services: Berechnet % vom Grundpreis/Gesamtpreis
- * Für Festbeträge: Gibt service_price zurück
+ * Formatiert gespeicherte Service-Preise für Anzeige im View-Mode.
+ *
+ * WICHTIG: Diese Funktion macht KEINE echten Berechnungen für die DB!
+ * Sie wird nur verwendet um bereits gespeicherte Werte zu formatieren.
+ * Alle tatsächlichen Preisberechnungen erfolgen im Backend via usePriceCalculation Hook.
+ *
+ * @param service - Service mit gespeichertem price/original_value
+ * @param grundpreis - Basis für prozentuale Anzeige
+ * @param currentServicesTotal - Summe bisheriger Services (für total_price Services)
+ * @returns Berechneter Preis für Anzeige
  */
 export function calculateServicePrice(
   service: PriceableService,

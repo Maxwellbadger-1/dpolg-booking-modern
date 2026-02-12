@@ -2,15 +2,23 @@ import { useState, useEffect } from 'react';
 import { Bell, Save, RefreshCw, AlertCircle, PlayCircle, Mail, Bug } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { ReminderSettings } from '../../types/reminder';
 
 interface NotificationSettings {
   id: number;
   checkinRemindersEnabled: boolean | null;
+  checkinReminderBeforeDays: number | null;
   paymentRemindersEnabled: boolean | null;
   paymentReminderAfterDays: number | null;
   paymentReminderRepeatDays: number | null;
   schedulerIntervalHours: number | null;
+
+  // Auto-Reminder Flags (merged from ReminderSettings)
+  autoReminderIncompleteData: boolean | null;
+  autoReminderPayment: boolean | null;
+  paymentReminderBeforeDays: number | null;
+  autoReminderCheckin: boolean | null;
+  autoReminderInvoice: boolean | null;
+
   updatedAt: string | null;
 }
 
@@ -28,18 +36,16 @@ export default function NotificationsTab() {
   const [settings, setSettings] = useState<NotificationSettings>({
     id: 1,
     checkinRemindersEnabled: true,
+    checkinReminderBeforeDays: 3,
     paymentRemindersEnabled: true,
     paymentReminderAfterDays: 14,
     paymentReminderRepeatDays: 14,
     schedulerIntervalHours: 1,
-    updatedAt: null,
-  });
-  const [reminderSettings, setReminderSettings] = useState<ReminderSettings>({
-    id: 1,
-    auto_reminder_incomplete_data: true,
-    auto_reminder_payment: true,
-    auto_reminder_checkin: true,
-    auto_reminder_invoice: true,
+    autoReminderIncompleteData: true,
+    autoReminderPayment: true,
+    paymentReminderBeforeDays: 7,
+    autoReminderCheckin: true,
+    autoReminderInvoice: true,
     updatedAt: null,
   });
   const [loading, setLoading] = useState(true);
@@ -53,7 +59,6 @@ export default function NotificationsTab() {
   // Load settings on mount
   useEffect(() => {
     loadSettings();
-    loadReminderSettings();
   }, []);
 
   const loadSettings = async () => {
@@ -70,14 +75,6 @@ export default function NotificationsTab() {
     }
   };
 
-  const loadReminderSettings = async () => {
-    try {
-      const data = await invoke<ReminderSettings>('get_reminder_settings_command');
-      setReminderSettings(data);
-    } catch (err) {
-      console.error('Fehler beim Laden der Reminder-Einstellungen:', err);
-    }
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,17 +82,27 @@ export default function NotificationsTab() {
     setSuccessMessage(null);
     setError(null);
 
+    // Track which features were disabled for feedback message
+    const disabledCheckinReminders = !settings.checkinRemindersEnabled;
+    const disabledPaymentReminders = !settings.paymentRemindersEnabled;
+
     try {
-      // Save email notification settings
+      // Save notification settings (including auto-reminder flags)
       const updated = await invoke<NotificationSettings>('update_notification_settings_pg', { settings });
       setSettings(updated);
 
-      // Save reminder settings
-      const updatedReminders = await invoke<ReminderSettings>('save_reminder_settings_command', { settings: reminderSettings });
-      setReminderSettings(updatedReminders);
+      let message = '✅ Einstellungen erfolgreich gespeichert!';
 
-      setSuccessMessage('Einstellungen erfolgreich gespeichert!');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      // If features were disabled, inform user about cancelled emails
+      if (disabledCheckinReminders || disabledPaymentReminders) {
+        const cancelled: string[] = [];
+        if (disabledCheckinReminders) cancelled.push('Check-in Erinnerungen');
+        if (disabledPaymentReminders) cancelled.push('Zahlungserinnerungen');
+        message += ` Bereits geplante ${cancelled.join(' und ')} wurden storniert.`;
+      }
+
+      setSuccessMessage(message);
+      setTimeout(() => setSuccessMessage(null), 5000);
     } catch (err) {
       console.error('Fehler beim Speichern:', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -170,11 +177,29 @@ export default function NotificationsTab() {
             />
             <div className="flex-1">
               <label htmlFor="checkin_reminders" className="block text-sm font-semibold text-white cursor-pointer">
-                Check-in Erinnerung (1 Tag vorher)
+                Check-in Erinnerung
               </label>
-              <p className="text-xs text-slate-400 mt-1">
-                Sendet automatisch eine Erinnerung 1 Tag vor dem Check-in an alle Gäste mit bestätigten Buchungen.
+              <p className="text-xs text-slate-400 mt-1 mb-3">
+                Sendet automatisch eine Erinnerung vor dem Check-in an alle Gäste mit bestätigten Buchungen.
               </p>
+              {settings.checkinRemindersEnabled && (
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-slate-300 mb-2">
+                    Erinnerung senden (Tage vor Check-in)
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.checkinReminderBeforeDays}
+                    onChange={(e) => setSettings({ ...settings, checkinReminderBeforeDays: parseInt(e.target.value) || 3 })}
+                    min="1"
+                    max="14"
+                    className="w-32 px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    Empfohlen: 3 Tage vor Check-in
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -280,8 +305,8 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="auto_reminder_incomplete_data"
-              checked={reminderSettings.auto_reminder_incomplete_data}
-              onChange={(e) => setReminderSettings({ ...reminderSettings, auto_reminder_incomplete_data: e.target.checked })}
+              checked={settings.autoReminderIncompleteData ?? false}
+              onChange={(e) => setSettings({ ...settings, autoReminderIncompleteData: e.target.checked })}
               className="mt-1 w-4 h-4 text-purple-600 border-slate-600 rounded focus:ring-purple-500"
             />
             <div className="flex-1">
@@ -299,17 +324,36 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="auto_reminder_payment"
-              checked={reminderSettings.auto_reminder_payment}
-              onChange={(e) => setReminderSettings({ ...reminderSettings, auto_reminder_payment: e.target.checked })}
+              checked={settings.autoReminderPayment ?? false}
+              onChange={(e) => setSettings({ ...settings, autoReminderPayment: e.target.checked })}
               className="mt-1 w-4 h-4 text-purple-600 border-slate-600 rounded focus:ring-purple-500"
             />
             <div className="flex-1">
               <label htmlFor="auto_reminder_payment" className="block text-sm font-semibold text-white cursor-pointer">
                 Zahlung ausstehend
               </label>
-              <p className="text-xs text-slate-400 mt-1">
-                Erstellt eine Erinnerung 7 Tage vor Check-in, wenn die Buchung noch nicht bezahlt wurde.
+              <p className="text-xs text-slate-400 mt-1 mb-3">
+                Erstellt eine Erinnerung, wenn die Buchung noch nicht bezahlt wurde.
               </p>
+
+              {/* Configurable days before check-in */}
+              {settings.autoReminderPayment && (
+                <div className="flex items-center gap-3 mt-2 pl-1">
+                  <label htmlFor="payment_reminder_days" className="text-xs text-slate-300">
+                    Wie viele Tage vor Check-in:
+                  </label>
+                  <input
+                    type="number"
+                    id="payment_reminder_days"
+                    value={settings.paymentReminderBeforeDays ?? 7}
+                    onChange={(e) => setSettings({ ...settings, paymentReminderBeforeDays: parseInt(e.target.value) || 7 })}
+                    min="1"
+                    max="90"
+                    className="w-20 px-2 py-1 bg-slate-600 border border-slate-500 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span className="text-xs text-slate-400">Tage</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -318,8 +362,8 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="auto_reminder_checkin"
-              checked={reminderSettings.auto_reminder_checkin}
-              onChange={(e) => setReminderSettings({ ...reminderSettings, auto_reminder_checkin: e.target.checked })}
+              checked={settings.autoReminderCheckin ?? false}
+              onChange={(e) => setSettings({ ...settings, autoReminderCheckin: e.target.checked })}
               className="mt-1 w-4 h-4 text-purple-600 border-slate-600 rounded focus:ring-purple-500"
             />
             <div className="flex-1">
@@ -337,8 +381,8 @@ export default function NotificationsTab() {
             <input
               type="checkbox"
               id="auto_reminder_invoice"
-              checked={reminderSettings.auto_reminder_invoice}
-              onChange={(e) => setReminderSettings({ ...reminderSettings, auto_reminder_invoice: e.target.checked })}
+              checked={settings.autoReminderInvoice ?? false}
+              onChange={(e) => setSettings({ ...settings, autoReminderInvoice: e.target.checked })}
               className="mt-1 w-4 h-4 text-purple-600 border-slate-600 rounded focus:ring-purple-500"
             />
             <div className="flex-1">

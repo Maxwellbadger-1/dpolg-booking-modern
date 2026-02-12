@@ -4,7 +4,9 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { check } from '@tauri-apps/plugin-updater';
 import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info, Code } from 'lucide-react';
+import { Building2, Save, Upload, XCircle, Download, CheckCircle, Info, Code, User } from 'lucide-react';
+import { useUser } from '../../context/UserContext';
+import toast from 'react-hot-toast';
 
 interface CompanySettings {
   id: number;
@@ -33,6 +35,7 @@ interface LogoUploadResult {
 }
 
 export default function GeneralSettingsTab() {
+  const { userName, changeUserName } = useUser();
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [companyName, setCompanyName] = useState('');
   const [address, setAddress] = useState('');
@@ -243,6 +246,14 @@ export default function GeneralSettingsTab() {
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
+  const handleChangeUserName = () => {
+    const newName = window.prompt('Neuer Benutzername:', userName || '');
+    if (newName && newName.trim() !== '') {
+      changeUserName(newName);
+      toast.success(`✅ Benutzername geändert: ${newName}`);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -400,6 +411,31 @@ export default function GeneralSettingsTab() {
                 <span className="text-sm font-medium">DevTools sind aktiviert - Button erscheint unten rechts</span>
               </div>
             )}
+          </div>
+
+          {/* Audit-Benutzer Section */}
+          <div className="border-t border-slate-700 pt-6 mt-6">
+            <h4 className="text-lg font-semibold text-white mb-4">Audit-Benutzer</h4>
+            <div className="flex items-center justify-between bg-slate-800 p-4 rounded-lg">
+              <div>
+                <div className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-blue-400" />
+                  <p className="text-white font-medium">
+                    Aktueller Benutzer: <strong className="text-blue-400">{userName}</strong>
+                  </p>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">
+                  Wird bei allen Änderungen (Buchungen, Gäste, Zimmer) gespeichert
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleChangeUserName}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Ändern
+              </button>
+            </div>
           </div>
         </div>
       </div>

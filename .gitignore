@@ -49,6 +49,9 @@ console.txt
 *.db-shm
 *.db-wal
 
+# Setup files with credentials
+MACBOOK_SETUP_COMPLETE.txt
+
 # Signing Keys - ABSOLUTE SECURITY REQUIREMENT!
 *.key
 *.key.pub

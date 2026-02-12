@@ -30,6 +30,24 @@ pub struct DbChangeEvent {
     pub timestamp: String,
 }
 
+/// Lock change event from PostgreSQL NOTIFY (Presence System)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LockChangeEvent {
+    /// Action: "ACQUIRED" or "RELEASED"
+    pub action: String,
+
+    /// Booking ID that was locked/unlocked
+    pub booking_id: i32,
+
+    /// User who owns the lock
+    pub user_name: String,
+
+    /// Timestamp when locked (only for ACQUIRED)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_at: Option<String>,
+}
+
 /// Start PostgreSQL NOTIFY listener in background
 ///
 /// WICHTIG: Verwendet separate Connection (nicht aus Pool!)
@@ -68,62 +86,123 @@ async fn connect_and_listen(
 
     println!("✅ [PgListener] Connected to PostgreSQL");
 
-    // LISTEN auf alle Channels
-    client.execute("LISTEN booking_changes", &[]).await?;
-    client.execute("LISTEN guest_changes", &[]).await?;
-    client.execute("LISTEN room_changes", &[]).await?;
-    client.execute("LISTEN table_changes", &[]).await?;
+    // LISTEN auf alle Channels - mit explizitem Error Handling
+    println!("🔧 [PgListener] Executing LISTEN commands...");
 
-    println!("🎧 [PgListener] Listening on channels: booking_changes, guest_changes, room_changes, table_changes");
+    if let Err(e) = client.execute("LISTEN booking_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN booking_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN booking_changes successful");
 
-    // Wichtig: Die Connection muss als Stream verarbeitet werden
-    // poll_message() wartet auf die nächste Nachricht
+    if let Err(e) = client.execute("LISTEN guest_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN guest_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN guest_changes successful");
+
+    if let Err(e) = client.execute("LISTEN room_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN room_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN room_changes successful");
+
+    if let Err(e) = client.execute("LISTEN table_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN table_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN table_changes successful");
+
+    if let Err(e) = client.execute("LISTEN lock_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN lock_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN lock_changes successful");
+
+    if let Err(e) = client.execute("LISTEN reminder_changes", &[]).await {
+        eprintln!("❌ [PgListener] LISTEN reminder_changes failed: {}", e);
+        return Err(Box::new(e));
+    }
+    println!("✅ [PgListener] LISTEN reminder_changes successful");
+
+    println!("🎧 [PgListener] All LISTEN commands executed successfully - now polling for notifications");
+
+    // Poll connection for notifications (this loop keeps the function alive)
     loop {
-        match poll_fn(|cx| connection.poll_message(cx)).await {
-            Some(Ok(AsyncMessage::Notification(notification))) => {
-                println!(
-                    "📨 [PgListener] Received: {} -> {}",
-                    notification.channel(),
-                    notification.payload()
-                );
+            match poll_fn(|cx| connection.poll_message(cx)).await {
+                Some(Ok(AsyncMessage::Notification(notification))) => {
+                        println!(
+                            "📨 [PgListener] Received: {} -> {}",
+                            notification.channel(),
+                            notification.payload()
+                        );
 
-                // Parse JSON payload
-                match serde_json::from_str::<DbChangeEvent>(notification.payload()) {
-                    Ok(event) => {
-                        // Emit to frontend via Tauri event system
-                        if let Err(e) = app_handle.emit("db-change", &event) {
-                            eprintln!("❌ [PgListener] Failed to emit event: {}", e);
+                        // Parse and emit events
+                        if notification.channel() == "lock_changes" {
+                            match serde_json::from_str::<LockChangeEvent>(notification.payload()) {
+                                Ok(event) => {
+                                    if let Err(e) = app_handle.emit("lock-change", &event) {
+                                        eprintln!("❌ [PgListener] Failed to emit lock-change: {}", e);
+                                    } else {
+                                        println!("✅ [PgListener] Emitted lock-change: {:?}", event);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "⚠️ [PgListener] Failed to parse lock payload: {} - Error: {}",
+                                        notification.payload(),
+                                        e
+                                    );
+                                }
+                            }
                         } else {
-                            println!("✅ [PgListener] Emitted db-change: {:?}", event);
+                            println!("🔧 [DEBUG PgListener] Parsing payload: {}", notification.payload());
+                            match serde_json::from_str::<DbChangeEvent>(notification.payload()) {
+                                Ok(event) => {
+                                    println!("🔧 [DEBUG PgListener] Parsed event: table={}, action={}, id={}", event.table, event.action, event.id);
+
+                                    if event.table == "reminders" {
+                                        println!("📨 [DEBUG PgListener] REMINDER EVENT DETECTED!");
+                                        println!("   Action: {}", event.action);
+                                        println!("   ID: {}", event.id);
+                                        println!("   Timestamp: {}", event.timestamp);
+                                    }
+
+                                    if let Err(e) = app_handle.emit("db-change", &event) {
+                                        eprintln!("❌ [PgListener] Failed to emit event: {}", e);
+                                    } else {
+                                        println!("✅ [PgListener] Emitted db-change: {:?}", event);
+                                        if event.table == "reminders" {
+                                            println!("✅ [DEBUG PgListener] Reminder event successfully emitted to frontend!");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "⚠️ [PgListener] Failed to parse payload: {} - Error: {}",
+                                        notification.payload(),
+                                        e
+                                    );
+                                }
+                            }
                         }
                     }
-                    Err(e) => {
-                        eprintln!(
-                            "⚠️ [PgListener] Failed to parse payload: {} - Error: {}",
-                            notification.payload(),
-                            e
-                        );
+                    Some(Ok(AsyncMessage::Notice(notice))) => {
+                        println!("📝 [PgListener] Notice: {}", notice.message());
+                    }
+                    Some(Ok(_)) => {
+                        // Other messages
+                    }
+                    Some(Err(e)) => {
+                        eprintln!("❌ [PgListener] Connection error: {}", e);
+                        return Err(Box::new(e));
+                    }
+                    None => {
+                        println!("⚠️ [PgListener] Connection closed");
+                        return Ok(());
                     }
                 }
             }
-            Some(Ok(AsyncMessage::Notice(notice))) => {
-                // PostgreSQL NOTICE messages (info, warnings)
-                println!("📝 [PgListener] Notice: {}", notice.message());
-            }
-            Some(Ok(_)) => {
-                // Other async messages (ignore)
-            }
-            Some(Err(e)) => {
-                eprintln!("❌ [PgListener] Connection error: {}", e);
-                return Err(Box::new(e));
-            }
-            None => {
-                // Connection geschlossen
-                println!("⚠️ [PgListener] Connection closed by server");
-                return Ok(());
-            }
-        }
-    }
 }
 
 #[cfg(test)]

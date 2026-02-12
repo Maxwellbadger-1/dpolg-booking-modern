@@ -20,6 +20,8 @@ pub struct Room {
     pub postal_code: Option<String>,
     pub city: Option<String>,
     pub notizen: Option<String>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
 }
 
 impl From<Row> for Room {
@@ -38,6 +40,8 @@ impl From<Row> for Room {
             postal_code: row.get("postal_code"),
             city: row.get("city"),
             notizen: row.get("notizen"),
+            created_by: row.get("created_by"),
+            updated_by: row.get("updated_by"),
         }
     }
 }
@@ -85,6 +89,8 @@ pub struct Guest {
     pub tags: Option<String>,
     pub automail: Option<bool>,
     pub automail_sprache: Option<String>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
 }
 
 impl From<Row> for Guest {
@@ -126,6 +132,8 @@ impl From<Row> for Guest {
             tags: row.get("tags"),
             automail: row.get("automail"),
             automail_sprache: row.get("automail_sprache"),
+            created_by: row.get("created_by"),
+            updated_by: row.get("updated_by"),
         }
     }
 }
@@ -164,6 +172,8 @@ pub struct Booking {
     pub putzplan_checkout_date: Option<String>,
     pub ist_dpolg_mitglied: Option<bool>,
     pub credit_used: Option<f64>,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
     // Optional services and discounts for TapeChart emoji display
     #[serde(skip_serializing_if = "Option::is_none")]
     pub services: Option<Vec<ServiceEmoji>>,
@@ -202,6 +212,8 @@ impl From<Row> for Booking {
             putzplan_checkout_date: row.get("putzplan_checkout_date"),
             ist_dpolg_mitglied: row.get("ist_dpolg_mitglied"),
             credit_used: row.try_get("credit_used").ok().flatten(),
+            created_by: row.try_get("created_by").ok().flatten(),
+            updated_by: row.try_get("updated_by").ok().flatten(),
             // Initialize with None - will be populated by get_all_bookings_pg
             services: None,
             discounts: None,
@@ -667,10 +679,19 @@ impl From<Row> for EmailTemplate {
 pub struct NotificationSettings {
     pub id: i32,
     pub checkin_reminders_enabled: Option<bool>,
+    pub checkin_reminder_before_days: Option<i32>,
     pub payment_reminders_enabled: Option<bool>,
     pub payment_reminder_after_days: Option<i32>,
     pub payment_reminder_repeat_days: Option<i32>,
     pub scheduler_interval_hours: Option<i32>,
+
+    // Auto-Reminder Flags
+    pub auto_reminder_incomplete_data: Option<bool>,
+    pub auto_reminder_payment: Option<bool>,
+    pub payment_reminder_before_days: Option<i32>,
+    pub auto_reminder_checkin: Option<bool>,
+    pub auto_reminder_invoice: Option<bool>,
+
     pub updated_at: Option<String>,
 }
 
@@ -679,10 +700,19 @@ impl From<Row> for NotificationSettings {
         Self {
             id: row.get("id"),
             checkin_reminders_enabled: row.get("checkin_reminders_enabled"),
+            checkin_reminder_before_days: row.get("checkin_reminder_before_days"),
             payment_reminders_enabled: row.get("payment_reminders_enabled"),
             payment_reminder_after_days: row.get("payment_reminder_after_days"),
             payment_reminder_repeat_days: row.get("payment_reminder_repeat_days"),
             scheduler_interval_hours: row.get("scheduler_interval_hours"),
+
+            // Auto-Reminder Flags
+            auto_reminder_incomplete_data: row.get("auto_reminder_incomplete_data"),
+            auto_reminder_payment: row.get("auto_reminder_payment"),
+            payment_reminder_before_days: row.get("payment_reminder_before_days"),
+            auto_reminder_checkin: row.get("auto_reminder_checkin"),
+            auto_reminder_invoice: row.get("auto_reminder_invoice"),
+
             updated_at: row.get("updated_at"),
         }
     }
@@ -719,6 +749,67 @@ impl From<Row> for PaymentSettings {
             payment_text: row.get("payment_text"),
             updated_at: row.get("updated_at"),
             dpolg_rabatt: row.get("dpolg_rabatt"),
+        }
+    }
+}
+
+// ============================================================================
+// ACTIVE LOCK MODELS (Presence System)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveLock {
+    pub id: i32,
+    pub booking_id: i32,
+    pub user_name: String,
+    pub locked_at: String,
+    pub last_heartbeat: String,
+}
+
+impl From<Row> for ActiveLock {
+    fn from(row: Row) -> Self {
+        Self {
+            id: row.get("id"),
+            booking_id: row.get("booking_id"),
+            user_name: row.get("user_name"),
+            locked_at: row.get::<_, String>("locked_at"),
+            last_heartbeat: row.get::<_, String>("last_heartbeat"),
+        }
+    }
+}
+
+// ============================================================================
+// AUDIT LOG MODELS (Change History)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditLog {
+    pub id: i32,
+    pub table_name: String,
+    pub record_id: i32,
+    pub action: String,
+    #[serde(rename = "oldData")]
+    pub old_values: Option<String>,  // TEXT in DB (JSON string)
+    #[serde(rename = "newData")]
+    pub new_values: Option<String>,  // TEXT in DB (JSON string)
+    pub user_name: Option<String>,
+    #[serde(rename = "changedAt")]
+    pub timestamp: String,
+}
+
+impl From<Row> for AuditLog {
+    fn from(row: Row) -> Self {
+        Self {
+            id: row.get("id"),
+            table_name: row.get("table_name"),
+            record_id: row.get("record_id"),
+            action: row.get("action"),
+            old_values: row.get::<_, Option<String>>("old_values"),
+            new_values: row.get::<_, Option<String>>("new_values"),
+            user_name: row.get::<_, Option<String>>("user_name"),
+            timestamp: row.get::<_, String>("timestamp"),
         }
     }
 }

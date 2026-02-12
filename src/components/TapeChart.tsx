@@ -284,6 +284,12 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
   useLayoutEffect(() => {
     if (!isResizing || !onResize) return;
 
+    console.log('🎬 [RESIZE PREVIEW] useLayoutEffect ACTIVE');
+    console.log('   Booking ID:', booking.id);
+    console.log('   Direction:', resizeDirection);
+    console.log('   Cell Width:', cellWidth, 'px (wichtig für korrekte Berechnung!)');
+    console.log('   Start Position:', resizeStartPosition.current);
+
     const handlePointerMove = (e: PointerEvent) => {
       const deltaX = e.clientX - dragStartX.current;
       const daysDelta = Math.round(deltaX / cellWidth); // FIX: Verwende cellWidth statt CELL_WIDTH
@@ -296,6 +302,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
 
         // Only update if width stays positive
         if (newWidth > cellWidth / 2) {
+          console.log('📏 [PREVIEW] ⬅️ Links:', daysDelta, 'Tage, Width:', Math.round(newWidth), 'px');
           setResizePreview({ left: newLeft, width: newWidth });
         }
       } else if (resizeDirection === 'end') {
@@ -304,6 +311,7 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
 
         // Only update if width stays positive
         if (newWidth > cellWidth / 2) {
+          console.log('📏 [PREVIEW] ➡️ Rechts:', daysDelta, 'Tage, Width:', Math.round(newWidth), 'px');
           setResizePreview({
             left: resizeStartPosition.current.left,
             width: newWidth
@@ -316,10 +324,16 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
       const deltaX = e.clientX - dragStartX.current;
       const daysDelta = Math.round(deltaX / cellWidth); // FIX: Verwende cellWidth statt CELL_WIDTH
 
+      console.log('🏁 [RESIZE PREVIEW] Pointer Up - Delta:', daysDelta, 'Tage');
+
       if (daysDelta !== 0 && resizeDirection) {
+        console.log('✅ Calling onResize Handler');
         onResize(booking.id, resizeDirection, daysDelta);
+      } else {
+        console.log('⏩ Kein Delta - kein Resize');
       }
 
+      console.log('🧹 Cleaning up resize state');
       setIsResizing(false);
       setResizeDirection(null);
       setResizePreview(null); // Clear preview
@@ -329,10 +343,11 @@ function DraggableBooking({ booking, position, isOverlay = false, rowHeight, cel
     window.addEventListener('pointerup', handlePointerUp);
 
     return () => {
+      console.log('🧹 [RESIZE PREVIEW] Cleanup - Removing event listeners');
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [isResizing, onResize, booking.id, resizeDirection]);
+  }, [isResizing, onResize, booking.id, resizeDirection, cellWidth]);
 
   // Use resize preview if resizing, otherwise use normal position
   const currentPosition = resizePreview || position;
@@ -548,7 +563,7 @@ function DroppableCell({ roomId, dayIndex, isWeekend, isToday, isEvenRow, cellWi
 export default function TapeChart({ startDate, endDate, onBookingClick, onCreateBooking, onBookingEdit, onBookingCancel, onSendEmail }: TapeChartProps) {
   // Get data from global context
   // NORMALIZED STATE: Use guestMap/roomMap for O(1) lookups instead of nested objects
-  const { rooms, bookings, updateBooking, refreshBookings, guestMap, roomMap } = useData();
+  const { rooms, bookings, updateBooking, syncBookingFromBackend, refreshBookings, guestMap, roomMap } = useData();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
@@ -585,18 +600,48 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   const { priceMap } = useBatchPriceCalculation(bookingIds);
 
   // KRITISCH: Sync localBookings mit bookings aus Context
+  // FIX: Nur auf bookings Changes reagieren, NICHT auf pendingBookingId/pendingChange!
+  // Sonst wird beim Reset von pendingBookingId ein Sync getriggert bevor LISTEN/NOTIFY angekommen ist
   useEffect(() => {
     // Only sync if no pending changes (prevents overwriting user edits)
     if (!pendingBookingId && !pendingChange) {
-      console.log('🔄 [TapeChart] Syncing localBookings from context, count:', bookings.length);
-      console.log('📊 [TapeChart] Bookings with services:', bookings.filter(b => b.services && b.services.length > 0).length);
-      console.log('📊 [TapeChart] Sample booking services:', bookings.find(b => b.services && b.services.length > 0)?.services?.map(s => ({ name: s.name, emoji: s.emoji })));
+      console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+      console.log('║                    🔄 STATE SYNC: Context → Local                         ║');
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+      console.log('📊 CONTEXT BOOKINGS (Source):');
+      console.log('   Total Count:', bookings.length);
+      console.log('   With Services:', bookings.filter(b => b.services && b.services.length > 0).length);
+      console.log('   With Discounts:', bookings.filter(b => b.discounts && b.discounts.length > 0).length);
+      console.log('   Status Breakdown:', {
+        bestaetigt: bookings.filter(b => b.status === 'bestaetigt').length,
+        eingecheckt: bookings.filter(b => b.status === 'eingecheckt').length,
+        ausgecheckt: bookings.filter(b => b.status === 'ausgecheckt').length,
+        storniert: bookings.filter(b => b.status === 'storniert').length,
+      });
+
+      // KRITISCH: Zeige die DATEN jeder Buchung (Check-in/out, Room)
+      console.log('\n📋 DETAILLIERTE BOOKING-DATEN IM CONTEXT:');
+      bookings.forEach(b => {
+        const guest = guestMap.get(b.guest_id);
+        const room = roomMap.get(b.room_id);
+        console.log(`   📦 Booking ${b.id} (${b.reservierungsnummer}):`);
+        console.log(`      Gast: ${guest ? guest.vorname + ' ' + guest.nachname : 'Unbekannt'}`);
+        console.log(`      Zimmer: ${room ? room.name : 'ID ' + b.room_id}`);
+        console.log(`      Check-in: ${b.checkin_date}`);
+        console.log(`      Check-out: ${b.checkout_date}`);
+        console.log(`      Preis: ${b.gesamtpreis}€`);
+      });
+
+      console.log('\n🔄 SYNCING: localBookings ← bookings');
       setLocalBookings(bookings);
-      console.log('✅ [TapeChart] localBookings state updated');
+      console.log('✅ localBookings State updated');
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
     } else {
-      console.log('⏸️ [TapeChart] Skipping sync - pending changes active');
+      console.log('⏸️  [STATE SYNC] SKIPPED - Pending changes active');
+      console.log('   pendingBookingId:', pendingBookingId);
+      console.log('   Has pendingChange:', !!pendingChange);
     }
-  }, [bookings, pendingBookingId, pendingChange]);
+  }, [bookings]); // FIX: NUR bookings in Dependencies! pendingBookingId/pendingChange werden im Effect gelesen
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Persist density mode to localStorage
@@ -747,10 +792,35 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
   const handleDragStart = (event: DragStartEvent) => {
     const booking = event.active.data.current as Booking;
-    console.log('═══════════════════════════════════════');
-    console.log('🎯 [DRAG START] Existierende Buchung wird gezogen!');
-    console.log('📦 Booking:', { id: booking.id, reservierungsnummer: booking.reservierungsnummer, room: booking.room_id });
-    console.log('═══════════════════════════════════════');
+    const originalPrice = getBookingPrice(priceMap, booking.id);
+    const guest = guestMap.get(booking.guest_id);
+    const room = roomMap.get(booking.room_id);
+
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                          🎯 DRAG START EVENT                              ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('📦 BOOKING DETAILS:');
+    console.log('   ID:', booking.id);
+    console.log('   Reservierungsnummer:', booking.reservierungsnummer);
+    console.log('   Gast:', guest ? `${guest.vorname} ${guest.nachname}` : 'Unbekannt');
+    console.log('   Zimmer:', room ? `${room.name} (${room.gebaeude_typ})` : 'Unbekannt');
+    console.log('   Raum ID:', booking.room_id);
+    console.log('   Check-in:', booking.checkin_date);
+    console.log('   Check-out:', booking.checkout_date);
+    console.log('   Status:', booking.status);
+    console.log('   Anzahl Gäste:', booking.anzahl_gaeste);
+    console.log('💰 PREISE (VOR DRAG):');
+    console.log('   Grundpreis:', originalPrice.grundpreis, '€');
+    console.log('   Services:', originalPrice.servicesTotal, '€');
+    console.log('   Rabatte:', originalPrice.discountsTotal, '€');
+    console.log('   Gesamt:', originalPrice.total, '€');
+    console.log('🔍 STATE CHECK:');
+    console.log('   localBookings Count:', localBookings.length);
+    console.log('   context bookings Count:', bookings.length);
+    console.log('   Pending ID:', pendingBookingId);
+    console.log('   Has Pending Change:', !!pendingChange);
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
+
     setActiveBooking(booking);
   };
 
@@ -762,14 +832,23 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    console.log('═══════════════════════════════════════');
-    console.log('🏁 [DRAG END] Buchung wurde losgelassen!');
-    console.log('📦 Event over:', event.over?.id);
-    console.log('📦 Active booking:', activeBooking ? { id: activeBooking.id, reservierungsnummer: activeBooking.reservierungsnummer } : null);
-    console.log('═══════════════════════════════════════');
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                          🏁 DRAG END EVENT                                ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('📦 DROP TARGET:', event.over?.id);
+    console.log('📦 ACTIVE BOOKING:', activeBooking ? {
+      id: activeBooking.id,
+      reservierungsnummer: activeBooking.reservierungsnummer,
+      currentRoom: activeBooking.room_id,
+      checkin: activeBooking.checkin_date,
+      checkout: activeBooking.checkout_date
+    } : null);
 
     if (!event.over || !activeBooking) {
-      console.log('❌ [DRAG END] Abgebrochen - kein Drop-Target oder keine Buchung');
+      console.log('❌ DRAG ABGEBROCHEN - Kein Drop-Target oder keine Buchung');
+      console.log('   event.over:', !!event.over);
+      console.log('   activeBooking:', !!activeBooking);
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
       setActiveBooking(null);
       setDragHasOverlap(false);
       setOverlapDropZone(null);
@@ -777,14 +856,21 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     }
 
     const dropData = event.over.data.current as { roomId: number; dayIndex: number };
-    console.log('DROP DATA:', dropData);
+
+    console.log('🎯 DROP DATA:', dropData);
 
     if (!dropData) {
+      console.log('❌ KEINE DROP-DATEN - Abbruch');
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
       setActiveBooking(null);
       return;
     }
 
     const { roomId: targetRoomId, dayIndex } = dropData;
+    console.log('🎯 TARGET POSITION:');
+    console.log('   Ziel-Zimmer ID:', targetRoomId);
+    console.log('   Tag-Index:', dayIndex);
+    console.log('   Datum:', format(addDays(defaultStart, dayIndex), 'yyyy-MM-dd'));
 
     // Find the target room
     const targetRoom = rooms.find(r => r.id === targetRoomId);
@@ -827,43 +913,55 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
     // Check for overlaps with other bookings in the same room
     // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
-    const hasOverlap = localBookings.some(b => {
+    // FIX: Use bookings (context) instead of localBookings for overlap check
+    // Context contains the latest server data via LISTEN/NOTIFY
+    console.log('\n🔍 OVERLAP DETECTION (handleDragEnd):');
+    console.log('   Quelle: bookings (Context) ✓');
+    console.log('   Neue Daten:', {
+      checkin: format(newCheckinDate, 'yyyy-MM-dd'),
+      checkout: format(newCheckoutDate, 'yyyy-MM-dd'),
+      targetRoom: targetRoomId
+    });
+    console.log('   Prüfe gegen', bookings.filter(b => b.room_id === targetRoomId && b.id !== activeBooking.id).length, 'Buchungen im Zielzimmer');
+
+    const hasOverlap = bookings.some(b => {
       if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
 
       // Skip cancelled bookings - they don't block availability
-      if (b.status === 'storniert') return false;
+      if (b.status === 'storniert') {
+        console.log('   ⏩ Übersprungen (storniert):', b.id, '-', guestMap.get(b.guest_id)?.nachname || 'Unbekannt');
+        return false;
+      }
 
       const existingStart = startOfDay(new Date(b.checkin_date));
       const existingEnd = startOfDay(new Date(b.checkout_date));
 
       const wouldOverlap = checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd);
 
-      console.log('DROP - Checking overlap:', {
-        new: { start: format(newCheckinDate, 'yyyy-MM-dd'), end: format(newCheckoutDate, 'yyyy-MM-dd') },
-        existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd'), booking: guestMap.get(b.guest_id)?.nachname || 'Unbekannt' },
-        wouldOverlap
-      });
+      const guest = guestMap.get(b.guest_id);
+      console.log(`   ${wouldOverlap ? '❌ OVERLAP' : '✅ OK'}: Booking ${b.id} (${guest?.nachname || 'Unbekannt'})`);
+      console.log('      Existing:', format(existingStart, 'yyyy-MM-dd'), '-', format(existingEnd, 'yyyy-MM-dd'));
+      console.log('      New:     ', format(newCheckinDate, 'yyyy-MM-dd'), '-', format(newCheckoutDate, 'yyyy-MM-dd'));
 
       return wouldOverlap;
     });
 
+    console.log('   ERGEBNIS:', hasOverlap ? '❌ OVERLAP GEFUNDEN' : '✅ KEIN OVERLAP');
+
     if (hasOverlap) {
-      console.warn('Cannot move booking: would overlap with existing booking');
+      console.log('❌ DRAG BLOCKIERT - Overlap mit existierender Buchung!');
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
       setActiveBooking(null);
       setDragHasOverlap(false);
       setOverlapDropZone(null);
       return;
     }
 
-    console.log('Updating booking:', {
-      id: activeBooking.id,
-      old_room: activeBooking.room_id,
-      new_room: targetRoomId,
-      old_checkin: activeBooking.checkin_date,
-      new_checkin: format(newCheckinDate, 'yyyy-MM-dd'),
-      old_checkout: activeBooking.checkout_date,
-      new_checkout: format(newCheckoutDate, 'yyyy-MM-dd'),
-    });
+    console.log('\n✅ VALIDATION PASSED - Aktualisiere Buchung');
+    console.log('📝 ÄNDERUNGEN:');
+    console.log('   Zimmer:    ', activeBooking.room_id, '→', targetRoomId);
+    console.log('   Check-in:  ', activeBooking.checkin_date, '→', format(newCheckinDate, 'yyyy-MM-dd'));
+    console.log('   Check-out: ', activeBooking.checkout_date, '→', format(newCheckoutDate, 'yyyy-MM-dd'));
 
     // Update booking with new room AND room object
     const updatedBookings = localBookings.map((b) => {
@@ -910,76 +1008,133 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
     };
 
     // Set pending state (zeigt Save-Button am Balken)
-    console.log('✅ [DRAG END] Pending State gesetzt!');
-    console.log('📦 pendingBookingId:', activeBooking.id);
-    console.log('📦 changeData:', JSON.stringify(changeData, null, 2));
-    console.log('💡 Der grüne SPEICHERN Button sollte jetzt über dem Balken erscheinen!');
+    console.log('\n💾 PENDING STATE WIRD GESETZT:');
+    console.log('   Booking ID:', activeBooking.id);
+    console.log('   OLD Data:');
+    console.log('      Zimmer:', changeData.oldData.room_id);
+    console.log('      Check-in:', changeData.oldData.checkin_date);
+    console.log('      Check-out:', changeData.oldData.checkout_date);
+    console.log('      Preis:', changeData.oldData.gesamtpreis, '€');
+    console.log('   NEW Data:');
+    console.log('      Zimmer:', changeData.newData.room_id);
+    console.log('      Check-in:', changeData.newData.checkin_date);
+    console.log('      Check-out:', changeData.newData.checkout_date);
+    console.log('      Preis (vorläufig):', changeData.newData.gesamtpreis, '€');
+    console.log('   💡 Grüner SPEICHERN Button sollte jetzt über Balken erscheinen!');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
     setPendingBookingId(activeBooking.id);
     setPendingChange(changeData);
   };
 
   const handleResize = useCallback((bookingId: number, direction: 'start' | 'end', daysDelta: number) => {
-    console.log('RESIZE!', { bookingId, direction, daysDelta });
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                          📏 RESIZE EVENT                                  ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('📦 RESIZE DETAILS:');
+    console.log('   Booking ID:', bookingId);
+    console.log('   Direction:', direction === 'start' ? '⬅️ Von links (Check-in ändern)' : '➡️ Von rechts (Check-out ändern)');
+    console.log('   Days Delta:', daysDelta, 'Tage');
+    console.log('   Density Mode:', densityMode);
+    console.log('   Cell Width:', density.cellWidth, 'px');
 
     setLocalBookings(prev => {
       const currentBooking = prev.find(b => b.id === bookingId);
-      if (!currentBooking) return prev;
+      if (!currentBooking) {
+        console.log('❌ BOOKING NICHT GEFUNDEN in localBookings');
+        console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
+        return prev;
+      }
+
+      console.log('📋 CURRENT BOOKING (localBookings):');
+      console.log('   Check-in:', currentBooking.checkin_date);
+      console.log('   Check-out:', currentBooking.checkout_date);
+      console.log('   Room:', currentBooking.room_id);
 
       // FIX: Use ORIGINAL booking data from context (not clipped data from localBookings)
       // This ensures resize works correctly for month-spanning bookings
       const originalBooking = bookings.find(b => b.id === bookingId) || currentBooking;
+      console.log('📋 ORIGINAL BOOKING (context):');
+      console.log('   Check-in:', originalBooking.checkin_date);
+      console.log('   Check-out:', originalBooking.checkout_date);
+      console.log('   Source:', bookings.find(b => b.id === bookingId) ? 'Context' : 'Fallback to localBookings');
+
       const currentCheckin = new Date(originalBooking.checkin_date);
       const currentCheckout = new Date(originalBooking.checkout_date);
 
       let newCheckin = currentCheckin;
       let newCheckout = currentCheckout;
 
+      console.log('\n🔄 BERECHNUNG:');
       if (direction === 'start') {
         // Resize from left edge - change checkin date
         newCheckin = addDays(currentCheckin, daysDelta);
+        console.log('   Neue Check-in:', format(newCheckin, 'yyyy-MM-dd'), `(${daysDelta > 0 ? '+' : ''}${daysDelta} Tage)`);
+        console.log('   Check-out bleibt:', format(currentCheckout, 'yyyy-MM-dd'));
 
         // Prevent invalid range (checkin after checkout)
         if (newCheckin >= currentCheckout) {
-          console.warn('Invalid resize: checkin would be after checkout');
+          console.log('❌ UNGÜLTIG - Check-in würde nach Check-out sein!');
+          console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
           return prev;
         }
       } else {
         // Resize from right edge - change checkout date
         newCheckout = addDays(currentCheckout, daysDelta);
+        console.log('   Check-in bleibt:', format(currentCheckin, 'yyyy-MM-dd'));
+        console.log('   Neue Check-out:', format(newCheckout, 'yyyy-MM-dd'), `(${daysDelta > 0 ? '+' : ''}${daysDelta} Tage)`);
 
         // Prevent invalid range (checkout before checkin)
         if (newCheckout <= currentCheckin) {
-          console.warn('Invalid resize: checkout would be before checkin');
+          console.log('❌ UNGÜLTIG - Check-out würde vor Check-in sein!');
+          console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
           return prev;
         }
       }
 
+      const newDuration = differenceInDays(newCheckout, newCheckin);
+      console.log('   ✅ Neue Dauer:', newDuration, 'Nächte');
+
       // Check for overlaps with other bookings in the same room
       // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
-      const hasOverlap = prev.some(b =>
-        b.id !== bookingId &&
-        b.room_id === currentBooking.room_id &&
-        b.status !== 'storniert' && // Skip cancelled bookings
-        checkOverlap(
+      console.log('\n🔍 OVERLAP DETECTION (handleResize):');
+      console.log('   Quelle: prev (localBookings während setLocalBookings)');
+      console.log('   Prüfe gegen', prev.filter(b => b.room_id === currentBooking.room_id && b.id !== bookingId).length, 'Buchungen im selben Zimmer');
+
+      const hasOverlap = prev.some(b => {
+        if (b.id === bookingId) return false;
+        if (b.room_id !== currentBooking.room_id) return false;
+        if (b.status === 'storniert') {
+          console.log('   ⏩ Übersprungen (storniert):', b.id);
+          return false;
+        }
+
+        const wouldOverlap = checkOverlap(
           newCheckin,
           newCheckout,
           new Date(b.checkin_date),
           new Date(b.checkout_date)
-        )
-      );
+        );
+
+        const guest = guestMap.get(b.guest_id);
+        console.log(`   ${wouldOverlap ? '❌ OVERLAP' : '✅ OK'}: Booking ${b.id} (${guest?.nachname || 'Unbekannt'})`);
+        console.log('      Existing:', b.checkin_date, '-', b.checkout_date);
+        console.log('      New:     ', format(newCheckin, 'yyyy-MM-dd'), '-', format(newCheckout, 'yyyy-MM-dd'));
+
+        return wouldOverlap;
+      });
+
+      console.log('   ERGEBNIS:', hasOverlap ? '❌ OVERLAP GEFUNDEN' : '✅ KEIN OVERLAP');
 
       if (hasOverlap) {
-        console.warn('Cannot resize booking: would overlap with existing booking');
+        console.log('❌ RESIZE BLOCKIERT - Overlap mit existierender Buchung!');
+        console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
         return prev;
       }
 
-      console.log('Resized booking:', {
-        id: bookingId,
-        old_checkin: currentBooking.checkin_date,
-        new_checkin: format(newCheckin, 'yyyy-MM-dd'),
-        old_checkout: currentBooking.checkout_date,
-        new_checkout: format(newCheckout, 'yyyy-MM-dd'),
-      });
+      console.log('\n✅ RESIZE ERFOLGREICH:');
+      console.log('   ID:', bookingId);
+      console.log('   Check-in:  ', currentBooking.checkin_date, '→', format(newCheckin, 'yyyy-MM-dd'));
+      console.log('   Check-out: ', currentBooking.checkout_date, '→', format(newCheckout, 'yyyy-MM-dd'));
 
       const updatedBookings = prev.map(booking => {
         if (booking.id !== bookingId) return booking;
@@ -1028,7 +1183,7 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
       return updatedBookings;
     });
-  }, [bookings, guestMap, roomMap, priceMap, updateBooking]);
+  }, [bookings, guestMap, roomMap, priceMap, syncBookingFromBackend]);
 
   // Manual Confirmation Handlers
   const handleManualSave = useCallback(() => {
@@ -1041,37 +1196,50 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   }, [pendingChange]);
 
   const handleManualDiscard = useCallback(() => {
-    console.log('🗑️ [TapeChart] Manual Discard clicked, reverting changes');
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                        🗑️  DISCARD CHANGES                                 ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('❌ User hat Änderungen verworfen');
+    console.log('🔄 ROLLBACK zu Original-Daten:');
+    console.log('   localBookings ← bookings (Context)');
+    console.log('   Anzahl Buchungen:', bookings.length);
+
     // Reset to original bookings
     setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
+
+    console.log('✅ Rollback abgeschlossen');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
   }, [bookings]);
 
   const handleConfirmChange = async (sendEmail: boolean, sendInvoice: boolean) => {
-    console.log('═══════════════════════════════════════');
-    console.log('🔥 [TapeChart] handleConfirmChange CALLED!');
-    console.log('📦 Parameters:', { sendEmail, sendInvoice });
-    console.log('📦 pendingChange:', JSON.stringify(pendingChange, null, 2));
-    console.log('═══════════════════════════════════════');
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                        💾 SAVE CONFIRMED - BACKEND CALL                   ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('⚙️  OPTIONS:');
+    console.log('   E-Mail senden:', sendEmail ? '✅ JA' : '❌ NEIN');
+    console.log('   Rechnung senden:', sendInvoice ? '✅ JA' : '❌ NEIN');
 
     if (!pendingChange) {
-      console.error('❌ [TapeChart] No pending change to confirm!');
+      console.error('❌ FEHLER - Kein pendingChange vorhanden!');
+      console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
       return;
     }
 
-    console.log('✅ [TapeChart] Confirming change:', { pendingChange, sendEmail, sendInvoice });
+    console.log('\n📤 BACKEND CALL WIRD VORBEREITET:');
+    console.log('   Command: update_booking_dates_and_room_pg');
+    console.log('   Booking ID:', pendingChange.bookingId);
+    console.log('   Neue Daten:');
+    console.log('      Room ID:', pendingChange.newData.room_id);
+    console.log('      Check-in:', pendingChange.newData.checkin_date);
+    console.log('      Check-out:', pendingChange.newData.checkout_date);
 
     try {
-      console.log('🚀 [TapeChart] CALLING Backend Command: update_booking_dates_and_room_command');
-      console.log('📤 Command Parameters:', {
-        id: pendingChange.bookingId,
-        roomId: pendingChange.newData.room_id,
-        checkinDate: pendingChange.newData.checkin_date,
-        checkoutDate: pendingChange.newData.checkout_date,
-      });
+      const startTime = performance.now();
 
       // Persist to database with Retry Logic (max 3 attempts with exponential backoff)
+      console.log('\n🔄 BACKEND CALL WIRD AUSGEFÜHRT...');
       const updatedBooking = await invokeWithRetry('update_booking_dates_and_room_pg', {
         id: pendingChange.bookingId,
         roomId: pendingChange.newData.room_id,
@@ -1079,29 +1247,59 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
         checkoutDate: pendingChange.newData.checkout_date,
       });
 
-      console.log('✅ [TapeChart] Change saved to DB with updated prices:', {
-        bookingId: pendingChange.bookingId,
-        gesamtpreis: updatedBooking.gesamtpreis,
-        grundpreis: updatedBooking.grundpreis,
-      });
+      const endTime = performance.now();
+      const duration = Math.round(endTime - startTime);
+
+      console.log('\n✅ BACKEND RESPONSE ERHALTEN (' + duration + 'ms):');
+      console.log('   Booking ID:', pendingChange.bookingId);
+      console.log('   💰 AKTUALISIERTE PREISE vom Backend:');
+      console.log('      Grundpreis:', updatedBooking.grundpreis, '€');
+      console.log('      Gesamtpreis:', updatedBooking.gesamtpreis, '€');
+      console.log('   📋 Dates bestätigt:');
+      console.log('      Check-in:', updatedBooking.checkin_date);
+      console.log('      Check-out:', updatedBooking.checkout_date);
+      console.log('      Room ID:', updatedBooking.room_id);
+
+      // Vergleiche Preise
+      const oldPrice = pendingChange.oldData.gesamtpreis;
+      const newPrice = updatedBooking.gesamtpreis;
+      const priceDiff = newPrice - oldPrice;
+      if (priceDiff !== 0) {
+        console.log('   💸 PREISÄNDERUNG:', oldPrice, '€ →', newPrice, '€ (', priceDiff > 0 ? '+' : '', priceDiff, '€)')
+      } else {
+        console.log('   💰 PREIS UNVERÄNDERT:', newPrice, '€');
+      }
 
       // Update local state with backend response (includes recalculated prices)
-      setLocalBookings(prev => prev.map(b => {
-        if (b.id === pendingChange.bookingId) {
-          return {
-            ...b,
-            ...updatedBooking,
-            // IMPORTANT: Always use backend data for services and discounts
-            // to ensure calculated_amount is up-to-date after price recalculation
-            services: updatedBooking.services || b.services,
-            discounts: updatedBooking.discounts || b.discounts,
-          };
-        }
-        return b;
-      }));
+      console.log('\n🔄 LOKALER STATE UPDATE (localBookings):');
+      console.log('   Merge Backend-Response in localBookings');
+      setLocalBookings(prev => {
+        const updated = prev.map(b => {
+          if (b.id === pendingChange.bookingId) {
+            console.log('   📝 Updating Booking', b.id);
+            console.log('      Services:', updatedBooking.services?.length || 0);
+            console.log('      Discounts:', updatedBooking.discounts?.length || 0);
+            return {
+              ...b,
+              ...updatedBooking,
+              // IMPORTANT: Always use backend data for services and discounts
+              // to ensure calculated_amount is up-to-date after price recalculation
+              services: updatedBooking.services || b.services,
+              discounts: updatedBooking.discounts || b.discounts,
+            };
+          }
+          return b;
+        });
+        console.log('   ✅ localBookings State updated');
+        return updated;
+      });
 
-      // Synchronize context with FULL backend response (prevents visual jump)
-      updateBooking(pendingChange.bookingId, updatedBooking);
+      // FIX: Update Context IMMEDIATELY after save (don't wait for LISTEN/NOTIFY)
+      // Professional apps (Cal.com, Todoist, ClickUp) do this to prevent visual jumps on tab switch
+      console.log('\n🔄 CONTEXT UPDATE (bookings):');
+      console.log('   Updating Context sofort (nicht auf LISTEN/NOTIFY warten)');
+      syncBookingFromBackend(updatedBooking);
+      console.log('   ✅ Context synchronisiert - kein Visual Jump beim Tab-Wechsel');
 
       // Execute command for undo/redo support
       const command = new UpdateBookingDatesCommand(
@@ -1126,6 +1324,11 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
       const newRoomId = pendingChange.newData.room_id;
 
       // Reset pending state (Dialog schließt SOFORT)
+      console.log('\n🧹 PENDING STATE RESET:');
+      console.log('   pendingBookingId: → null');
+      console.log('   pendingChange: → null');
+      console.log('   showChangeConfirmation: → false');
+      console.log('   💡 Dialog schließt jetzt sofort!');
       setPendingBookingId(null);
       setPendingChange(null);
       setShowChangeConfirmation(false);
@@ -1243,11 +1446,19 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
   };
 
   const handleDiscardChange = () => {
-    console.log('🗑️ [TapeChart] Discarding change from confirmation dialog');
+    console.log('╔═══════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                  🗑️  DISCARD FROM DIALOG                                  ║');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝');
+    console.log('❌ User hat im Bestätigungsdialog ABBRECHEN geklickt');
+    console.log('🔄 ROLLBACK zu Original-Daten');
+
     setLocalBookings(bookings);
     setPendingBookingId(null);
     setPendingChange(null);
     setShowChangeConfirmation(false);
+
+    console.log('✅ Dialog geschlossen, Änderungen verworfen');
+    console.log('╚═══════════════════════════════════════════════════════════════════════════╝\n');
   };
 
   // Context Menu Handler
@@ -1373,7 +1584,13 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
 
         // Check if this would overlap
         // IMPORTANT: Exclude cancelled bookings from overlap detection (they don't block dates)
-        const hasOverlap = localBookings.some(b => {
+        // FIX: Use bookings (context) for consistent overlap detection, NOT localBookings
+        console.log('🔍 [DRAG OVER] Overlap Check (Live Preview):');
+        console.log('   Quelle: bookings (Context) ✓');
+        console.log('   Target Room:', targetRoomId, 'Day:', dayIndex);
+        console.log('   Preview Dates:', format(newCheckinDate, 'yyyy-MM-dd'), '-', format(newCheckoutDate, 'yyyy-MM-dd'));
+
+        const hasOverlap = bookings.some(b => {
           if (b.id === activeBooking.id || b.room_id !== targetRoomId) return false;
 
           // Skip cancelled bookings - they don't block availability
@@ -1382,14 +1599,17 @@ export default function TapeChart({ startDate, endDate, onBookingClick, onCreate
           const existingStart = startOfDay(new Date(b.checkin_date));
           const existingEnd = startOfDay(new Date(b.checkout_date));
 
-          console.log('Checking overlap:', {
-            new: { start: format(newCheckinDate, 'yyyy-MM-dd'), end: format(newCheckoutDate, 'yyyy-MM-dd') },
-            existing: { start: format(existingStart, 'yyyy-MM-dd'), end: format(existingEnd, 'yyyy-MM-dd') },
-            wouldOverlap: checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd)
-          });
+          const wouldOverlap = checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd);
 
-          return checkOverlap(newCheckinDate, newCheckoutDate, existingStart, existingEnd);
+          if (wouldOverlap) {
+            const guest = guestMap.get(b.guest_id);
+            console.log('   ❌ Overlap mit Booking', b.id, `(${guest?.nachname || 'Unbekannt'})`);
+          }
+
+          return wouldOverlap;
         });
+
+        console.log('   PREVIEW RESULT:', hasOverlap ? '❌ RED (Overlap)' : '✅ GREEN (OK)');
 
         setDragHasOverlap(hasOverlap);
         setOverlapDropZone(hasOverlap ? { roomId: targetRoomId, dayIndex } : null);

@@ -404,7 +404,7 @@ export const integrationTests: IntegrationTest[] = [
         });
 
         // Step 3: Complete Reminder
-        const completed = await invoke<any>('complete_reminder_pg', { id: reminder.id });
+        const completed = await invoke<any>('complete_reminder_pg', { id: reminder.id, completed: true });
 
         steps.push({
           step: '3. Complete Reminder',
