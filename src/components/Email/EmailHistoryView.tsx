@@ -4,6 +4,7 @@ import { Mail, Search, CheckCircle, AlertCircle, Clock, RefreshCw, Send, FileTex
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { SELECT_SMALL_STYLES } from '../../lib/selectStyles';
 import { commandManager, DeleteEmailLogCommand } from '../../lib/commandManager';
+import toast from 'react-hot-toast';
 
 interface EmailLog {
   id: number;
@@ -14,7 +15,7 @@ interface EmailLog {
   subject: string;
   status: string;
   error_message: string | null;
-  sent_at: string;
+  sent_at: string | null;  // ← CHANGED: Jetzt optional wie in Rust!
 }
 
 interface ScheduledEmail {
@@ -25,6 +26,7 @@ interface ScheduledEmail {
   emailType: string;
   scheduledDate: string;
   reason: string;
+  status: string;
 }
 
 type TabType = 'history' | 'scheduled';
@@ -119,73 +121,20 @@ export default function EmailHistoryView() {
   };
 
   const loadScheduledEmails = async () => {
-    console.log('╔═══════════════════════════════════════════════════════════');
-    console.log('║ 📧 loadScheduledEmails FRONTEND CALLED');
-    console.log('╚═══════════════════════════════════════════════════════════');
-
-    console.log('🔄 Step 1: Setting loading state...');
+    console.log('📧 Loading scheduled emails...');
     setLoading(true);
     setError(null);
-    console.log('✅ Step 1: Loading state set to true, error cleared');
 
     try {
-      console.log('🔄 Step 2: Invoking backend command: get_scheduled_emails');
-      console.log('   Command name: "get_scheduled_emails"');
-      console.log('   Expected return type: ScheduledEmail[]');
-      console.log('   Parameters: none');
-
       const scheduled = await invoke<ScheduledEmail[]>('get_scheduled_emails');
-
-      console.log('✅ Step 2: Backend command completed successfully');
-      console.log('📊 Received data from backend:');
-      console.log('   Type:', typeof scheduled);
-      console.log('   Is Array:', Array.isArray(scheduled));
-      console.log('   Length:', scheduled ? scheduled.length : 'undefined');
-
-      if (scheduled && scheduled.length > 0) {
-        console.log('📧 First email details:');
-        console.log('   ', JSON.stringify(scheduled[0], null, 2));
-        console.log(`📧 Total emails received: ${scheduled.length}`);
-
-        // Log all emails
-        scheduled.forEach((email, idx) => {
-          console.log(`   Email ${idx + 1}:`, {
-            bookingId: email.bookingId,
-            reservierungsnummer: email.reservierungsnummer,
-            guestName: email.guestName,
-            guestEmail: email.guestEmail,
-            emailType: email.emailType,
-            scheduledDate: email.scheduledDate,
-            reason: email.reason
-          });
-        });
-      } else {
-        console.warn('⚠️  WARNING: Received empty array from backend');
-      }
-
-      console.log('🔄 Step 3: Setting scheduled emails in state...');
       setScheduledEmails(scheduled);
-      console.log('✅ Step 3: State updated with scheduled emails');
-
+      console.log(`✅ Loaded ${scheduled.length} scheduled emails`);
     } catch (err) {
-      console.error('╔═══════════════════════════════════════════════════════════');
-      console.error('║ ❌ ERROR IN loadScheduledEmails');
-      console.error('╚═══════════════════════════════════════════════════════════');
-      console.error('🔥 Error type:', typeof err);
-      console.error('🔥 Error constructor:', err?.constructor?.name);
-      console.error('🔥 Error message:', err instanceof Error ? err.message : String(err));
-      console.error('🔥 Full error object:', err);
-      console.error('🔥 Error stack:', err instanceof Error ? err.stack : 'No stack trace');
-
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error('📝 Setting error state with message:', errorMessage);
+      console.error('❌ Error loading scheduled emails:', errorMessage);
       setError(errorMessage);
     } finally {
-      console.log('🔄 Finally block: Setting loading to false');
       setLoading(false);
-      console.log('╔═══════════════════════════════════════════════════════════');
-      console.log('║ ✅ loadScheduledEmails FRONTEND COMPLETE');
-      console.log('╚═══════════════════════════════════════════════════════════');
     }
   };
 
@@ -234,22 +183,91 @@ export default function EmailHistoryView() {
     return colors[name] || 'bg-slate-100 text-slate-700 border-slate-200';
   };
 
-  const formatDateTime = (dateStr: string) => {
-    // SQLite CURRENT_TIMESTAMP gibt UTC zurück
-    // Wir parsen es als UTC und konvertieren zu UTC+2
-    const date = new Date(dateStr.replace(' ', 'T') + 'Z'); // ISO Format mit Z für UTC
+  const getStatusDisplayName = (status: string) => {
+    const names: { [key: string]: string } = {
+      pending: 'Ausstehend',
+      sent: 'Gesendet',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    };
+    return names[status] || status;
+  };
 
-    // Konvertiere zu UTC+2 (deutsche Zeit)
-    const offset = 2 * 60 * 60 * 1000; // 2 Stunden in Millisekunden
-    const localDate = new Date(date.getTime() + offset);
+  const getStatusColor = (status: string) => {
+    const colors: { [key: string]: string } = {
+      pending: 'bg-blue-100 text-blue-700 border-blue-200',
+      sent: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+      failed: 'bg-red-100 text-red-700 border-red-200',
+      cancelled: 'bg-slate-100 text-slate-700 border-slate-200',
+    };
+    return colors[status] || 'bg-slate-100 text-slate-700 border-slate-200';
+  };
 
-    return localDate.toLocaleString('de-DE', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const formatDateTime = (dateStr: string | null | undefined) => {
+    // Handle alle NULL/undefined/empty Fälle
+    if (!dateStr || dateStr === '' || dateStr === 'NULL' || dateStr === 'null') {
+      return 'Kein Datum';
+    }
+
+    // Trim whitespace und prüfe erneut
+    const trimmed = dateStr.trim();
+    if (trimmed === '' || trimmed === 'NULL' || trimmed === 'null') {
+      return 'Kein Datum';
+    }
+
+    // PostgreSQL default date für ungültige Timestamps
+    if (trimmed.startsWith('0001-01-01')) {
+      return 'Kein Datum';
+    }
+
+    try {
+      // PostgreSQL gibt: "2024-02-11 15:30:45" oder "2024-02-11T15:30:45"
+      // Normalisiere zu ISO format
+      let isoString = trimmed;
+
+      // Wenn Leerzeichen statt T, ersetze
+      if (isoString.includes(' ') && !isoString.includes('T')) {
+        isoString = isoString.replace(' ', 'T');
+      }
+
+      // PostgreSQL gibt manchmal +00 statt +00:00 oder Z
+      // +00 ist KEINE gültige ISO 8601 Timezone für JavaScript Date!
+      if (isoString.endsWith('+00')) {
+        isoString = isoString.replace(/\+00$/, 'Z');
+      }
+
+      // Wenn kein Timezone-Suffix, füge Z hinzu (UTC)
+      if (!isoString.endsWith('Z') && !isoString.includes('+') && !isoString.includes('-', 10)) {
+        isoString += 'Z';
+      }
+
+      // Letzte Validierung vor Date-Konstruktion
+      if (!isoString || isoString === 'Invalid Date') {
+        return 'Kein Datum';
+      }
+
+      const date = new Date(isoString);
+
+      // Prüfe ob valides Datum
+      if (isNaN(date.getTime())) {
+        console.warn(`Invalid date format: "${dateStr}"`);
+        return 'Ungültiges Datum';
+      }
+
+      // UTC+1 (deutsche Winterzeit) oder UTC+2 (Sommerzeit)
+      // Verwende toLocaleString für automatische Zeitzone
+      return date.toLocaleString('de-DE', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Europe/Berlin',  // Automatische DST Handling
+      });
+    } catch (e) {
+      console.error(`Date parsing error for "${dateStr}":`, e);
+      return 'Ungültiges Datum';
+    }
   };
 
   const handleResend = (log: EmailLog) => {
@@ -297,7 +315,9 @@ export default function EmailHistoryView() {
         setResendSuccess(false);
       }, 2000);
     } catch (err) {
-      setResendError(`Fehler beim Senden: ${err}`);
+      const errorMessage = `Fehler beim Senden: ${err}`;
+      setResendError(errorMessage);
+      toast.error(`E-Mail konnte nicht erneut gesendet werden: ${err}`);
     } finally {
       setResending(false);
     }
@@ -316,10 +336,20 @@ export default function EmailHistoryView() {
     try {
       // Backend sync (fire-and-forget, runs in background)
       await invoke('delete_email_log_pg', { logId: deleteDialog.log.id });
+
+      // PHASE 3 FIX: Success feedback
+      toast.success('✅ Email-Log erfolgreich gelöscht');
+
+      // PHASE 3 FIX: Reload verification (ensures backend state matches UI)
+      if (showingAllEmails) {
+        await loadAllEmailLogs();
+      } else {
+        await loadRecentEmailLogs();
+      }
     } catch (err) {
       // On error: Undo the command (instant rollback!)
       commandManager.undo();
-      alert(`Fehler beim Löschen: ${err}`);
+      toast.error(`Fehler beim Löschen: ${err}`);
     } finally {
       setDeleting(false);
     }
@@ -334,6 +364,26 @@ export default function EmailHistoryView() {
       }
     } else {
       loadScheduledEmails();
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!window.confirm('Möchtest du wirklich alle fehlerhaften Emails mit Template "booking_reminder" löschen? Dies kann nicht rückgängig gemacht werden.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await invoke<string>('cleanup_booking_reminder_emails');
+      toast.success(result);
+
+      // Refresh nach Cleanup
+      handleRefresh();
+    } catch (err) {
+      console.error('Cleanup failed:', err);
+      toast.error(`Cleanup fehlgeschlagen: ${err}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -391,6 +441,14 @@ export default function EmailHistoryView() {
               Nur letzte 20
             </button>
           )}
+          <button
+            onClick={handleCleanup}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors text-sm"
+            title="Löscht alle fehlerhaften Emails mit Template 'booking_reminder'"
+          >
+            <Trash2 className="w-4 h-4" />
+            Cleanup
+          </button>
           <button
             onClick={handleRefresh}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors text-sm"
@@ -678,16 +736,19 @@ export default function EmailHistoryView() {
                 <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Reservierung
                 </div>
-                <div className="col-span-3 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Gast
                 </div>
                 <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Email-Typ
                 </div>
                 <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Status
+                </div>
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Geplant für
                 </div>
-                <div className="col-span-3 text-xs font-bold text-slate-700 uppercase tracking-wider">
+                <div className="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
                   Grund
                 </div>
               </div>
@@ -726,7 +787,7 @@ export default function EmailHistoryView() {
                         </div>
 
                         {/* Gast */}
-                        <div className="col-span-3">
+                        <div className="col-span-2">
                           <div className="text-sm text-slate-800 font-semibold truncate">{email.guestName}</div>
                           <div className="text-xs text-slate-500 mt-0.5 truncate">{email.guestEmail}</div>
                         </div>
@@ -739,6 +800,17 @@ export default function EmailHistoryView() {
                           </span>
                         </div>
 
+                        {/* Status */}
+                        <div className="col-span-2 flex items-center">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${getStatusColor(email.status)}`}>
+                            {email.status === 'pending' && <Clock className="w-3.5 h-3.5" />}
+                            {email.status === 'sent' && <CheckCircle className="w-3.5 h-3.5" />}
+                            {email.status === 'failed' && <AlertCircle className="w-3.5 h-3.5" />}
+                            {email.status === 'cancelled' && <AlertCircle className="w-3.5 h-3.5" />}
+                            <span className="truncate">{getStatusDisplayName(email.status)}</span>
+                          </span>
+                        </div>
+
                         {/* Geplant für */}
                         <div className="col-span-2 flex items-center">
                           <div className="flex items-center gap-2 text-sm text-slate-600">
@@ -748,7 +820,7 @@ export default function EmailHistoryView() {
                         </div>
 
                         {/* Grund */}
-                        <div className="col-span-3 flex items-center">
+                        <div className="col-span-2 flex items-center">
                           <div className="text-sm text-slate-700 truncate">{email.reason}</div>
                         </div>
                       </div>
@@ -881,7 +953,7 @@ export default function EmailHistoryView() {
                 <div className="flex-1">
                   <p className="text-xs text-slate-400">Gesendet am</p>
                   <p className="text-sm text-white font-medium">
-                    {new Date(deleteDialog.log.sent_at).toLocaleString('de-DE')}
+                    {formatDateTime(deleteDialog.log.sent_at)}
                   </p>
                 </div>
               </div>
